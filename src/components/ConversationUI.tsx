@@ -72,8 +72,9 @@ function ConversationUI({
             ____?: FieldConfig,
         ) => {},
         addFieldTips: (_: string, __: string) => {},
+        hideField: (_: string) => {},
         runLogic: (_: (assistantRunApi: AssistantRunApi) => void) => {},
-        forceFieldValue: function (_: string, __: string): void {},
+        forceFieldValue: (_: string, __: string) => {},
     };
     const [functionMap, setFunctionMap] = useState<
         Map<number, AskAssistantApiFunctions>
@@ -95,7 +96,7 @@ function ConversationUI({
             assistantId: string,
             conversationId?: string,
             fileInfoList?: FileInfo[],
-            overrideModelConfig?: Array<[string, any]>,
+            overrideModelConfig?: Map<string, any>,
             overrideSystemPrompt?: string,
             onCustomUserMessage?: (
                 question: string,

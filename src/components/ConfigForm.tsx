@@ -33,7 +33,7 @@ interface ConfigField {
 	onChange?: (value: string | boolean) => void;
 	onBlur?: (value: string | boolean) => void;
 	customRender?: (fieldRenderData: any) => React.ReactNode;
-	onClick?: () => void; // 为按钮添加 onClick 处理函数
+	onClick?: (assistantConfigApi?: AssistantConfigApi) => void; // 为按钮添加 onClick 处理函数
 }
 
 interface ConfigFormProps {
@@ -46,6 +46,7 @@ interface ConfigFormProps {
 	// 是否默认展开
 	defaultExpanded?: boolean;
 	useFormReturn: UseFormReturn<any, any, undefined>;
+	assistantConfigApi?: AssistantConfigApi;
 	/**
 	 * default 直接从上向下展示所有的配置项
 	 * prompt 会单独将prompt配置项放在右侧
@@ -68,6 +69,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
 	defaultExpanded = true,
 	layout = "default",
 	useFormReturn,
+	assistantConfigApi,
 	onSave,
 	onCopy,
 	onDelete,
@@ -218,8 +220,8 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
 				case "button":
 					return (
 						<Button type="button" className={field.className} onClick={() => {
-							console.log("ConfigForm button clicked", field.value);
-							field.onClick && field.onClick();
+							console.log("ConfigForm button clicked", field);
+							field.onClick && field.onClick(assistantConfigApi);
 						}}>{field.value as string}</Button>
 					);
 				default:

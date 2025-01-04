@@ -50,7 +50,7 @@ pub async fn ask_ai(
     message_token_manager: State<'_, MessageTokenManager>,
     window: tauri::Window,
     request: AiRequest,
-    override_model_config: Option<Vec<(String, serde_json::Value)>>,
+    override_model_config: Option<HashMap<String, serde_json::Value>>,
     override_prompt: Option<String>,
 ) -> Result<AiResponse, AppError> {
     println!(

@@ -46,7 +46,7 @@ function ConfigWindow() {
         const initPlugin = async () => {
             const dirPath = await appDataDir();
             pluginLoadList.forEach(async (plugin) => {
-                const convertFilePath = dirPath + "plugin/" + plugin.code + "/dist/main.js";
+                const convertFilePath = dirPath + "/plugin/" + plugin.code + "/dist/main.js";
 
                 // 加载脚本
                 const script = document.createElement('script');

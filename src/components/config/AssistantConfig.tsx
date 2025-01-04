@@ -35,12 +35,14 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
     >(new Map<number, string>());
     // 插件自定义字段
     const [assistantTypeCustomField, setAssistantTypeCustomField] = useState<
-        Map<string, Record<string, any>>
-    >(new Map<string, Record<string, any>>());
+        Array<{key: string, value: Record<string, any>}>
+    >([]);
     // 插件自定义label
     const [assistantTypeCustomLabel, setAssistantTypeCustomLabel] = useState<
         Map<string, string>
     >(new Map<string, string>());
+    // 插件隐藏字段
+    const [assistantTypeHideField, setAssistantTypeHideField] = useState<Array<string>>([]);
     const form = useForm();
 
     // 使用 useMemo 缓存 assistantTypeApi
@@ -85,10 +87,9 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                 fieldConfig?: FieldConfig,
             ) => {
                 setAssistantTypeCustomField((prev) => {
-                    const newMap = new Map(prev);
-                    newMap.set(
-                        fieldName,
-                        Object.assign(
+                    const newField = {
+                        key: fieldName,
+                        value: Object.assign(
                             {
                                 type: type,
                                 label: label,
@@ -96,8 +97,13 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                             },
                             fieldConfig,
                         ),
-                    );
-                    return newMap;
+                    };
+                    return [...prev, newField];
+                });
+            },
+            hideField: (fieldName: string) => {
+                setAssistantTypeHideField((prev) => {
+                    return [...prev, fieldName];
                 });
             },
             addFieldTips: (fieldName: string, tips: string) => {
@@ -113,8 +119,8 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
     const [assistantTypes, setAssistantTypes] = useState<AssistantType[]>([
         { code: 0, name: "普通对话助手" },
     ]);
+    // 加载助手类型的插件
     useEffect(() => {
-        // 加载助手类型的插件
         pluginList
             .filter((plugin: any) =>
                 plugin.pluginType.includes("assistantType"),
@@ -138,6 +144,19 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
     // 当前助手
     const [currentAssistant, setCurrentAssistant] =
         useState<AssistantDetail | null>(null);
+
+    const assistantConfigApi: AssistantConfigApi = useMemo(
+        () => ({
+            clearFieldValue: function (fieldName: string): void {
+                handleConfigChange(fieldName, "", "");
+            },
+            changeFieldValue: function (fieldName: string, value: any, valueType: string): void {
+                console.log("changeFieldValue", fieldName, value, valueType);
+                handleConfigChange(fieldName, value, valueType);
+            },
+        }),
+        [form, currentAssistant],
+    );
 
     // 助手相关
     // 助手列表
@@ -209,27 +228,24 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                                 },
                                 {} as Record<string, any>,
                             ),
-                            ...Array.from(assistantTypeCustomField).reduce(
-                                (acc, [key, objValue]) => {
-                                    acc[key] =
-                                        objValue.type === "checkbox"
+                            ...assistantTypeCustomField.reduce(
+                                (acc, field) => {
+                                    acc[field.key] =
+                                        field.value.type === "checkbox"
                                             ? assistant.model_configs.find(
                                                   (config) =>
-                                                      config.name === key,
+                                                      config.name === field.key,
                                               )?.value === "true"
                                             : (assistant.model_configs.find(
                                                   (config) =>
-                                                      config.name === key,
+                                                      config.name === field.key,
                                               )?.value ?? "");
                                     return acc;
                                 },
                                 {} as Record<string, any>,
                             ),
                         });
-                        setAssistantTypeCustomField(
-                            new Map<string, Record<string, any>>(),
-                        );
-                        setAssistantTypeCustomLabel(new Map<string, string>());
+                        setAssistantTypeCustomField([]);
                         assistantTypePluginMap
                             .get(assistant.assistant.assistant_type)
                             ?.onAssistantTypeSelect(assistantTypeApi);
@@ -251,7 +267,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
     // 修改配置
     const handleConfigChange = useCallback(
         (key: string, value: string | boolean, value_type: string) => {
-            console.log("handleConfigChange", key, value, value_type);
+            console.log("handleConfigChange", key, value, value_type, currentAssistant);
             if (currentAssistant) {
                 const index = currentAssistant.model_configs.findIndex(
                     (config) => config.name === key,
@@ -494,8 +510,11 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                     }
                 },
             },
-            ...currentAssistant?.model_configs.reduce(
-                (acc, config) => {
+            ...currentAssistant?.model_configs
+                .filter((config) => {
+                    return !assistantTypeHideField.includes(config.name)
+                })
+                .reduce((acc, config) => {
                     acc[config.name] = {
                         type:
                             config.value_type === "boolean"
@@ -525,31 +544,37 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                 },
                 {} as Record<string, any>,
             ),
-            ...Array.from(assistantTypeCustomField).reduce(
-                (acc, [key, objValue]) => {
-                    acc[key] = {
-                        ...objValue,
-                        value:
-                            objValue.type === "checkbox"
-                                ? currentAssistant?.model_configs.find(
-                                      (config) => config.name === key,
-                                  )?.value === "true"
-                                : (currentAssistant?.model_configs.find(
-                                      (config) => config.name === key,
-                                  )?.value ?? ""),
+            ...assistantTypeCustomField
+                .filter((field) => !assistantTypeHideField.includes(field.key))
+                .reduce((acc, field) => {
+                    acc[field.key] = {
+                        ...field.value,
+                        value: (() => {
+                            const config = currentAssistant?.model_configs.find(
+                                (config) => config.name === field.key,
+                            );
+                            console.log("model config", currentAssistant?.model_configs, field.key);
+                            if (field.value.type === "checkbox") {
+                                return config?.value === "true";
+                            } else if (field.value.type === "static") {
+                                return config?.value;
+                            } else {
+                                return config?.value ?? field.value.value ?? "";
+                            }
+                        })(),
                         onChange: (value: string | boolean) =>
                             handleConfigChange(
-                                key,
+                                field.key,
                                 value,
-                                objValue.type === "checkbox"
+                                field.value.type === "checkbox"
                                     ? "boolean"
                                     : "string",
                             ),
                         onBlur: (value: string | boolean) =>
                             handleConfigChange(
-                                key,
+                                field.key,
                                 value as string,
-                                objValue.type === "checkbox"
+                                field.value.type === "checkbox"
                                     ? "boolean"
                                     : "string",
                             ),
@@ -572,6 +597,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
         assistantTypeNameMap,
         assistantTypeCustomField,
         assistantTypeCustomLabel,
+        assistantTypeHideField,
     ]);
 
     // 添加新的处理函数
@@ -617,6 +643,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
             </div>
             {currentAssistant && (
                 <ConfigForm
+                    assistantConfigApi={assistantConfigApi}
                     title={currentAssistant.assistant.name}
                     description={
                         currentAssistant.assistant.description
