@@ -309,6 +309,9 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                 );
                 if (!isValid) return;
 
+                // 更新表单值
+                form.setValue(key, parsedValue);
+                // 更新模型配置
                 setCurrentAssistant((prev) => {
                     if (!prev) return prev;
                     const newConfigs =
