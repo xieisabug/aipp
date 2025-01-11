@@ -49,7 +49,6 @@ const FeatureAssistantConfig: React.FC = () => {
                     }
                     featureConfig.get(feature_code)?.set(key, value);
                 }
-                console.log("init featureConfig", featureConfig);
                 setFeatureConfig(new Map(featureConfig));
 
                 summaryFormReturnData.reset({
@@ -79,6 +78,7 @@ const FeatureAssistantConfig: React.FC = () => {
     });
 
     const handleSaveSummary = useCallback(() => {
+        const values = summaryFormReturnData.getValues();
         if (!featureConfig.get("conversation_summary")?.has("provider_id")) {
             toast.error("请选择一个模型");
             return;
@@ -87,21 +87,60 @@ const FeatureAssistantConfig: React.FC = () => {
             toast.error("请选择一个模型");
             return;
         }
-        const summaryFormValues = summaryFormReturnData.getValues();
-        const [provider_id, model_code] = (summaryFormValues.model as string).split("%%");
+        const [provider_id, model_code] = (values.model as string).split("%%");
 
         invoke("save_feature_config", {
             featureCode: "conversation_summary",
             config: {
                 provider_id,
                 model_code,
-                summary_length: summaryFormValues.summary_length,
-                prompt: summaryFormValues.prompt,
+                summary_length: values.summary_length,
+                prompt: values.prompt,
             }
         }).then(() => {
             toast.success('保存成功');
         });
-    }, [featureConfig, summaryFormReturnData]);
+    }, []);
+
+    const modelOptions = useMemo(() => 
+        models.map((m) => ({
+            value: `${m.llm_provider_id}%%${m.code}`,
+            label: m.name,
+        }))
+    , [models]);
+
+    const summaryLengthOptions = useMemo(() => 
+        [50, 100, 300, 500, 1000, -1].map((m) => ({
+            value: m.toString(),
+            label: m === -1 ? "所有" : m.toString(),
+        }))
+    , []);
+
+    const SUMMARY_FORM_CONFIG = useMemo(() => [
+        {
+            key: "model",
+            config: {
+                type: "select" as const,
+                label: "Model",
+                options: modelOptions,
+            }
+        },
+        {
+            key: "summary_length",
+            config: {
+                type: "select" as const,
+                label: "总结文本长度",
+                options: summaryLengthOptions,
+            }
+        },
+        {
+            key: "prompt",
+            config: {
+                type: "textarea" as const,
+                label: "Prompt",
+            }
+        }
+    ], [modelOptions]);
 
     const previewFormReturnData = useForm({
         defaultValues: {
@@ -113,52 +152,21 @@ const FeatureAssistantConfig: React.FC = () => {
     });
 
     const handleSavePreview = useCallback(() => {
-        if (!featureConfig.get("preview")?.has("preview_type")) {
+        const values = previewFormReturnData.getValues();
+        if (!values.preview_type) {
             toast.error("请选择一个部署方式");
             return;
         }
 
         invoke("save_feature_config", {
             featureCode: "preview",
-            config: previewFormReturnData.getValues()
+            config: values
         }).then(() => {
             toast.success('保存成功');
         });
-    }, [featureConfig, previewFormReturnData]);
+    }, []);
 
-    const SUMMARY_FORM_CONFIG = [
-        {
-            key: "model",
-            config: {
-                type: "select" as const,
-                label: "Model",
-                options: models.map((m) => ({
-                    value: `${m.llm_provider_id}%%${m.code}`,
-                    label: m.name,
-                })),
-            }
-        },
-        {
-            key: "summary_length",
-            config: {
-                type: "select" as const,
-                label: "总结文本长度",
-                options: [50, 100, 300, 500, 1000, -1].map((m) => ({
-                    value: m.toString(),
-                    label: m === -1 ? "所有" : m.toString(),
-                })),
-            }
-        },
-        {
-            key: "prompt",
-            config: {
-                type: "textarea" as const,
-                label: "Prompt",
-            }
-        }
-    ];
-
-    const PREVIEW_FORM_CONFIG = [
+    const PREVIEW_FORM_CONFIG = useMemo(() => [
         {
             key: "preview_type",
             config: {
@@ -176,6 +184,7 @@ const FeatureAssistantConfig: React.FC = () => {
             config: {
                 type: "input" as const,
                 label: "Next.js端口",
+                value: "",
             }
         },
         {
@@ -183,6 +192,7 @@ const FeatureAssistantConfig: React.FC = () => {
             config: {
                 type: "input" as const,
                 label: "Nuxt.js端口",
+                value: "",
             }
         },
         {
@@ -190,9 +200,10 @@ const FeatureAssistantConfig: React.FC = () => {
             config: {
                 type: "input" as const,
                 label: "Auth token",
+                value: "",
             }
         }
-    ];
+    ], []);
 
     const handleOpenDataFolder = useCallback(() => {
         invoke("open_data_folder");
@@ -202,7 +213,7 @@ const FeatureAssistantConfig: React.FC = () => {
         toast.info('暂未实现，敬请期待');
     }, []);
 
-    const DATA_FOLDER_CONFIG = [
+    const DATA_FOLDER_CONFIG = useMemo(() => [
         {
             key: "openDataFolder",
             config: {
@@ -221,7 +232,7 @@ const FeatureAssistantConfig: React.FC = () => {
                 onClick: handleSyncData,
             }
         }
-    ];
+    ], []);
 
     const dataFolderFormReturnData = useForm({});
 

@@ -8,7 +8,7 @@ import {
     SelectValue,
 } from "./ui/select";
 import IconButton from "./IconButton";
-import {Copy, Delete, Edit, CircleHelp} from "lucide-react";
+import { Copy, Delete, Edit, CircleHelp } from "lucide-react";
 import "../styles/ConfigForm.css";
 import {
     Card,
@@ -23,7 +23,12 @@ import { Textarea } from "./ui/textarea";
 import { RadioGroup, RadioGroupItem } from "./ui/radio-group";
 import { Input } from "./ui/input";
 import { Checkbox } from "./ui/checkbox";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "./ui/tooltip";
 
 interface ConfigField {
     type:
@@ -188,11 +193,19 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                             <RadioGroup
                                 className={field.className}
                                 value={fieldRenderData.value}
-                                defaultValue={fieldRenderData.value}
-                                onValueChange={fieldRenderData.onChange}
+                                onValueChange={(value) => {
+                                    if (field.onChange) {
+                                        field.onChange(value);
+                                    } else {
+                                        fieldRenderData.onChange(value);
+                                    }
+                                }}
                             >
                                 {field.options?.map((option) => (
-                                    <FormItem className="flex items-center space-x-2">
+                                    <FormItem
+                                        className="flex items-center space-x-2"
+                                        key={option.value}
+                                    >
                                         <FormControl>
                                             <RadioGroupItem
                                                 value={option.value}
@@ -219,9 +232,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                         );
                     case "static":
                         return (
-                            <div className={field.className}>
-                                {field.value}
-                            </div>
+                            <div className={field.className}>{field.value}</div>
                         );
                     case "custom":
                         const customElement = useMemo(() => {
@@ -260,7 +271,11 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                                     <TooltipProvider>
                                         <Tooltip>
                                             <TooltipTrigger>
-                                                <CircleHelp size={16} color="black" className="ml-2"/>
+                                                <CircleHelp
+                                                    size={16}
+                                                    color="black"
+                                                    className="ml-2"
+                                                />
                                             </TooltipTrigger>
                                             <TooltipContent>
                                                 {field.tooltip}
@@ -281,7 +296,6 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
     );
 
     const renderContent = () => {
-        console.log(config);
         switch (layout) {
             case "prompt":
                 return (
