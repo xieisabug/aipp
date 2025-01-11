@@ -126,32 +126,42 @@ const FeatureAssistantConfig: React.FC = () => {
         });
     }, [featureConfig, previewFormReturnData]);
 
-    const summaryFormConfig = useMemo(() => ({
-        model: {
-            type: "select" as const,
-            label: "Model",
-            options: models.map((m) => ({
-                value: `${m.llm_provider_id}%%${m.code}`,
-                label: m.name,
-            })),
+    const SUMMARY_FORM_CONFIG = [
+        {
+            key: "model",
+            config: {
+                type: "select" as const,
+                label: "Model",
+                options: models.map((m) => ({
+                    value: `${m.llm_provider_id}%%${m.code}`,
+                    label: m.name,
+                })),
+            }
         },
-        summary_length: {
-            type: "select" as const,
-            label: "总结文本长度",
-            options: [50, 100, 300, 500, 1000, -1].map((m) => ({
-                value: m.toString(),
-                label: m === -1 ? "所有" : m.toString(),
-            })),
+        {
+            key: "summary_length",
+            config: {
+                type: "select" as const,
+                label: "总结文本长度",
+                options: [50, 100, 300, 500, 1000, -1].map((m) => ({
+                    value: m.toString(),
+                    label: m === -1 ? "所有" : m.toString(),
+                })),
+            }
         },
-        prompt: {
-            type: "textarea" as const,
-            label: "Prompt",
-        },
-    }), [models]);
+        {
+            key: "prompt",
+            config: {
+                type: "textarea" as const,
+                label: "Prompt",
+            }
+        }
+    ];
 
-    const previewFormConfig = useMemo(() => {
-        return {
-            preview_type: {
+    const PREVIEW_FORM_CONFIG = [
+        {
+            key: "preview_type",
+            config: {
                 type: "radio" as const,
                 label: "部署方式",
                 options: [
@@ -159,21 +169,30 @@ const FeatureAssistantConfig: React.FC = () => {
                     { value: "remote", label: "远程" },
                     { value: "service", label: "使用服务" },
                 ],
-            },
-            nextjs_port: {
+            }
+        },
+        {
+            key: "nextjs_port",
+            config: {
                 type: "input" as const,
                 label: "Next.js端口",
-            },
-            nuxtjs_port: {
+            }
+        },
+        {
+            key: "nuxtjs_port",
+            config: {
                 type: "input" as const,
                 label: "Nuxt.js端口",
-            },
-            auth_token: {
+            }
+        },
+        {
+            key: "auth_token",
+            config: {
                 type: "input" as const,
                 label: "Auth token",
-            },
-        };
-    }, []);
+            }
+        }
+    ];
 
     const handleOpenDataFolder = useCallback(() => {
         invoke("open_data_folder");
@@ -183,22 +202,26 @@ const FeatureAssistantConfig: React.FC = () => {
         toast.info('暂未实现，敬请期待');
     }, []);
 
-    const dataFolderConfig = useMemo(() => {
-        return {
-            openDataFolder: {
+    const DATA_FOLDER_CONFIG = [
+        {
+            key: "openDataFolder",
+            config: {
                 type: "button" as const,
                 label: "数据文件夹",
                 value: "打开",
                 onClick: handleOpenDataFolder,
-            },
-            syncData: {
+            }
+        },
+        {
+            key: "syncData",
+            config: {
                 type: "button" as const,
                 label: "远程数据",
                 value: "同步",
                 onClick: handleSyncData,
-            },
-        };
-    }, []);
+            }
+        }
+    ];
 
     const dataFolderFormReturnData = useForm({});
 
@@ -207,7 +230,7 @@ const FeatureAssistantConfig: React.FC = () => {
             <ConfigForm
                 title="对话总结"
                 description="对话开始时总结该对话并且生成标题"
-                config={summaryFormConfig}
+                config={SUMMARY_FORM_CONFIG}
                 layout="prompt"
                 classNames="bottom-space"
                 onSave={handleSaveSummary}
@@ -217,7 +240,7 @@ const FeatureAssistantConfig: React.FC = () => {
             <ConfigForm
                 title="预览配置"
                 description="在大模型编写完react或者vue组件之后，能够快速预览"
-                config={previewFormConfig}
+                config={PREVIEW_FORM_CONFIG}
                 layout="default"
                 classNames="bottom-space"
                 onSave={handleSavePreview}
@@ -227,7 +250,7 @@ const FeatureAssistantConfig: React.FC = () => {
             <ConfigForm
                 title="数据目录"
                 description="管理和同步数据文件夹"
-                config={dataFolderConfig}
+                config={DATA_FOLDER_CONFIG}
                 layout="default"
                 classNames="bottom-space"
                 useFormReturn={dataFolderFormReturnData}
