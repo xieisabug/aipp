@@ -193,13 +193,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                             <RadioGroup
                                 className={field.className}
                                 value={fieldRenderData.value}
-                                onValueChange={(value) => {
-                                    if (field.onChange) {
-                                        field.onChange(value);
-                                    } else {
-                                        fieldRenderData.onChange(value);
-                                    }
-                                }}
+                                onValueChange={fieldRenderData.onChange}
                             >
                                 {field.options?.map((option) => (
                                     <FormItem

@@ -50,33 +50,13 @@ const FeatureAssistantConfig: React.FC = () => {
                     featureConfig.get(feature_code)?.set(key, value);
                 }
                 setFeatureConfig(new Map(featureConfig));
-
-                summaryFormReturnData.reset({
-                    model: `${featureConfig.get("conversation_summary")?.get("provider_id")}%%${featureConfig.get("conversation_summary")?.get("model_code")}`,
-                    summary_length: featureConfig.get("conversation_summary")?.get("summary_length") + "",
-                    prompt: featureConfig.get("conversation_summary")?.get("prompt") || "",
-                });
-
-                previewFormReturnData.reset({
-                    preview_type: featureConfig.get("preview")?.get("preview_type") || "service",
-                    nextjs_port: featureConfig.get("preview")?.get("nextjs_port") || "3001",
-                    nuxtjs_port: featureConfig.get("preview")?.get("nuxtjs_port") || "3002",
-                    auth_token: featureConfig.get("preview")?.get("auth_token") || "",
-                });
             },
         ).catch((e) => {
             toast.error('获取配置失败: ' + e);
         });
     }, []);
 
-    const summaryFormReturnData = useForm({
-        defaultValues: {
-            model: `${featureConfig.get("conversation_summary")?.get("provider_id")}%%${featureConfig.get("conversation_summary")?.get("model_code")}`,
-            summary_length: featureConfig.get("conversation_summary")?.get("summary_length") + "",
-            prompt: featureConfig.get("conversation_summary")?.get("prompt") || "",
-        },
-    });
-
+    // 总结相关表单
     const handleSaveSummary = useCallback(() => {
         const values = summaryFormReturnData.getValues();
         if (!featureConfig.get("conversation_summary")?.has("provider_id")) {
@@ -102,19 +82,19 @@ const FeatureAssistantConfig: React.FC = () => {
         });
     }, []);
 
-    const modelOptions = useMemo(() => 
+    const modelOptions = useMemo(() =>
         models.map((m) => ({
             value: `${m.llm_provider_id}%%${m.code}`,
             label: m.name,
         }))
-    , [models]);
+        , [models]);
 
-    const summaryLengthOptions = useMemo(() => 
+    const summaryLengthOptions = useMemo(() =>
         [50, 100, 300, 500, 1000, -1].map((m) => ({
             value: m.toString(),
             label: m === -1 ? "所有" : m.toString(),
         }))
-    , []);
+        , []);
 
     const SUMMARY_FORM_CONFIG = useMemo(() => [
         {
@@ -142,15 +122,15 @@ const FeatureAssistantConfig: React.FC = () => {
         }
     ], [modelOptions]);
 
-    const previewFormReturnData = useForm({
+    const summaryFormReturnData = useForm({
         defaultValues: {
-            preview_type: featureConfig.get("preview")?.get("preview_type") || "service",
-            nextjs_port: featureConfig.get("preview")?.get("nextjs_port") || "3001",
-            nuxtjs_port: featureConfig.get("preview")?.get("nuxtjs_port") || "3002",
-            auth_token: featureConfig.get("preview")?.get("auth_token") || "",
+            model: `${featureConfig.get("conversation_summary")?.get("provider_id")}%%${featureConfig.get("conversation_summary")?.get("model_code")}`,
+            summary_length: featureConfig.get("conversation_summary")?.get("summary_length") + "",
+            prompt: featureConfig.get("conversation_summary")?.get("prompt") || "",
         },
     });
 
+    // 预览相关表单
     const handleSavePreview = useCallback(() => {
         const values = previewFormReturnData.getValues();
         if (!values.preview_type) {
@@ -205,6 +185,16 @@ const FeatureAssistantConfig: React.FC = () => {
         }
     ], []);
 
+    const previewFormReturnData = useForm({
+        defaultValues: {
+            preview_type: featureConfig.get("preview")?.get("preview_type") || "service",
+            nextjs_port: featureConfig.get("preview")?.get("nextjs_port") || "3001",
+            nuxtjs_port: featureConfig.get("preview")?.get("nuxtjs_port") || "3002",
+            auth_token: featureConfig.get("preview")?.get("auth_token") || "",
+        },
+    });
+
+    // 数据目录相关表单
     const handleOpenDataFolder = useCallback(() => {
         invoke("open_data_folder");
     }, []);
@@ -235,6 +225,20 @@ const FeatureAssistantConfig: React.FC = () => {
     ], []);
 
     const dataFolderFormReturnData = useForm({});
+
+
+    useEffect(() => {
+        if (featureConfig.size > 0) {
+            summaryFormReturnData.setValue("model", `${featureConfig.get("conversation_summary")?.get("provider_id")}%%${featureConfig.get("conversation_summary")?.get("model_code")}`);
+            summaryFormReturnData.setValue("summary_length", featureConfig.get("conversation_summary")?.get("summary_length") || "100");
+            summaryFormReturnData.setValue("prompt", featureConfig.get("conversation_summary")?.get("prompt") || "");
+
+            previewFormReturnData.setValue("preview_type", featureConfig.get("preview")?.get("preview_type") || "service");
+            previewFormReturnData.setValue("nextjs_port", featureConfig.get("preview")?.get("nextjs_port") || "3001");
+            previewFormReturnData.setValue("nuxtjs_port", featureConfig.get("preview")?.get("nuxtjs_port") || "3002");
+            previewFormReturnData.setValue("auth_token", featureConfig.get("preview")?.get("auth_token") || "");
+        }
+    }, [featureConfig, summaryFormReturnData, previewFormReturnData]);
 
     return (
         <div className="feature-assistant-editor">
