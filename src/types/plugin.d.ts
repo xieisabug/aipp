@@ -1,11 +1,14 @@
 interface SystemApi {}
 
+enum PluginType {
+    AssistantType = 1,
+    InterfaceType = 2,
+    ApplicationType = 3
+}
+
 interface AssistantTypeApi {
-    typeRegist(
-        code: number,
-        label: string,
-        plugin: TeaAssistantTypePlugin,
-    ): void;
+    typeRegist(pluginType: PluginType, label: string, plugin: TeaAssistantTypePlugin): void;
+    markdownRemarkRegist(component: any): void;
     changeFieldLabel(fieldName: string, label: string): void;
     addField(
         fieldName: string,

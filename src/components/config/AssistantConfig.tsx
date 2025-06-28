@@ -79,6 +79,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                     return newMap;
                 });
             },
+            markdownRemarkRegist: (_: any) => {},
             changeFieldLabel: (fieldName: string, label: string) => {
                 setAssistantTypeCustomLabel((prev) => {
                     const newMap = new Map(prev);

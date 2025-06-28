@@ -64,17 +64,20 @@ function ConversationUI({
                 return newMap;
             });
         },
-        changeFieldLabel: (_: string, __: string) => {},
+        markdownRemarkRegist: (_: any) => {
+
+        },
+        changeFieldLabel: (_: string, __: string) => { },
         addField: (
             _: string,
             __: string,
             ___: string,
             ____?: FieldConfig,
-        ) => {},
-        addFieldTips: (_: string, __: string) => {},
-        hideField: (_: string) => {},
-        runLogic: (_: (assistantRunApi: AssistantRunApi) => void) => {},
-        forceFieldValue: (_: string, __: string) => {},
+        ) => { },
+        addFieldTips: (_: string, __: string) => { },
+        hideField: (_: string) => { },
+        runLogic: (_: (assistantRunApi: AssistantRunApi) => void) => { },
+        forceFieldValue: (_: string, __: string) => { },
     };
     const [functionMap, setFunctionMap] = useState<
         Map<number, AskAssistantApiFunctions>
