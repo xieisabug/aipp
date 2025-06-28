@@ -64,16 +64,20 @@ function ConversationUI({
                 return newMap;
             });
         },
-        changeFieldLabel: (_: string, __: string) => {},
+        markdownRemarkRegist: (_: any) => {
+
+        },
+        changeFieldLabel: (_: string, __: string) => { },
         addField: (
             _: string,
             __: string,
             ___: string,
             ____?: FieldConfig,
-        ) => {},
-        addFieldTips: (_: string, __: string) => {},
-        runLogic: (_: (assistantRunApi: AssistantRunApi) => void) => {},
-        forceFieldValue: function (_: string, __: string): void {},
+        ) => { },
+        addFieldTips: (_: string, __: string) => { },
+        hideField: (_: string) => { },
+        runLogic: (_: (assistantRunApi: AssistantRunApi) => void) => { },
+        forceFieldValue: (_: string, __: string) => { },
     };
     const [functionMap, setFunctionMap] = useState<
         Map<number, AskAssistantApiFunctions>
@@ -95,7 +99,7 @@ function ConversationUI({
             assistantId: string,
             conversationId?: string,
             fileInfoList?: FileInfo[],
-            overrideModelConfig?: Array<[string, any]>,
+            overrideModelConfig?: Map<string, any>,
             overrideSystemPrompt?: string,
             onCustomUserMessage?: (
                 question: string,

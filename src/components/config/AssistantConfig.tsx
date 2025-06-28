@@ -35,12 +35,20 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
     >(new Map<number, string>());
     // 插件自定义字段
     const [assistantTypeCustomField, setAssistantTypeCustomField] = useState<
-        Map<string, Record<string, any>>
-    >(new Map<string, Record<string, any>>());
+        Array<{ key: string; value: Record<string, any> }>
+    >([]);
     // 插件自定义label
     const [assistantTypeCustomLabel, setAssistantTypeCustomLabel] = useState<
         Map<string, string>
     >(new Map<string, string>());
+    // 插件自定义tips
+    const [assistantTypeCustomTips, setAssistantTypeCustomTips] = useState<
+        Map<string, string>
+    >(new Map<string, string>());
+    // 插件隐藏字段
+    const [assistantTypeHideField, setAssistantTypeHideField] = useState<
+        Array<string>
+    >([]);
     const form = useForm();
 
     // 使用 useMemo 缓存 assistantTypeApi
@@ -71,6 +79,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                     return newMap;
                 });
             },
+            markdownRemarkRegist: (_: any) => {},
             changeFieldLabel: (fieldName: string, label: string) => {
                 setAssistantTypeCustomLabel((prev) => {
                     const newMap = new Map(prev);
@@ -85,10 +94,9 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                 fieldConfig?: FieldConfig,
             ) => {
                 setAssistantTypeCustomField((prev) => {
-                    const newMap = new Map(prev);
-                    newMap.set(
-                        fieldName,
-                        Object.assign(
+                    const newField = {
+                        key: fieldName,
+                        value: Object.assign(
                             {
                                 type: type,
                                 label: label,
@@ -96,25 +104,45 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                             },
                             fieldConfig,
                         ),
-                    );
-                    return newMap;
+                    };
+                    return [...prev, newField];
+                });
+            },
+            hideField: (fieldName: string) => {
+                setAssistantTypeHideField((prev) => {
+                    return [...prev, fieldName];
                 });
             },
             addFieldTips: (fieldName: string, tips: string) => {
-                console.log("add field tips", fieldName, tips);
+                setAssistantTypeCustomTips((prev) => {
+                    const newMap = new Map(prev);
+                    newMap.set(fieldName, tips);
+                    return newMap;
+                });
             },
             runLogic: (_: (assistantRunApi: AssistantRunApi) => void) => {},
             forceFieldValue: function (_: string, __: string): void {},
         }),
         [],
     );
+    // 给默认的字段增加Label和Tips
+    useEffect(() => {
+        assistantTypeApi.changeFieldLabel("max_tokens", "Max Tokens");
+        assistantTypeApi.changeFieldLabel("temperature", "Temperature");
+        assistantTypeApi.changeFieldLabel("top_p", "Top P");
+        assistantTypeApi.changeFieldLabel("stream", "Stream");
+        assistantTypeApi.addFieldTips("max_tokens", "最大Token数，影响回复的长度");
+        assistantTypeApi.addFieldTips("temperature", "控制生成的随机性，越高越随机");
+        assistantTypeApi.addFieldTips("top_p", "控制生成的多样性，越高越多样");
+        assistantTypeApi.addFieldTips("stream", "是否流式输出，开启后可能会有延迟");
+    }, [assistantTypeApi]);
 
     // 助手类型
     const [assistantTypes, setAssistantTypes] = useState<AssistantType[]>([
         { code: 0, name: "普通对话助手" },
     ]);
+    // 加载助手类型的插件
     useEffect(() => {
-        // 加载助手类型的插件
         pluginList
             .filter((plugin: any) =>
                 plugin.pluginType.includes("assistantType"),
@@ -138,6 +166,23 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
     // 当前助手
     const [currentAssistant, setCurrentAssistant] =
         useState<AssistantDetail | null>(null);
+
+    const assistantConfigApi: AssistantConfigApi = useMemo(
+        () => ({
+            clearFieldValue: function (fieldName: string): void {
+                handleConfigChange(fieldName, "", "");
+            },
+            changeFieldValue: function (
+                fieldName: string,
+                value: any,
+                valueType: string,
+            ): void {
+                console.log("changeFieldValue", fieldName, value, valueType);
+                handleConfigChange(fieldName, value, valueType);
+            },
+        }),
+        [form, currentAssistant],
+    );
 
     // 助手相关
     // 助手列表
@@ -209,27 +254,24 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                                 },
                                 {} as Record<string, any>,
                             ),
-                            ...Array.from(assistantTypeCustomField).reduce(
-                                (acc, [key, objValue]) => {
-                                    acc[key] =
-                                        objValue.type === "checkbox"
+                            ...assistantTypeCustomField.reduce(
+                                (acc, field) => {
+                                    acc[field.key] =
+                                        field.value.type === "checkbox"
                                             ? assistant.model_configs.find(
                                                   (config) =>
-                                                      config.name === key,
+                                                      config.name === field.key,
                                               )?.value === "true"
                                             : (assistant.model_configs.find(
                                                   (config) =>
-                                                      config.name === key,
+                                                      config.name === field.key,
                                               )?.value ?? "");
                                     return acc;
                                 },
                                 {} as Record<string, any>,
                             ),
                         });
-                        setAssistantTypeCustomField(
-                            new Map<string, Record<string, any>>(),
-                        );
-                        setAssistantTypeCustomLabel(new Map<string, string>());
+                        setAssistantTypeCustomField([]);
                         assistantTypePluginMap
                             .get(assistant.assistant.assistant_type)
                             ?.onAssistantTypeSelect(assistantTypeApi);
@@ -251,7 +293,13 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
     // 修改配置
     const handleConfigChange = useCallback(
         (key: string, value: string | boolean, value_type: string) => {
-            console.log("handleConfigChange", key, value, value_type);
+            console.log(
+                "handleConfigChange",
+                key,
+                value,
+                value_type,
+                currentAssistant,
+            );
             if (currentAssistant) {
                 const index = currentAssistant.model_configs.findIndex(
                     (config) => config.name === key,
@@ -262,6 +310,9 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                 );
                 if (!isValid) return;
 
+                // 更新表单值
+                form.setValue(key, parsedValue);
+                // 更新模型配置
                 setCurrentAssistant((prev) => {
                     if (!prev) return prev;
                     const newConfigs =
@@ -343,6 +394,18 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                         key !== "model" &&
                         key !== "prompt",
                 )
+                .filter(([key]) => {
+                    // 确保 key 是可存储的值，不是static和button
+                    const config = currentAssistant.model_configs.find(
+                        (config) => config.name === key,
+                    );
+                    return (
+                        config && config.value_type &&
+                        config?.value_type !== "static" &&
+                        config?.value_type !== "button" &&
+                        config?.value_type !== "custom"
+                    );
+                })
                 .map(([key, value]) => {
                     const config = currentAssistant.model_configs.find(
                         (config) => config.name === key,
@@ -441,62 +504,73 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
     );
     // 使用 useMemo 缓存表单配置
     const assistantFormConfig = useMemo(() => {
-        if (!currentAssistant) return {};
+        if (!currentAssistant) return [];
 
-        return {
-            assistantType: {
-                type: "static" as const,
-                label:
-                    assistantTypeCustomLabel.get("assistantType") ?? "助手类型",
-                value:
-                    assistantTypeNameMap.get(
-                        currentAssistant?.assistant.assistant_type ?? 0,
-                    ) ?? "普通对话助手",
-            },
-            model: {
-                type: "select" as const,
-                label: assistantTypeCustomLabel.get("model") ?? "Model",
-                options: modelOptions,
-                value:
-                    (currentAssistant?.model.length ?? 0 > 0)
-                        ? `${currentAssistant?.model[0].model_code}%%${currentAssistant?.model[0].provider_id}`
-                        : "-1",
-                onChange: (value: string | boolean) => {
-                    const [modelCode, providerId] = (value as string).split(
-                        "%%",
-                    );
-                    if (currentAssistant?.model.length ?? 0 > 0) {
-                        let assistant = currentAssistant as AssistantDetail;
-                        setCurrentAssistant({
-                            ...assistant,
-                            model: [
-                                {
-                                    ...assistant?.model[0],
-                                    model_code: modelCode,
-                                    provider_id: parseInt(providerId),
-                                },
-                            ],
-                        });
-                    } else {
-                        let assistant = currentAssistant as AssistantDetail;
-                        setCurrentAssistant({
-                            ...assistant,
-                            model: [
-                                {
-                                    id: 0,
-                                    assistant_id: assistant.assistant.id,
-                                    model_code: modelCode,
-                                    provider_id: parseInt(providerId),
-                                    alias: "",
-                                },
-                            ],
-                        });
-                    }
+        let configs = [
+            {
+                key: "assistantType",
+                config: {
+                    type: "static" as const,
+                    label:
+                        assistantTypeCustomLabel.get("assistantType") ??
+                        "助手类型",
+                    value:
+                        assistantTypeNameMap.get(
+                            currentAssistant?.assistant.assistant_type ?? 0,
+                        ) ?? "普通对话助手",
                 },
             },
-            ...currentAssistant?.model_configs.reduce(
-                (acc, config) => {
-                    acc[config.name] = {
+            {
+                key: "model",
+                config: {
+                    type: "select" as const,
+                    label: assistantTypeCustomLabel.get("model") ?? "Model",
+                    options: modelOptions,
+                    value:
+                        (currentAssistant?.model.length ?? 0 > 0)
+                            ? `${currentAssistant?.model[0].model_code}%%${currentAssistant?.model[0].provider_id}`
+                            : "-1",
+                    onChange: (value: string | boolean) => {
+                        const [modelCode, providerId] = (value as string).split(
+                            "%%",
+                        );
+                        if (currentAssistant?.model.length ?? 0 > 0) {
+                            let assistant = currentAssistant as AssistantDetail;
+                            setCurrentAssistant({
+                                ...assistant,
+                                model: [
+                                    {
+                                        ...assistant?.model[0],
+                                        model_code: modelCode,
+                                        provider_id: parseInt(providerId),
+                                    },
+                                ],
+                            });
+                        } else {
+                            let assistant = currentAssistant as AssistantDetail;
+                            setCurrentAssistant({
+                                ...assistant,
+                                model: [
+                                    {
+                                        id: 0,
+                                        assistant_id: assistant.assistant.id,
+                                        model_code: modelCode,
+                                        provider_id: parseInt(providerId),
+                                        alias: "",
+                                    },
+                                ],
+                            });
+                        }
+                    },
+                },
+            },
+            ...currentAssistant?.model_configs
+                .filter(
+                    (config) => !assistantTypeHideField.includes(config.name) && !assistantTypeCustomField.find((field) => field.key === config.name),
+                )
+                .map((config) => ({
+                    key: config.name,
+                    config: {
                         type:
                             config.value_type === "boolean"
                                 ? ("checkbox" as const)
@@ -508,6 +582,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                             config.value_type === "boolean"
                                 ? config.value == "true"
                                 : config.value,
+                        tooltip: assistantTypeCustomTips.get(config.name),
                         onChange: (value: string | boolean) =>
                             handleConfigChange(
                                 config.name,
@@ -520,58 +595,72 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                                 value as string,
                                 config.value_type,
                             ),
-                    };
-                    return acc;
-                },
-                {} as Record<string, any>,
-            ),
-            ...Array.from(assistantTypeCustomField).reduce(
-                (acc, [key, objValue]) => {
-                    acc[key] = {
-                        ...objValue,
-                        value:
-                            objValue.type === "checkbox"
-                                ? currentAssistant?.model_configs.find(
-                                      (config) => config.name === key,
-                                  )?.value === "true"
-                                : (currentAssistant?.model_configs.find(
-                                      (config) => config.name === key,
-                                  )?.value ?? ""),
+                    },
+                })),
+            ...assistantTypeCustomField
+                .filter((field) => !assistantTypeHideField.includes(field.key))
+                .map((field) => ({
+                    key: field.key,
+                    config: {
+                        ...field.value,
+                        type: field.value.type,
+                        label:
+                            assistantTypeCustomLabel.get(field.key) ??
+                            field.value.label,
+                        value: (() => {
+                            const config = currentAssistant?.model_configs.find(
+                                (config) => config.name === field.key,
+                            );
+                            if (field.value.type === "checkbox") {
+                                return config?.value === "true";
+                            } else if (field.value.type === "static") {
+                                return config?.value;
+                            } else {
+                                return config?.value ?? field.value.value ?? "";
+                            }
+                        })(),
+                        tooltip: assistantTypeCustomTips.get(field.key),
                         onChange: (value: string | boolean) =>
                             handleConfigChange(
-                                key,
+                                field.key,
                                 value,
-                                objValue.type === "checkbox"
+                                field.value.type === "checkbox"
                                     ? "boolean"
                                     : "string",
                             ),
                         onBlur: (value: string | boolean) =>
                             handleConfigChange(
-                                key,
+                                field.key,
                                 value as string,
-                                objValue.type === "checkbox"
+                                field.value.type === "checkbox"
                                     ? "boolean"
                                     : "string",
                             ),
-                    };
-                    return acc;
+                    },
+                })),
+            {
+                key: "prompt",
+                config: {
+                    type: "textarea" as const,
+                    label: assistantTypeCustomLabel.get("prompt") ?? "Prompt",
+                    className: "h-48",
+                    value: currentAssistant?.prompts[0].prompt ?? "",
+                    onChange: (value: string | boolean) =>
+                        handlePromptChange(value as string),
                 },
-                {} as Record<string, any>,
-            ),
-            prompt: {
-                type: "textarea" as const,
-                label: assistantTypeCustomLabel.get("prompt") ?? "Prompt",
-                className: "h-48",
-                value: currentAssistant?.prompts[0].prompt ?? "",
-                onChange: (value: string | boolean) =>
-                    handlePromptChange(value as string),
             },
-        };
+        ];
+
+        return configs;
     }, [
         currentAssistant,
         assistantTypeNameMap,
         assistantTypeCustomField,
         assistantTypeCustomLabel,
+        assistantTypeHideField,
+        modelOptions,
+        handleConfigChange,
+        handlePromptChange,
     ]);
 
     // 添加新的处理函数
@@ -617,6 +706,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
             </div>
             {currentAssistant && (
                 <ConfigForm
+                    assistantConfigApi={assistantConfigApi}
                     title={currentAssistant.assistant.name}
                     description={
                         currentAssistant.assistant.description

@@ -1,11 +1,14 @@
 interface SystemApi {}
 
+enum PluginType {
+    AssistantType = 1,
+    InterfaceType = 2,
+    ApplicationType = 3
+}
+
 interface AssistantTypeApi {
-    typeRegist(
-        code: number,
-        label: string,
-        plugin: TeaAssistantTypePlugin,
-    ): void;
+    typeRegist(pluginType: PluginType, label: string, plugin: TeaAssistantTypePlugin): void;
+    markdownRemarkRegist(component: any): void;
     changeFieldLabel(fieldName: string, label: string): void;
     addField(
         fieldName: string,
@@ -13,9 +16,15 @@ interface AssistantTypeApi {
         type: string,
         fieldConfig?: FieldConfig,
     ): void;
+    hideField(fieldName: string): void;
     forceFieldValue(fieldName: string, value: string): void;
     addFieldTips(fieldName: string, tips: string): void;
     runLogic(callback: (assistantRunApi: AssistantRunApi) => void): void;
+}
+
+interface AssistantConfigApi {
+    clearFieldValue(fieldName: string): void;
+    changeFieldValue(fieldName: string, value: string | boolean, valueType: string): void;
 }
 
 interface FieldConfig {
@@ -26,6 +35,7 @@ interface FieldConfig {
     // default false
     hidden?: boolean;
     tips?: string;
+    onClick?: () => void;
 }
 
 interface AssistantRunApi {
@@ -40,7 +50,7 @@ interface AssistantRunApi {
         assistantId: string,
         conversationId?: string,
         fileInfoList?: FileInfo[],
-        overrideModelConfig?: Array<[string, string]>,
+        overrideModelConfig?: Map<string, any>,
         overrideSystemPrompt?: string,
         onCustomUserMessage?: (
             question: string,
