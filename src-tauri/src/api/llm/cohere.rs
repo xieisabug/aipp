@@ -1,12 +1,7 @@
 use std::collections::HashMap;
 
-use anyhow::{anyhow, bail, Result};
-use reqwest::{
-    header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION},
-    Client,
-};
+use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -16,6 +11,8 @@ use crate::{
 
 use super::ModelProvider;
 use futures::StreamExt;
+use rig::client::completion::CompletionClient;
+use rig::{completion::Chat, providers::cohere as rig_cohere, streaming::StreamingChat};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct ModelsResponse {
@@ -34,7 +31,6 @@ struct Model {
 
 pub struct CohereProvider {
     llm_provider_config: Vec<LLMProviderConfig>,
-    client: Client,
 }
 
 impl ModelProvider for CohereProvider {
@@ -44,254 +40,231 @@ impl ModelProvider for CohereProvider {
     {
         CohereProvider {
             llm_provider_config,
-            client: Client::new(),
         }
     }
 
     fn chat(
         &self,
         _message_id: i64,
-        mut messages: Vec<(String, String, Vec<MessageAttachment>)>,
+        messages: Vec<(String, String, Vec<MessageAttachment>)>,
         model_config: Vec<crate::db::assistant_db::AssistantModelConfig>,
         cancel_token: CancellationToken,
     ) -> futures::future::BoxFuture<'static, Result<String>> {
         let config = self.llm_provider_config.clone();
-        let client = self.client.clone();
 
         Box::pin(async move {
             let config_map: HashMap<String, String> =
                 config.into_iter().map(|c| (c.name, c.value)).collect();
 
-            let default_endpoint = &"https://api.cohere.ai/v1".to_string();
-            let endpoint = config_map
-                .get("endpoint")
-                .unwrap_or(default_endpoint)
-                .trim_end_matches('/');
-            let url = format!("{}/chat", endpoint);
-            let api_key = config_map.get("api_key").unwrap().clone();
-            let message = messages.pop().ok_or_else(|| anyhow!("No message found"))?;
-            if message.0 != "user" {
-                return Err(anyhow!("First message must be from user"));
-            }
+            let api_key = config_map
+                .get("api_key")
+                .ok_or_else(|| anyhow::anyhow!("Missing api_key in provider config"))?;
 
-            let json_messages = messages
-                .iter()
-                .map(|(message_type, content, _)| {
-                    let role = match message_type.as_str() {
-                        "assistant" => "chatbot",
-                        _ => message_type,
-                    };
-                    json!({
-                        "role": role.to_uppercase(),
-                        "message": content
-                    })
-                })
-                .collect::<Vec<serde_json::Value>>();
+            // 若有自訂 endpoint 則改用 from_url
+            let endpoint_opt = config_map.get("endpoint");
+            let client = if let Some(ep) = endpoint_opt {
+                rig_cohere::Client::from_url(api_key, ep.trim_end_matches('/'))
+            } else {
+                rig_cohere::Client::new(api_key)
+            };
 
-            let model_config_map = model_config
+            // 取得模型名稱與溫度
+            let model_conf = model_config
                 .iter()
-                .filter_map(|config| {
-                    config
-                        .value
-                        .as_ref()
-                        .map(|value| (config.name.clone(), value.clone()))
-                })
+                .filter_map(|c| c.value.as_ref().map(|v| (c.name.clone(), v.clone())))
                 .collect::<HashMap<String, String>>();
-            let temperature = model_config_map
+
+            let model_name = model_conf
+                .get("model")
+                .cloned()
+                .unwrap_or_else(|| "command".to_string());
+
+            let temperature: f64 = model_conf
                 .get("temperature")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(0.75);
-            let top_p = model_config_map
-                .get("top_p")
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(1.0);
-            let max_tokens = model_config_map
-                .get("max_tokens")
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(2000);
 
-            let model = model_config_map.get("model"); // Assuming the first model config is the one to use
+            let max_tokens: Option<u64> = model_conf.get("max_tokens").and_then(|v| v.parse().ok());
 
-            let body = json!({
-                "model": model,
-                "temperature": temperature,
-                "p": top_p,
-                "max_tokens": max_tokens,
-                "message": message.1,
-                "chat_history": json_messages,
-                "stream": false
-            });
-            println!("cohere chat: {:?}", body);
+            let top_p: Option<f64> = model_conf.get("top_p").and_then(|v| v.parse().ok());
 
-            let request = client
-                .post(&url)
-                .header(AUTHORIZATION, &format!("bearer {}", api_key))
-                .json(&body);
+            let mut agent_builder = client.agent(model_name.as_str()).temperature(temperature);
+            if let Some(mt) = max_tokens {
+                agent_builder = agent_builder.max_tokens(mt);
+            }
+            if let Some(tp) = top_p {
+                agent_builder = agent_builder.additional_params(serde_json::json!({"p": tp}));
+            }
+
+            // 若第一則是 system, 當作 preamble
+            if let Some((role, content, _)) = messages.first() {
+                if role == "system" {
+                    agent_builder = agent_builder.preamble(content);
+                }
+            }
+
+            let agent = agent_builder.build();
+
+            // 構造 Rig chat 歷史: 除最後一則外其餘作為 history
+            let mut history: Vec<rig::completion::Message> = Vec::new();
+            if !messages.is_empty() {
+                for (idx, (role, content, _)) in messages.iter().enumerate() {
+                    if idx == messages.len() - 1 {
+                        break; // skip last -> prompt
+                    }
+
+                    match role.as_str() {
+                        "user" => history.push(rig::completion::Message::user(content.clone())),
+                        "assistant" => {
+                            history.push(rig::completion::Message::assistant(content.clone()))
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            let prompt_content = messages
+                .last()
+                .map(|(_, content, _)| content.clone())
+                .unwrap_or_default();
+
+            let resp_fut = agent.chat(&prompt_content, history);
 
             let response = tokio::select! {
-                response = request.send() => response?,
+                r = resp_fut => r.map_err(|e| anyhow::anyhow!(e)),
                 _ = cancel_token.cancelled() => bail!("Request cancelled"),
-            };
+            }?;
 
-            let json_response = tokio::select! {
-                json = response.json::<serde_json::Value>() => json?,
-                _ = cancel_token.cancelled() => bail!("Request cancelled"),
-            };
-
-            println!("cohere chat response: {:?}", json_response.clone());
-
-            if let Some(content) = json_response["text"].as_str() {
-                Ok(content.to_string())
-            } else {
-                bail!("Failed to get content from response");
-            }
+            Ok(response)
         })
     }
 
     fn chat_stream(
         &self,
         message_id: i64,
-        mut messages: Vec<(String, String, Vec<MessageAttachment>)>,
+        messages: Vec<(String, String, Vec<MessageAttachment>)>,
         model_config: Vec<crate::db::assistant_db::AssistantModelConfig>,
         tx: tokio::sync::mpsc::Sender<(i64, String, bool)>,
         cancel_token: CancellationToken,
     ) -> futures::future::BoxFuture<'static, Result<()>> {
         let config = self.llm_provider_config.clone();
-        let client = self.client.clone();
 
         Box::pin(async move {
             let config_map: HashMap<String, String> =
                 config.into_iter().map(|c| (c.name, c.value)).collect();
 
-            let default_endpoint = &"https://api.cohere.ai/v1".to_string();
-            let endpoint = config_map
-                .get("endpoint")
-                .unwrap_or(default_endpoint)
-                .trim_end_matches('/');
-            let url = format!("{}/chat", endpoint);
-            let api_key = config_map.get("api_key").unwrap().clone();
+            let api_key = config_map
+                .get("api_key")
+                .ok_or_else(|| anyhow::anyhow!("Missing api_key in provider config"))?;
 
-            let message = messages.pop().ok_or_else(|| anyhow!("No message found"))?;
-            if message.0 != "user" {
-                return Err(anyhow!("First message must be from user"));
-            }
-            let json_messages = messages
-                .iter()
-                .map(|(message_type, content, _)| {
-                    let role = match message_type.as_str() {
-                        "assistant" => "chatbot",
-                        _ => message_type,
-                    };
-                    json!({
-                        "role": role.to_uppercase(),
-                        "message": content
-                    })
-                })
-                .collect::<Vec<serde_json::Value>>();
+            // 若有自訂 endpoint 則改用 from_url
+            let endpoint_opt = config_map.get("endpoint");
+            let client = if let Some(ep) = endpoint_opt {
+                rig_cohere::Client::from_url(api_key, ep.trim_end_matches('/'))
+            } else {
+                rig_cohere::Client::new(api_key)
+            };
 
-            let model_config_map = model_config
+            // 取得模型名稱與溫度
+            let model_conf = model_config
                 .iter()
-                .filter_map(|config| {
-                    config
-                        .value
-                        .as_ref()
-                        .map(|value| (config.name.clone(), value.clone()))
-                })
+                .filter_map(|c| c.value.as_ref().map(|v| (c.name.clone(), v.clone())))
                 .collect::<HashMap<String, String>>();
-            let temperature = model_config_map
+
+            let model_name = model_conf
+                .get("model")
+                .cloned()
+                .unwrap_or_else(|| "command".to_string());
+
+            let temperature: f64 = model_conf
                 .get("temperature")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(0.75);
-            let top_p = model_config_map
-                .get("top_p")
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(1.0);
-            let max_tokens = model_config_map
-                .get("max_tokens")
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(2000);
 
-            let model = model_config_map.get("model"); // Assuming the first model config is the one to use
+            let max_tokens: Option<u64> = model_conf.get("max_tokens").and_then(|v| v.parse().ok());
 
-            let body = json!({
-                "model": model,
-                "temperature": temperature,
-                "p": top_p,
-                "max_tokens": max_tokens,
-                "message": message.1,
-                "chat_history": json_messages,
-                "stream": true
-            });
-            println!("cohere chat stream url: {} body: {:?}", url, body);
+            let top_p: Option<f64> = model_conf.get("top_p").and_then(|v| v.parse().ok());
 
-            let request = client
-                .post(&url)
-                .header(AUTHORIZATION, &format!("bearer {}", api_key))
-                .json(&body);
+            let mut agent_builder = client.agent(model_name.as_str()).temperature(temperature);
+            if let Some(mt) = max_tokens {
+                agent_builder = agent_builder.max_tokens(mt);
+            }
+            if let Some(tp) = top_p {
+                agent_builder = agent_builder.additional_params(serde_json::json!({"p": tp}));
+            }
 
-            let response = tokio::select! {
-                response = request.send() => response?,
-                _ = cancel_token.cancelled() => bail!("Request cancelled"),
-            };
+            // 若第一則是 system, 當作 preamble
+            if let Some((role, content, _)) = messages.first() {
+                if role == "system" {
+                    agent_builder = agent_builder.preamble(content);
+                }
+            }
 
-            let mut stream = response.bytes_stream();
-            let mut full_text = String::new();
-            let mut buffer = Vec::new();
+            let agent = agent_builder.build();
 
-            loop {
-                tokio::select! {
-                    chunk = stream.next() => {
-                        match chunk {
-                            Some(Ok(chunk)) => {
-                                let text = String::from_utf8_lossy(&chunk);
-                                println!("cohere chat stream text: {}", text);
-                                buffer.extend_from_slice(&chunk);
-
-                                // 处理粘包和拆包
-                                while let Some(json_end) = find_json_end(&buffer) {
-                                    let chunk_data = buffer.drain(..=json_end).collect::<Vec<_>>();
-                                    let chunk_str = String::from_utf8_lossy(&chunk_data);
-
-                                    if let Ok(chunk_response) = serde_json::from_str::<serde_json::Value>(&chunk_str) {
-                                        match chunk_response["event_type"].as_str() {
-                                            Some("text-generation") => {
-                                                if let Some(delta) = chunk_response["text"].as_str() {
-                                                    full_text.push_str(delta);
-                                                    tx.send((message_id, full_text.clone(), false)).await?;
-                                                }
-                                            },
-                                            Some("stream-end") => {
-                                                if let Some(response) = chunk_response["response"].as_object() {
-                                                    if let Some(text) = response["text"].as_str() {
-                                                        full_text = text.to_string();
-                                                    }
-                                                }
-                                                tx.send((message_id, full_text.clone(), true)).await?;
-                                            },
-                                            _ => {}
-                                        }
-                                    }
-                                }
-                            }
-
-                            Some(Err(e)) => bail!(e),
-                            None => break,
-                        }
+            // 構造歷史與 prompt
+            let mut history: Vec<rig::completion::Message> = Vec::new();
+            if !messages.is_empty() {
+                for (idx, (role, content, _)) in messages.iter().enumerate() {
+                    if idx == messages.len() - 1 {
+                        break;
                     }
-                    _ = cancel_token.cancelled() => {
-                        tx.send((message_id, full_text.clone(), true)).await?;
-                        return Ok(());
+                    match role.as_str() {
+                        "user" => history.push(rig::completion::Message::user(content.clone())),
+                        "assistant" => {
+                            history.push(rig::completion::Message::assistant(content.clone()))
+                        }
+                        _ => {}
                     }
                 }
             }
 
+            let prompt_content = messages
+                .last()
+                .map(|(_, content, _)| content.clone())
+                .unwrap_or_default();
+
+            let mut stream = tokio::select! {
+                s = agent.stream_chat(&prompt_content, history) => s.map_err(|e| anyhow::anyhow!(e))?,
+                _ = cancel_token.cancelled() => bail!("Request cancelled"),
+            };
+
+            let mut full_text = String::new();
+
+            loop {
+                tokio::select! {
+                    maybe_chunk = stream.next() => {
+                        match maybe_chunk {
+                            Some(Ok(chunk)) => {
+                                if let rig::completion::AssistantContent::Text(text) = chunk {
+                                    full_text.push_str(text.text.as_str());
+                                }
+                                tx.send((message_id, full_text.clone(), false)).await?;
+                            },
+                            Some(Err(e)) => {
+                                eprintln!("stream chunk error: {:?}", e);
+                                break;
+                            },
+                            None => {
+                                // stream ended
+                                break;
+                            }
+                        }
+                    }
+                    _ = cancel_token.cancelled() => {
+                        break;
+                    }
+                }
+            }
+
+            // 結束後發送完成事件
+            tx.send((message_id, full_text.clone(), true)).await?;
             Ok(())
         })
     }
 
     fn models(&self) -> futures::future::BoxFuture<'static, Result<Vec<LlmModel>>> {
         let config = self.llm_provider_config.clone();
-        let client = self.client.clone();
 
         Box::pin(async move {
             let mut result = Vec::new();
@@ -309,25 +282,16 @@ impl ModelProvider for CohereProvider {
             let api_key = config_map.get("api_key").unwrap().clone();
             println!("Cohere models endpoint : {}", url);
 
-            let mut headers = HeaderMap::new();
-            headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
-            headers.insert(
-                AUTHORIZATION,
-                HeaderValue::from_str(&format!("bearer {}", api_key)).unwrap(),
-            );
-
-            let req = client
-                .request("GET".parse().unwrap(), url)
-                .headers(headers)
-                .build();
-            println!("req: {:?}", req);
-
-            let response = client.execute(req.unwrap());
-            let res2 = response.await?;
-            // println!("response: {:?}", res2.unwrap().text().await.unwrap());
+            let client = reqwest::Client::new();
+            let response = client
+                .get(&url)
+                .header("Accept", "application/json")
+                .header("Authorization", &format!("bearer {}", api_key))
+                .send()
+                .await?;
 
             // 读取响应体为字符串
-            let body = res2.text().await?;
+            let body = response.text().await?;
             println!("Response body: {}", body);
 
             // 将字符串解析为 JSON
@@ -355,21 +319,4 @@ impl ModelProvider for CohereProvider {
             Ok(result)
         })
     }
-}
-
-fn find_json_end(buffer: &[u8]) -> Option<usize> {
-    let mut depth = 0;
-    for (i, &byte) in buffer.iter().enumerate() {
-        match byte {
-            b'{' => depth += 1,
-            b'}' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(i);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
 }

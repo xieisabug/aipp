@@ -7,24 +7,16 @@ use reqwest::{
     Client,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
     api::llm_api::LlmModel,
-    db::{
-        conversation_db::{AttachmentType, MessageAttachment},
-        llm_db::LLMProviderConfig,
-    },
+    db::{conversation_db::MessageAttachment, llm_db::LLMProviderConfig},
 };
 
 use super::ModelProvider;
 use rig::client::completion::CompletionClient;
-use rig::{
-    completion::{Chat, Message},
-    providers::openai as rig_openai,
-    streaming::StreamingChat,
-};
+use rig::{completion::Chat, providers::openai as rig_openai, streaming::StreamingChat};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct ModelsResponse {
