@@ -5,7 +5,7 @@ use crate::{
         llm_db::LLMProviderConfig,
     },
 };
-use anyhow::{anyhow, bail, Result};
+use anyhow::{bail, Result};
 use futures::{future::BoxFuture, StreamExt};
 use reqwest::{header::AUTHORIZATION, Client};
 use serde::{Deserialize, Serialize};
