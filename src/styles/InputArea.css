@@ -9,6 +9,7 @@
     right: 0;
     z-index: 0;
 }
+
 .input-area.bottom {
     bottom: 30px;
 }
@@ -69,8 +70,8 @@
     display: none;
 }
 
-.input-area-img-wrapper:hover > .input-area-img-delete-button,
-.input-area-text-wrapper:hover > .input-area-img-delete-button {
+.input-area-img-wrapper:hover>.input-area-img-delete-button,
+.input-area-text-wrapper:hover>.input-area-img-delete-button {
     display: flex;
 }
 
@@ -113,6 +114,7 @@
     width: 100%;
     height: 55px;
 }
+
 .top .input-area-textarea {
     padding: 15px 100px 10px 20px;
     border-bottom: 1px solid #000;
@@ -129,13 +131,13 @@
 }
 
 .bottom .input-area-send-button {
-    bottom: 60px;
-    right: 102px;
+    bottom: 68px;
+    right: 107px;
 }
 
 .bottom .input-area-add-button {
-    bottom: 72px;
-    right: 185px;
+    bottom: 80px;
+    right: 190px;
 }
 
 .top .input-area-send-button {

@@ -1,33 +1,42 @@
 .chat-ui-window {
     display: flex;
     height: 100vh;
+    background-color: #f5f5f5;
 }
 
 .left-side {
     flex: 0 0 280px;
     display: flex;
     flex-direction: column;
-    background-color: #fff;
-    border-right: 1px solid #e3e4e8;
+    background-color: white;
+    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.08);
     box-sizing: border-box;
+    border-radius: 0 12px 12px 0;
+    margin: 8px 0;
+    margin-right: 8px;
 }
 
 .center-content {
     flex: 1;
-    background-color: #fff;
+    background-color: white;
     overflow: auto;
+    border-radius: 12px;
+    margin: 8px 8px 8px 0;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
 }
 
 .chat-ui-toolbar {
     display: flex;
     flex: 0 0 48px;
-    margin-bottom: 32px;
+    margin-bottom: 24px;
     align-items: center;
     justify-content: center;
+    padding-top: 12px;
 }
 
 .conversation-list {
     @apply flex-1 overflow-y-auto overflow-x-hidden;
+    padding: 0 12px;
 }
 
 .conversation-list ul {
@@ -35,7 +44,9 @@
 }
 
 .conversation-list li {
-    @apply h-16 w-60 mx-5 mb-1 text-sm border-0 rounded-2xl cursor-pointer flex flex-col justify-center p-3 box-border relative;
+    @apply h-16 w-full mx-0 mb-2 text-sm border-0 rounded-xl cursor-pointer flex flex-col justify-center p-3 box-border relative;
+    transition: all 0.2s ease;
+    background-color: transparent;
 }
 
 .conversation-list li.selected {
@@ -43,19 +54,23 @@
 }
 
 .conversation-list li:hover {
-    @apply bg-primary-foreground;
+    background-color: #f8fafc;
+    transform: translateX(2px);
 }
 
 .conversation-list-item-name {
     @apply overflow-hidden text-ellipsis whitespace-nowrap;
+    font-weight: 500;
 }
 
 .conversation-list-item-assistant-name {
-    @apply text-xs overflow-hidden text-ellipsis whitespace-nowrap text-gray-500;
+    @apply text-xs overflow-hidden text-ellipsis whitespace-nowrap;
+    color: #6b7280;
 }
 
 .conversation-menu-icon {
     @apply invisible absolute right-2 top-4;
+    transition: opacity 0.2s ease;
 }
 
 .conversation-list li:hover .conversation-menu-icon {
@@ -64,29 +79,41 @@
 
 .conversation-menu {
     @apply absolute right-8 top-5 flex flex-col border bg-background;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
 }
 
 .conversation-menu-item {
     @apply w-24 h-8 bg-white border-0 z-10 cursor-pointer;
+    transition: background-color 0.2s ease;
 }
 
 .conversation-menu-item:hover {
-    @apply bg-primary-foreground;
+    background-color: #f3f4f6;
 }
 
 .chat-ui-information {
     display: flex;
     justify-content: space-between;
-    padding: 10px 20px;
+    padding: 16px 20px;
+    border-bottom: 1px solid #f0f0f0;
+    background-color: white;
+    border-radius: 12px 12px 0 0;
 }
 
 .chat-ui-information-button-group {
     display: flex;
     align-items: center;
+    gap: 8px;
 }
 
 .chat-ui-information-button-group button {
-    margin-left: 8px;
+    transition: all 0.2s ease;
+}
+
+.chat-ui-information-button-group button:hover {
+    transform: scale(1.05);
 }
 
 .conversation-ui {
@@ -94,6 +121,8 @@
     position: relative;
     display: flex;
     flex-direction: column;
+    background-color: white;
+    border-radius: 12px;
 }
 
 .conversation-title-panel {
@@ -101,9 +130,11 @@
     justify-content: space-between;
     flex: 0 0 68px;
     align-items: center;
-    padding: 0 20px;
+    padding: 0 24px;
     box-sizing: border-box;
-    border-bottom: 1px solid #e3e4e8;
+    border-bottom: 1px solid #f0f0f0;
+    background-color: white;
+    border-radius: 12px 12px 0 0;
 }
 
 .conversation-title-panel-text-group {
@@ -113,17 +144,20 @@
 
 .conversation-title-panel-title {
     font-size: 16px;
+    font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    color: #1f2937;
 }
 
 .conversation-title-panel-assistant-name {
     font-size: 12px;
-    color: #7a7f85;
+    color: #6b7280;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    margin-top: 2px;
 }
 
 .conversation-title-panel-button-group {
@@ -131,10 +165,15 @@
     align-items: center;
     flex: 0 0 160px;
     justify-content: flex-end;
+    gap: 8px;
 }
 
 .conversation-title-panel-button-group button {
-    margin-left: 8px;
+    transition: all 0.2s ease;
+}
+
+.conversation-title-panel-button-group button:hover {
+    transform: scale(1.05);
 }
 
 .messages {
@@ -143,18 +182,20 @@
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    padding: 40px;
+    padding: 24px;
     box-sizing: border-box;
+    gap: 16px;
 }
 
 .message-item {
     position: relative;
-    margin-bottom: 20px;
-    padding: 15px;
+    padding: 16px 20px;
     border-radius: 16px;
     display: inline-block;
-    max-width: 60%;
+    max-width: 65%;
     font-size: 14px;
+    line-height: 1.5;
+    transition: all 0.2s ease;
 }
 
 .message-item p {
@@ -201,35 +242,52 @@
 
 .message-code-container {
     position: relative;
+    border-radius: 8px;
+    overflow: hidden;
 }
 
 .message-code-button-group {
     position: absolute;
-    right: 0;
-    top: 0;
+    right: 8px;
+    top: 8px;
     display: flex;
-    background-color: white;
-    opacity: 0.3;
+    background-color: rgba(255, 255, 255, 0.9);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    border-radius: 6px;
+    padding: 4px;
+    backdrop-filter: blur(4px);
 }
 
 .message-code-button-group:hover {
     opacity: 1;
 }
 
+.message-code-container:hover .message-code-button-group {
+    opacity: 1;
+}
+
 .message-regenerate-bar {
-    margin-bottom: 5px;
+    margin-bottom: 8px;
     display: flex;
     flex-direction: row;
     justify-content: flex-end;
     align-items: center;
-    color: gray;
-    font-weight: bold;
+    color: #6b7280;
+    font-weight: 500;
+    font-size: 13px;
 }
 
 .message-regenerate-bar-button {
     cursor: pointer;
-    margin: 0 10px;
-    padding: 5px;
+    margin: 0 8px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+}
+
+.message-regenerate-bar-button:hover {
+    background-color: #f3f4f6;
 }
 
 .message-anchor {
@@ -244,54 +302,96 @@
     height: 100%;
     user-select: none;
     -webkit-user-select: none;
+    padding: 40px;
 }
 
 .new-chat-hint {
-    font-size: 12px;
+    font-size: 14px;
+    color: #6b7280;
+    text-align: center;
+    margin-bottom: 16px;
 }
 
 .new-chat-assistant-select {
-    border: 1px solid #ccc;
-    width: 50%;
-    height: 50px;
+    border: 1px solid #e5e7eb;
+    width: 60%;
+    max-width: 300px;
+    height: 48px;
     font-size: 14px;
-    margin-top: 20px;
+    margin-top: 16px;
     appearance: none;
-    box-shadow: none;
-    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    border-radius: 12px;
+    padding: 0 16px;
+    background-color: white;
+    transition: all 0.2s ease;
+}
+
+.new-chat-assistant-select:hover {
+    border-color: #d1d5db;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.new-chat-assistant-select:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
 .llm-thinking-badge {
-    padding: 5px 20px;
-    background-color: var(--main-color);
+    padding: 8px 16px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
-    border-radius: 5px;
+    border-radius: 12px;
     display: inline-block;
     cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
+}
+
+.llm-thinking-badge:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
 }
 
 .message-file-attachment,
 .message-web-content {
-    padding: 10px 20px;
-    background-color: white;
-    color: var(--main-color);
-    border-radius: 5px;
+    padding: 12px 16px;
+    background-color: #f8fafc;
+    color: #374151;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
     display: inline-block;
     cursor: pointer;
-    margin-top: 5px;
+    margin-top: 8px;
+    font-size: 13px;
+    transition: all 0.2s ease;
+}
+
+.message-file-attachment:hover,
+.message-web-content:hover {
+    background-color: #f1f5f9;
+    border-color: #cbd5e1;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .chat-ui-window .loading {
-    background-color: white;
+    background-color: rgba(255, 255, 255, 0.95);
     width: 100%;
     height: 100%;
     position: absolute;
     display: flex;
     align-items: center;
     justify-content: center;
+    backdrop-filter: blur(4px);
+    border-radius: 12px;
 }
 
 .chat-ui-window .loading-text {
-    color: var(--main-color);
-    font-size: 20px;
+    color: #667eea;
+    font-size: 16px;
+    font-weight: 500;
 }
