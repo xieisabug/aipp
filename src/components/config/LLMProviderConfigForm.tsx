@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import debounce from "lodash/debounce";
 import TagInputContainer from "./TagInputContainer";
 import ConfigForm from "../ConfigForm";
-import { Switch } from "../ui/switch";
+
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 
@@ -196,29 +196,15 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
         [fetchModelList, tagInputRender],
     );
 
-    const extraButtons = useMemo(
-        () => (
-            <Switch
-                checked={enabled}
-                onCheckedChange={() => onToggleEnabled(index)}
-            />
-        ),
-        [enabled, onToggleEnabled, index],
-    );
+    const extraButtons = undefined;
 
-    const onDeleteMemo = useMemo(
-        () => (isOffical ? undefined : () => onDelete(id)),
-        [isOffical, onDelete, id],
-    );
-
-    // 表单部分结束
+    // 表单部分结束  
     return (
         <ConfigForm
             key={id}
             title={name}
             config={configFields}
             classNames="bottom-space"
-            onDelete={onDeleteMemo}
             extraButtons={extraButtons}
             useFormReturn={form}
         />
