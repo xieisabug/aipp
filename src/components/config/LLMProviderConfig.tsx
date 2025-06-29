@@ -5,9 +5,18 @@ import FormDialog from "../FormDialog";
 import CustomSelect from "../CustomSelect";
 import ConfirmDialog from "../ConfirmDialog";
 import { Button } from "../ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { PlusCircle, Zap, Settings, AlertCircle } from "lucide-react";
 import { toast } from 'sonner';
+
+// 导入公共组件
+import {
+    ConfigPageLayout,
+    SidebarList,
+    ListItemButton,
+    InfoCard,
+    EmptyState,
+    StatItem
+} from "../common";
 
 interface LLMProvider {
     id: string;
@@ -128,199 +137,135 @@ const LLMProviderConfig: React.FC = () => {
     }, []);
 
     // 统计信息
-    const stats = useMemo(() => {
+    const stats: StatItem[] = useMemo(() => {
         const enabled = LLMProviders.filter(p => p.is_enabled).length;
         const total = LLMProviders.length;
         const official = LLMProviders.filter(p => p.is_official).length;
-        return { enabled, total, official };
+        return [
+            {
+                title: "总提供商",
+                value: total,
+                description: "已配置的提供商数量",
+                icon: <Settings className="h-4 w-4 text-gray-600" />
+            },
+            {
+                title: "已启用",
+                value: enabled,
+                description: "当前可用的提供商",
+                icon: <Zap className="h-4 w-4 text-gray-600" />
+            },
+            {
+                title: "官方支持",
+                value: official,
+                description: "官方认证的提供商",
+                icon: <AlertCircle className="h-4 w-4 text-gray-600" />
+            }
+        ];
     }, [LLMProviders]);
 
-    return (
-        <div className="max-w-7xl mx-auto px-4 py-6 space-y-8">
-            {/* 统计卡片 */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <Card className="bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 hover:shadow-md transition-shadow">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-gray-700">总提供商</CardTitle>
-                        <Settings className="h-4 w-4 text-gray-600" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
-                        <p className="text-xs text-gray-600 mt-1">
-                            已配置的提供商数量
-                        </p>
-                    </CardContent>
-                </Card>
+    // 空状态
+    if (LLMProviders.length === 0) {
+        return (
+            <ConfigPageLayout
+                stats={stats}
+                sidebar={null}
+                content={
+                    <EmptyState
+                        icon={<Settings className="h-8 w-8 text-gray-500" />}
+                        title="还没有配置提供商"
+                        description="开始添加你的第一个 AI 模型提供商，享受智能助手的强大功能"
+                        action={
+                            <Button
+                                onClick={openNewProviderDialog}
+                                className="gap-2 bg-gray-800 hover:bg-gray-900 text-white shadow-lg hover:shadow-xl transition-all"
+                            >
+                                <PlusCircle className="h-4 w-4" />
+                                添加第一个提供商
+                            </Button>
+                        }
+                    />
+                }
+            />
+        );
+    }
 
-                <Card className="bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 hover:shadow-md transition-shadow">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-gray-700">已启用</CardTitle>
-                        <Zap className="h-4 w-4 text-gray-600" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold text-gray-900">{stats.enabled}</div>
-                        <p className="text-xs text-gray-600 mt-1">
-                            当前可用的提供商
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <Card className="bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 hover:shadow-md transition-shadow">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-gray-700">官方支持</CardTitle>
-                        <AlertCircle className="h-4 w-4 text-gray-600" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold text-gray-900">{stats.official}</div>
-                        <p className="text-xs text-gray-600 mt-1">
-                            官方认证的提供商
-                        </p>
-                    </CardContent>
-                </Card>
-            </div>
-
-            {/* 主要内容区域 */}
-            {LLMProviders.length === 0 ? (
-                <Card className="border-dashed border-2 border-gray-300 hover:border-gray-400 transition-colors">
-                    <CardContent className="flex flex-col items-center justify-center py-16">
-                        <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-                            <Settings className="h-8 w-8 text-gray-500" />
-                        </div>
-                        <h3 className="text-lg font-semibold text-gray-700 mb-2">
-                            还没有配置提供商
-                        </h3>
-                        <p className="text-gray-500 text-center mb-8 max-w-md leading-relaxed">
-                            开始添加你的第一个 AI 模型提供商，享受智能助手的强大功能
-                        </p>
-                        <Button
-                            onClick={openNewProviderDialog}
-                            className="gap-2 bg-gray-800 hover:bg-gray-900 text-white shadow-lg hover:shadow-xl transition-all"
-                        >
-                            <PlusCircle className="h-4 w-4" />
-                            添加第一个提供商
-                        </Button>
-                    </CardContent>
-                </Card>
-            ) : (
-                <div className="grid grid-cols-12 gap-6">
-                    {/* 左侧提供商列表 */}
-                    <div className="col-span-12 lg:col-span-3">
-                        <Card className="bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 h-fit sticky top-6">
-                            <CardHeader className="pb-3">
-                                <CardTitle className="text-lg font-semibold text-gray-700 flex items-center gap-2">
-                                    <Settings className="h-5 w-5" />
-                                    提供商列表
-                                </CardTitle>
-                                <CardDescription className="text-gray-600">
-                                    选择提供商进行配置
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-3">
-                                {LLMProviders.map((provider, index) => (
-                                    <Button
-                                        key={provider.id}
-                                        variant={
-                                            selectedProvider?.id === provider.id
-                                                ? "default"
-                                                : "outline"
-                                        }
-                                        onClick={() => handleSelectProvider(provider)}
-                                        className={`
-                                            w-full justify-start text-left transition-all duration-200
-                                            ${selectedProvider?.id === provider.id
-                                                ? 'bg-gray-800 hover:bg-gray-900 text-white shadow-md'
-                                                : 'hover:bg-gray-50 hover:border-gray-300 text-gray-700'
-                                            }
-                                        `}
-                                    >
-                                        <div className="flex items-center w-full">
-                                            <div className="flex-1 truncate">
-                                                <div className="font-medium truncate">{provider.name}</div>
-                                                <div className={`text-xs ${selectedProvider?.id === provider.id ? 'text-gray-300' : 'text-gray-500'}`}>
-                                                    {provider.api_type}
-                                                </div>
-                                            </div>
-                                            {provider.is_enabled && (
-                                                <Zap className="h-3 w-3 ml-2 flex-shrink-0" />
-                                            )}
-                                        </div>
-                                    </Button>
-                                ))}
-                                <div className="pt-2 border-t border-gray-200">
-                                    <Button
-                                        onClick={openNewProviderDialog}
-                                        variant="outline"
-                                        className="w-full gap-2 hover:bg-gray-50 hover:border-gray-300"
-                                    >
-                                        <PlusCircle className="h-4 w-4" />
-                                        新增提供商
-                                    </Button>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </div>
-
-                    {/* 右侧配置区域 */}
-                    <div className="col-span-12 lg:col-span-9">
-                        {selectedProvider ? (
-                            <div className="space-y-6">
-                                {/* 提供商信息卡片 */}
-                                <Card className="bg-white border-gray-200 shadow-sm">
-                                    <CardHeader className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                                <CardTitle className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                                                    <Settings className="h-6 w-6 text-gray-600" />
-                                                    {selectedProvider.name}
-                                                    {selectedProvider.is_enabled && (
-                                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                                            已启用
-                                                        </span>
-                                                    )}
-                                                    {selectedProvider.is_official && (
-                                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                                            官方
-                                                        </span>
-                                                    )}
-                                                </CardTitle>
-                                                <CardDescription className="mt-1 text-gray-600">
-                                                    {selectedProvider.description || `${selectedProvider.api_type} 提供商配置`}
-                                                </CardDescription>
-                                            </div>
-                                        </div>
-                                    </CardHeader>
-                                </Card>
-
-                                {/* 配置表单 */}
-                                <LLMProviderConfigForm
-                                    id={selectedProvider.id}
-                                    index={LLMProviders.findIndex(p => p.id === selectedProvider.id)}
-                                    apiType={selectedProvider.api_type}
-                                    name={selectedProvider.name}
-                                    isOffical={selectedProvider.is_official}
-                                    enabled={selectedProvider.is_enabled}
-                                    onToggleEnabled={handleToggle}
-                                    onDelete={openConfirmDialog}
-                                />
+    // 侧边栏内容
+    const sidebar = (
+        <SidebarList
+            title="提供商列表"
+            description="选择提供商进行配置"
+            icon={<Settings className="h-5 w-5" />}
+        >
+            {LLMProviders.map((provider) => (
+                <ListItemButton
+                    key={provider.id}
+                    isSelected={selectedProvider?.id === provider.id}
+                    onClick={() => handleSelectProvider(provider)}
+                >
+                    <div className="flex items-center w-full">
+                        <div className="flex-1 truncate">
+                            <div className="font-medium truncate">{provider.name}</div>
+                            <div className={`text-xs ${selectedProvider?.id === provider.id ? 'text-gray-300' : 'text-gray-500'}`}>
+                                {provider.api_type}
                             </div>
-                        ) : (
-                            <Card className="border-dashed border-2 border-gray-300">
-                                <CardContent className="flex flex-col items-center justify-center py-16">
-                                    <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-                                        <Settings className="h-8 w-8 text-gray-500" />
-                                    </div>
-                                    <h3 className="text-lg font-semibold text-gray-700 mb-2">
-                                        选择一个提供商
-                                    </h3>
-                                    <p className="text-gray-500 text-center max-w-md leading-relaxed">
-                                        从左侧列表中选择一个提供商开始配置
-                                    </p>
-                                </CardContent>
-                            </Card>
+                        </div>
+                        {provider.is_enabled && (
+                            <Zap className="h-3 w-3 ml-2 flex-shrink-0" />
                         )}
                     </div>
-                </div>
-            )}
+                </ListItemButton>
+            ))}
+            <div className="pt-2 border-t border-gray-200">
+                <Button
+                    onClick={openNewProviderDialog}
+                    variant="outline"
+                    className="w-full gap-2 hover:bg-gray-50 hover:border-gray-300"
+                >
+                    <PlusCircle className="h-4 w-4" />
+                    新增提供商
+                </Button>
+            </div>
+        </SidebarList>
+    );
+
+    // 右侧内容
+    const content = selectedProvider ? (
+        <div className="space-y-6">
+            <InfoCard
+                icon={<Settings className="h-6 w-6 text-gray-600" />}
+                title={selectedProvider.name}
+                description={selectedProvider.description || `${selectedProvider.api_type} 提供商配置`}
+                badges={[
+                    ...(selectedProvider.is_enabled ? [{ text: "已启用", variant: "green" as const }] : []),
+                    ...(selectedProvider.is_official ? [{ text: "官方", variant: "blue" as const }] : [])
+                ]}
+            />
+            <LLMProviderConfigForm
+                id={selectedProvider.id}
+                index={LLMProviders.findIndex(p => p.id === selectedProvider.id)}
+                apiType={selectedProvider.api_type}
+                name={selectedProvider.name}
+                isOffical={selectedProvider.is_official}
+                enabled={selectedProvider.is_enabled}
+                onToggleEnabled={handleToggle}
+                onDelete={openConfirmDialog}
+            />
+        </div>
+    ) : (
+        <EmptyState
+            icon={<Settings className="h-8 w-8 text-gray-500" />}
+            title="选择一个提供商"
+            description="从左侧列表中选择一个提供商开始配置"
+        />
+    );
+
+    return (
+        <>
+            <ConfigPageLayout
+                stats={stats}
+                sidebar={sidebar}
+                content={content}
+            />
 
             {/* 新增提供商对话框 */}
             <FormDialog
@@ -359,7 +304,7 @@ const LLMProviderConfig: React.FC = () => {
                 onConfirm={onConfirmDeleteProvider}
                 onCancel={closeConfirmDialog}
             />
-        </div>
+        </>
     );
 }
 

@@ -1,11 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Button } from "../ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import ConfigForm from "../ConfigForm";
 import { MessageSquare, Eye, FolderOpen, Settings, AlertCircle, Zap } from "lucide-react";
 import { toast } from 'sonner';
 import { useForm } from "react-hook-form";
+
+// 导入公共组件
+import {
+    ConfigPageLayout,
+    SidebarList,
+    ListItemButton,
+    InfoCard,
+    StatItem
+} from "../common";
 
 interface ModelForSelect {
     name: string;
@@ -100,18 +107,33 @@ const FeatureAssistantConfig: React.FC = () => {
     }, []);
 
     // 统计信息
-    const stats = useMemo(() => {
+    const stats: StatItem[] = useMemo(() => {
         const total = featureList.length;
         const configured = featureList.filter(feature => {
             const config = featureConfig.get(feature.code);
             return config && config.size > 0;
         }).length;
 
-        return {
-            total,
-            configured,
-            pending: total - configured
-        };
+        return [
+            {
+                title: "总功能数",
+                value: total,
+                description: "系统功能模块数量",
+                icon: <Settings className="h-4 w-4 text-gray-600" />
+            },
+            {
+                title: "已配置",
+                value: configured,
+                description: "已完成配置的功能",
+                icon: <Zap className="h-4 w-4 text-gray-600" />
+            },
+            {
+                title: "待配置",
+                value: total - configured,
+                description: "待完成配置的功能",
+                icon: <AlertCircle className="h-4 w-4 text-gray-600" />
+            }
+        ];
     }, [featureConfig, featureList]);
 
     // 总结相关表单
@@ -342,97 +364,61 @@ const FeatureAssistantConfig: React.FC = () => {
         }
     };
 
-    return (
-        <div className="max-w-7xl mx-auto px-4 py-6 space-y-8">
-
-
-            {/* 主要内容区域 */}
-            <div className="grid grid-cols-12 gap-6">
-                {/* 左侧功能列表 */}
-                <div className="col-span-12 lg:col-span-3">
-                    <Card className="bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 h-fit sticky top-6">
-                        <CardHeader className="pb-3">
-                            <CardTitle className="text-lg font-semibold text-gray-700 flex items-center gap-2">
-                                <Settings className="h-5 w-5" />
-                                功能列表
-                            </CardTitle>
-                            <CardDescription className="text-gray-600">
-                                选择功能进行配置
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                            {featureList.map((feature) => {
-                                const config = featureConfig.get(feature.code);
-                                const isConfigured = config ? config.size > 0 : false;
-                                return (
-                                    <Button
-                                        key={feature.id}
-                                        variant={
-                                            selectedFeature.id === feature.id
-                                                ? "default"
-                                                : "outline"
-                                        }
-                                        onClick={() => handleSelectFeature(feature)}
-                                        className={`
-                                            w-full justify-start text-left transition-all duration-200
-                                            ${selectedFeature.id === feature.id
-                                                ? 'bg-gray-800 hover:bg-gray-900 text-white shadow-md'
-                                                : 'hover:bg-gray-50 hover:border-gray-300 text-gray-700'
-                                            }
-                                        `}
-                                    >
-                                        <div className="flex items-center w-full">
-                                            <div className="flex-1 flex items-center">
-                                                {feature.icon}
-                                                <div className="ml-3 flex-1 truncate">
-                                                    <div className="font-medium truncate">{feature.name}</div>
-                                                </div>
-                                            </div>
-                                            {isConfigured && (
-                                                <Zap className="h-3 w-3 ml-2 flex-shrink-0" />
-                                            )}
-                                        </div>
-                                    </Button>
-                                );
-                            })}
-                        </CardContent>
-                    </Card>
-                </div>
-
-                {/* 右侧配置区域 */}
-                <div className="col-span-12 lg:col-span-9">
-                    <div className="space-y-6">
-                        {/* 功能信息卡片 */}
-                        <Card className="bg-white border-gray-200 shadow-sm">
-                            <CardHeader className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <CardTitle className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                                            {selectedFeature.icon}
-                                            {selectedFeature.name}
-                                            {(() => {
-                                                const config = featureConfig.get(selectedFeature.code);
-                                                return config && config.size > 0 && (
-                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                                        已配置
-                                                    </span>
-                                                );
-                                            })()}
-                                        </CardTitle>
-                                        <CardDescription className="mt-1 text-gray-600">
-                                            {selectedFeature.description}
-                                        </CardDescription>
-                                    </div>
+    // 侧边栏内容
+    const sidebar = (
+        <SidebarList
+            title="功能列表"
+            description="选择功能进行配置"
+            icon={<Settings className="h-5 w-5" />}
+        >
+            {featureList.map((feature) => {
+                const config = featureConfig.get(feature.code);
+                const isConfigured = config ? config.size > 0 : false;
+                return (
+                    <ListItemButton
+                        key={feature.id}
+                        isSelected={selectedFeature.id === feature.id}
+                        onClick={() => handleSelectFeature(feature)}
+                    >
+                        <div className="flex items-center w-full">
+                            <div className="flex-1 flex items-center">
+                                {feature.icon}
+                                <div className="ml-3 flex-1 truncate">
+                                    <div className="font-medium truncate">{feature.name}</div>
                                 </div>
-                            </CardHeader>
-                        </Card>
+                            </div>
+                            {isConfigured && (
+                                <Zap className="h-3 w-3 ml-2 flex-shrink-0" />
+                            )}
+                        </div>
+                    </ListItemButton>
+                );
+            })}
+        </SidebarList>
+    );
 
-                        {/* 配置表单 */}
-                        {renderConfigForm()}
-                    </div>
-                </div>
-            </div>
+    // 右侧内容
+    const content = (
+        <div className="space-y-6">
+            <InfoCard
+                icon={selectedFeature.icon}
+                title={selectedFeature.name}
+                description={selectedFeature.description}
+                badges={(() => {
+                    const config = featureConfig.get(selectedFeature.code);
+                    return config && config.size > 0 ? [{ text: "已配置", variant: "green" as const }] : [];
+                })()}
+            />
+            {renderConfigForm()}
         </div>
+    );
+
+    return (
+        <ConfigPageLayout
+            stats={stats}
+            sidebar={sidebar}
+            content={content}
+        />
     );
 };
 

@@ -3,14 +3,23 @@ import { toast } from "sonner";
 import { invoke } from "@tauri-apps/api/core";
 import { AssistantDetail, AssistantListItem } from "../../data/Assistant";
 import { Button } from "../ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import ConfigForm from "../ConfigForm";
 import ConfirmDialog from "../ConfirmDialog";
 import AddAssistantDialog from "./AddAssistantDialog";
 import EditAssistantDialog from "./EditAssistantDialog";
 import { AssistantType } from "../../types/assistant";
 import { validateConfig } from "../../utils/validate";
-import { Bot, Zap, Settings, AlertCircle, User, Copy, Edit3, Trash2, PlusCircle } from "lucide-react";
+import { Bot, Settings, AlertCircle, User, Copy, Edit3, Trash2 } from "lucide-react";
+
+// 导入公共组件
+import {
+    ConfigPageLayout,
+    SidebarList,
+    ListItemButton,
+    InfoCard,
+    EmptyState,
+    StatItem
+} from "../common";
 
 import "../../styles/AssistantConfig.css";
 import { useForm } from "react-hook-form";
@@ -678,214 +687,155 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
     };
 
     // 统计信息
-    const stats = useMemo(() => {
+    const stats: StatItem[] = useMemo(() => {
         const total = assistants.length;
-        const typeStats = assistants.reduce((acc, assistant) => {
+        const typeStats = assistants.reduce((acc) => {
             // 这里可以根据实际的助手类型进行统计
             const typeName = assistantTypeNameMap.get(0) ?? "普通对话助手"; // 简化处理
             acc[typeName] = (acc[typeName] || 0) + 1;
             return acc;
         }, {} as Record<string, number>);
 
-        return {
-            total,
-            types: Object.keys(typeStats).length,
-            mostUsedType: Object.entries(typeStats).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "普通对话助手"
-        };
+        return [
+            {
+                title: "总助手数",
+                value: total,
+                description: "已配置的助手数量",
+                icon: <Bot className="h-4 w-4 text-gray-600" />
+            },
+            {
+                title: "助手类型",
+                value: Object.keys(typeStats).length,
+                description: "不同类型的助手",
+                icon: <Settings className="h-4 w-4 text-gray-600" />
+            },
+            {
+                title: "主要类型",
+                value: Object.entries(typeStats).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "普通对话助手",
+                description: "使用最多的助手类型",
+                icon: <AlertCircle className="h-4 w-4 text-gray-600" />,
+                isText: true
+            }
+        ];
     }, [assistants, assistantTypeNameMap]);
 
-    return (
-        <div className="max-w-7xl mx-auto px-4 py-6 space-y-8">
-            {/* 统计卡片 */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <Card className="bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 hover:shadow-md transition-shadow">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-gray-700">总助手数</CardTitle>
-                        <Bot className="h-4 w-4 text-gray-600" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
-                        <p className="text-xs text-gray-600 mt-1">
-                            已配置的助手数量
-                        </p>
-                    </CardContent>
-                </Card>
+    // 空状态
+    if (assistants.length === 0) {
+        return (
+            <ConfigPageLayout
+                stats={stats}
+                sidebar={null}
+                content={
+                    <EmptyState
+                        icon={<Bot className="h-8 w-8 text-gray-500" />}
+                        title="还没有配置助手"
+                        description="创建你的第一个AI助手，开始享受个性化的智能对话体验"
+                        action={
+                            <AddAssistantDialog
+                                assistantTypes={assistantTypes}
+                                onAssistantAdded={handleAssistantAdded}
+                            />
+                        }
+                    />
+                }
+            />
+        );
+    }
 
-                <Card className="bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 hover:shadow-md transition-shadow">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-gray-700">助手类型</CardTitle>
-                        <Settings className="h-4 w-4 text-gray-600" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold text-gray-900">{stats.types}</div>
-                        <p className="text-xs text-gray-600 mt-1">
-                            不同类型的助手
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <Card className="bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 hover:shadow-md transition-shadow">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-gray-700">主要类型</CardTitle>
-                        <AlertCircle className="h-4 w-4 text-gray-600" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-lg font-bold text-gray-900 truncate">{stats.mostUsedType}</div>
-                        <p className="text-xs text-gray-600 mt-1">
-                            使用最多的助手类型
-                        </p>
-                    </CardContent>
-                </Card>
+    // 侧边栏内容
+    const sidebar = (
+        <SidebarList
+            title="助手列表"
+            description="选择助手进行配置"
+            icon={<Bot className="h-5 w-5" />}
+        >
+            {assistants.map((assistant, index) => (
+                <ListItemButton
+                    key={index}
+                    isSelected={currentAssistant?.assistant.id === assistant.id}
+                    onClick={() => handleChooseAssistant(assistant)}
+                >
+                    <User className="h-4 w-4 mr-2 flex-shrink-0" />
+                    <span className="truncate">{assistant.name}</span>
+                </ListItemButton>
+            ))}
+            <div className="pt-2 border-t border-gray-200">
+                <AddAssistantDialog
+                    assistantTypes={assistantTypes}
+                    onAssistantAdded={handleAssistantAdded}
+                />
             </div>
+        </SidebarList>
+    );
 
-            {/* 主要内容区域 */}
-            {assistants.length === 0 ? (
-                <Card className="border-dashed border-2 border-gray-300 hover:border-gray-400 transition-colors">
-                    <CardContent className="flex flex-col items-center justify-center py-16">
-                        <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-                            <Bot className="h-8 w-8 text-gray-500" />
-                        </div>
-                        <h3 className="text-lg font-semibold text-gray-700 mb-2">
-                            还没有配置助手
-                        </h3>
-                        <p className="text-gray-500 text-center mb-8 max-w-md leading-relaxed">
-                            创建你的第一个AI助手，开始享受个性化的智能对话体验
-                        </p>
-                        <AddAssistantDialog
-                            assistantTypes={assistantTypes}
-                            onAssistantAdded={handleAssistantAdded}
-                        />
-                    </CardContent>
-                </Card>
-            ) : (
-                <div className="grid grid-cols-12 gap-6">
-                    {/* 左侧助手列表 */}
-                    <div className="col-span-12 lg:col-span-3">
-                        <Card className="bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 h-fit sticky top-6">
-                            <CardHeader className="pb-3">
-                                <CardTitle className="text-lg font-semibold text-gray-700 flex items-center gap-2">
-                                    <Bot className="h-5 w-5" />
-                                    助手列表
-                                </CardTitle>
-                                <CardDescription className="text-gray-600">
-                                    选择助手进行配置
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-3">
-                                {assistants.map((assistant, index) => (
-                                    <Button
-                                        key={index}
-                                        variant={
-                                            currentAssistant?.assistant.id === assistant.id
-                                                ? "default"
-                                                : "outline"
-                                        }
-                                        onClick={() => handleChooseAssistant(assistant)}
-                                        className={`
-                                            w-full justify-start text-left transition-all duration-200
-                                            ${currentAssistant?.assistant.id === assistant.id
-                                                ? 'bg-gray-800 hover:bg-gray-900 text-white shadow-md'
-                                                : 'hover:bg-gray-50 hover:border-gray-300 text-gray-700'
-                                            }
-                                        `}
-                                    >
-                                        <User className="h-4 w-4 mr-2 flex-shrink-0" />
-                                        <span className="truncate">{assistant.name}</span>
-                                    </Button>
-                                ))}
-                                <div className="pt-2 border-t border-gray-200">
-                                    <AddAssistantDialog
-                                        assistantTypes={assistantTypes}
-                                        onAssistantAdded={handleAssistantAdded}
-                                    />
-                                </div>
-                            </CardContent>
-                        </Card>
+    // 右侧内容
+    const content = currentAssistant ? (
+        <div className="space-y-6">
+            <InfoCard
+                icon={<Bot className="h-6 w-6 text-gray-600" />}
+                title={currentAssistant.assistant.name}
+                description={currentAssistant.assistant.description || "配置你的智能助手"}
+                actions={
+                    <div className="flex items-center gap-2">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={onCopy}
+                            className="hover:bg-gray-50 hover:border-gray-400 hover:text-gray-700"
+                        >
+                            <Copy className="h-4 w-4 mr-1" />
+                            复制
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={openUpdateFormDialog}
+                            className="hover:bg-gray-50 hover:border-gray-400 hover:text-gray-700"
+                        >
+                            <Edit3 className="h-4 w-4 mr-1" />
+                            编辑
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={openConfirmDeleteDialog}
+                            className="hover:bg-red-50 hover:border-red-300 hover:text-red-700"
+                        >
+                            <Trash2 className="h-4 w-4 mr-1" />
+                            删除
+                        </Button>
                     </div>
+                }
+            />
+            <ConfigForm
+                assistantConfigApi={assistantConfigApi}
+                title="助手配置"
+                description="配置你的智能助手参数"
+                config={assistantFormConfig}
+                layout="prompt"
+                classNames="bottom-space"
+                onSave={handleAssistantFormSave}
+                onCopy={onCopy}
+                onDelete={openConfirmDeleteDialog}
+                onEdit={openUpdateFormDialog}
+                useFormReturn={form}
+            />
+        </div>
+    ) : (
+        <EmptyState
+            icon={<Settings className="h-8 w-8 text-gray-500" />}
+            title="选择一个助手"
+            description="从左侧列表中选择一个助手开始配置"
+        />
+    );
 
-                    {/* 右侧配置区域 */}
-                    <div className="col-span-12 lg:col-span-9">
-                        {currentAssistant ? (
-                            <div className="space-y-6">
-                                {/* 助手信息卡片 */}
-                                <Card className="bg-white border-gray-200 shadow-sm">
-                                    <CardHeader className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                                <CardTitle className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                                                    <Bot className="h-6 w-6 text-gray-600" />
-                                                    {currentAssistant.assistant.name}
-                                                </CardTitle>
-                                                <CardDescription className="mt-1 text-gray-600">
-                                                    {currentAssistant.assistant.description || "配置你的智能助手"}
-                                                </CardDescription>
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={onCopy}
-                                                    className="hover:bg-gray-50 hover:border-gray-400 hover:text-gray-700"
-                                                >
-                                                    <Copy className="h-4 w-4 mr-1" />
-                                                    复制
-                                                </Button>
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={openUpdateFormDialog}
-                                                    className="hover:bg-gray-50 hover:border-gray-400 hover:text-gray-700"
-                                                >
-                                                    <Edit3 className="h-4 w-4 mr-1" />
-                                                    编辑
-                                                </Button>
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={openConfirmDeleteDialog}
-                                                    className="hover:bg-red-50 hover:border-red-300 hover:text-red-700"
-                                                >
-                                                    <Trash2 className="h-4 w-4 mr-1" />
-                                                    删除
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    </CardHeader>
-                                </Card>
-
-                                {/* 配置表单 */}
-                                <ConfigForm
-                                    assistantConfigApi={assistantConfigApi}
-                                    title="助手配置"
-                                    description="配置你的智能助手参数"
-                                    config={assistantFormConfig}
-                                    layout="prompt"
-                                    classNames="bottom-space"
-                                    onSave={handleAssistantFormSave}
-                                    onCopy={onCopy}
-                                    onDelete={openConfirmDeleteDialog}
-                                    onEdit={openUpdateFormDialog}
-                                    useFormReturn={form}
-                                />
-                            </div>
-                        ) : (
-                            <Card className="border-dashed border-2 border-gray-300">
-                                <CardContent className="flex flex-col items-center justify-center py-16">
-                                    <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-                                        <Settings className="h-8 w-8 text-gray-500" />
-                                    </div>
-                                    <h3 className="text-lg font-semibold text-gray-700 mb-2">
-                                        选择一个助手
-                                    </h3>
-                                    <p className="text-gray-500 text-center max-w-md leading-relaxed">
-                                        从左侧列表中选择一个助手开始配置
-                                    </p>
-                                </CardContent>
-                            </Card>
-                        )}
-                    </div>
-                </div>
-            )}
+    return (
+        <>
+            <ConfigPageLayout
+                stats={stats}
+                sidebar={sidebar}
+                content={content}
+            />
 
             {/* 对话框 */}
             <ConfirmDialog
@@ -903,7 +853,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                 onSave={onSave}
                 onAssistantUpdated={handleAssistantUpdated}
             />
-        </div>
+        </>
     );
 };
 
