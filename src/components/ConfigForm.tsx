@@ -395,24 +395,6 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                     </div>
                 </div>
                 <div className="flex items-center gap-2 ml-4">
-                    {onCopy && (
-                        <IconButton
-                            icon={<Copy className="text-gray-500 hover:text-gray-700" size={20} />}
-                            onClick={onCopy}
-                        />
-                    )}
-                    {onDelete && (
-                        <IconButton
-                            icon={<Trash2 className="text-red-500 hover:text-red-700" size={20} />}
-                            onClick={onDelete}
-                        />
-                    )}
-                    {onEdit && (
-                        <IconButton
-                            icon={<Edit className="text-gray-500 hover:text-gray-700" size={20} />}
-                            onClick={onEdit}
-                        />
-                    )}
                     {extraButtons}
                 </div>
             </CardHeader>

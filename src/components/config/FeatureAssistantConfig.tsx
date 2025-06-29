@@ -106,36 +106,6 @@ const FeatureAssistantConfig: React.FC = () => {
         setSelectedFeature(feature);
     }, []);
 
-    // 统计信息
-    const stats: StatItem[] = useMemo(() => {
-        const total = featureList.length;
-        const configured = featureList.filter(feature => {
-            const config = featureConfig.get(feature.code);
-            return config && config.size > 0;
-        }).length;
-
-        return [
-            {
-                title: "总功能数",
-                value: total,
-                description: "系统功能模块数量",
-                icon: <Settings className="h-4 w-4 text-gray-600" />
-            },
-            {
-                title: "已配置",
-                value: configured,
-                description: "已完成配置的功能",
-                icon: <Zap className="h-4 w-4 text-gray-600" />
-            },
-            {
-                title: "待配置",
-                value: total - configured,
-                description: "待完成配置的功能",
-                icon: <AlertCircle className="h-4 w-4 text-gray-600" />
-            }
-        ];
-    }, [featureConfig, featureList]);
-
     // 总结相关表单
     const handleSaveSummary = useCallback(() => {
         const values = summaryFormReturnData.getValues();
@@ -372,8 +342,6 @@ const FeatureAssistantConfig: React.FC = () => {
             icon={<Settings className="h-5 w-5" />}
         >
             {featureList.map((feature) => {
-                const config = featureConfig.get(feature.code);
-                const isConfigured = config ? config.size > 0 : false;
                 return (
                     <ListItemButton
                         key={feature.id}
@@ -387,9 +355,6 @@ const FeatureAssistantConfig: React.FC = () => {
                                     <div className="font-medium truncate">{feature.name}</div>
                                 </div>
                             </div>
-                            {isConfigured && (
-                                <Zap className="h-3 w-3 ml-2 flex-shrink-0" />
-                            )}
                         </div>
                     </ListItemButton>
                 );
@@ -404,10 +369,6 @@ const FeatureAssistantConfig: React.FC = () => {
                 icon={selectedFeature.icon}
                 title={selectedFeature.name}
                 description={selectedFeature.description}
-                badges={(() => {
-                    const config = featureConfig.get(selectedFeature.code);
-                    return config && config.size > 0 ? [{ text: "已配置", variant: "green" as const }] : [];
-                })()}
             />
             {renderConfigForm()}
         </div>
@@ -415,7 +376,7 @@ const FeatureAssistantConfig: React.FC = () => {
 
     return (
         <ConfigPageLayout
-            stats={stats}
+            stats={null}
             sidebar={sidebar}
             content={content}
         />

@@ -130,13 +130,6 @@ function ConfigWindow() {
 
                 {/* 内容区域 */}
                 <div className="bg-card px-4 md:px-6 lg:px-8 py-6 overflow-y-auto max-h-screen">
-                    {/* 标题区域 */}
-                    <div className="bg-gradient-to-br from-slate-50 to-slate-100 -mx-4 md:-mx-6 lg:-mx-8 -mt-6 mb-8 px-4 md:px-6 lg:px-8 py-6 border-b border-border">
-                        <h1 className="text-xl md:text-2xl lg:text-3xl font-bold text-foreground tracking-tight">
-                            {titleMap[selectedMenu]}
-                        </h1>
-                    </div>
-
                     {/* 配置组件内容 */}
                     <SelectedComponent pluginList={pluginList} />
                 </div>

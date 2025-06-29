@@ -9,7 +9,7 @@ export interface StatItem {
 }
 
 interface ConfigPageLayoutProps {
-    stats: StatItem[];
+    stats: StatItem[] | null;
     sidebar: React.ReactNode;
     content: React.ReactNode;
     emptyState?: React.ReactNode;
@@ -26,17 +26,19 @@ const ConfigPageLayout: React.FC<ConfigPageLayoutProps> = ({
     return (
         <div className="max-w-7xl mx-auto px-4 py-6 space-y-8">
             {/* 统计卡片 */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {stats.map((stat, index) => (
-                    <StatsCard
-                        key={index}
-                        title={stat.title}
-                        value={stat.value}
-                        description={stat.description}
-                        icon={stat.icon}
-                    />
-                ))}
-            </div>
+            {stats && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {stats.map((stat, index) => (
+                        <StatsCard
+                            key={index}
+                            title={stat.title}
+                            value={stat.value}
+                            description={stat.description}
+                            icon={stat.icon}
+                        />
+                    ))}
+                </div>
+            )}
 
             {/* 主要内容区域 */}
             {showEmptyState ? emptyState : (
