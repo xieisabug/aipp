@@ -1,6 +1,7 @@
 use std::{collections::HashMap, time::Duration};
 
 use anyhow::{bail, Result};
+use futures::StreamExt;
 use reqwest::{
     header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION},
     Client,
@@ -18,7 +19,12 @@ use crate::{
 };
 
 use super::ModelProvider;
-use futures::StreamExt;
+use rig::client::completion::CompletionClient;
+use rig::{
+    completion::{Chat, Message},
+    providers::openai as rig_openai,
+    streaming::StreamingChat,
+};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct ModelsResponse {
@@ -62,111 +68,91 @@ impl ModelProvider for OpenAIProvider {
         cancel_token: CancellationToken,
     ) -> futures::future::BoxFuture<'static, Result<String>> {
         let config = self.llm_provider_config.clone();
-        let client = self.client.clone();
 
         Box::pin(async move {
             let config_map: HashMap<String, String> =
                 config.into_iter().map(|c| (c.name, c.value)).collect();
 
-            let default_endpoint = &"https://api.openai.com/v1".to_string();
-            let endpoint = config_map
-                .get("endpoint")
-                .unwrap_or(default_endpoint)
-                .trim_end_matches('/');
-            let url = format!("{}/chat/completions", endpoint);
-            let api_key = config_map.get("api_key").unwrap().clone();
+            let api_key = config_map
+                .get("api_key")
+                .ok_or_else(|| anyhow::anyhow!("Missing api_key in provider config"))?;
 
-            let json_messages = messages
+            // 若有自訂 endpoint 則改用 from_url
+            let endpoint_opt = config_map.get("endpoint");
+            let client = if let Some(ep) = endpoint_opt {
+                rig_openai::Client::from_url(api_key, ep.trim_end_matches('/'))
+            } else {
+                rig_openai::Client::new(api_key)
+            };
+
+            // 取得模型名稱與溫度
+            let model_conf = model_config
                 .iter()
-                .map(|(message_type, content, attachment_list)| {
-                    if attachment_list.len() > 0 {
-                        let mut content_array = vec![json!({
-                            "type": "text",
-                            "text": content
-                        })];
-                        let images = attachment_list
-                            .iter()
-                            .filter(|a| a.attachment_type == AttachmentType::Image)
-                            .map(|a| {
-                                json!({
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": a.attachment_content.clone().unwrap()
-                                    }
-                                })
-                            })
-                            .collect::<Vec<Value>>();
-                        content_array.extend(images);
-
-                        json!({
-                            "role": message_type,
-                            "content": content_array,
-                        })
-                    } else {
-                        json!({
-                            "role": message_type,
-                            "content": content
-                        })
-                    }
-                })
-                .collect::<Vec<Value>>();
-
-            let model_config_map = model_config
-                .iter()
-                .filter_map(|config| {
-                    config
-                        .value
-                        .as_ref()
-                        .map(|value| (config.name.clone(), value.clone()))
-                })
+                .filter_map(|c| c.value.as_ref().map(|v| (c.name.clone(), v.clone())))
                 .collect::<HashMap<String, String>>();
-            let temperature = model_config_map
+
+            let model_name = model_conf
+                .get("model")
+                .cloned()
+                .unwrap_or_else(|| "gpt-3.5-turbo".to_string());
+
+            let temperature: f64 = model_conf
                 .get("temperature")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(0.75);
-            let top_p = model_config_map
-                .get("top_p")
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(1.0);
-            let max_tokens = model_config_map
-                .get("max_tokens")
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(2000);
 
-            let model = model_config_map.get("model"); // Assuming the first model config is the one to use
+            let max_tokens: Option<u64> = model_conf.get("max_tokens").and_then(|v| v.parse().ok());
 
-            let body = json!({
-                "model": model,
-                "temperature": temperature,
-                "top_p": top_p,
-                "max_tokens": max_tokens,
-                "messages": json_messages,
-                "stream": false
-            });
-            println!("openai chat: {:?}", body);
+            let top_p: Option<f64> = model_conf.get("top_p").and_then(|v| v.parse().ok());
 
-            let request = client
-                .post(&url)
-                .header(AUTHORIZATION, &format!("Bearer {}", api_key))
-                .json(&body);
+            let mut agent_builder = client.agent(model_name.as_str()).temperature(temperature);
+            if let Some(mt) = max_tokens {
+                agent_builder = agent_builder.max_tokens(mt);
+            }
+            if let Some(tp) = top_p {
+                agent_builder = agent_builder.additional_params(serde_json::json!({"top_p": tp}));
+            }
+
+            // 若第一則是 system, 當作 preamble
+            if let Some((role, content, _)) = messages.first() {
+                if role == "system" {
+                    agent_builder = agent_builder.preamble(content);
+                }
+            }
+
+            let agent = agent_builder.build();
+
+            // 構造 Rig chat 歷史: 除最後一則外其餘作為 history
+            let mut history: Vec<rig::completion::Message> = Vec::new();
+            if !messages.is_empty() {
+                for (idx, (role, content, _)) in messages.iter().enumerate() {
+                    if idx == messages.len() - 1 {
+                        break; // skip last -> prompt
+                    }
+
+                    match role.as_str() {
+                        "user" => history.push(rig::completion::Message::user(content.clone())),
+                        "assistant" => {
+                            history.push(rig::completion::Message::assistant(content.clone()))
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            let prompt_content = messages
+                .last()
+                .map(|(_, content, _)| content.clone())
+                .unwrap_or_default();
+
+            let resp_fut = agent.chat(&prompt_content, history);
 
             let response = tokio::select! {
-                response = request.send() => response?,
+                r = resp_fut => r.map_err(|e| anyhow::anyhow!(e)),
                 _ = cancel_token.cancelled() => bail!("Request cancelled"),
-            };
+            }?;
 
-            let json_response = tokio::select! {
-                json = response.json::<serde_json::Value>() => json?,
-                _ = cancel_token.cancelled() => bail!("Request cancelled"),
-            };
-
-            println!("openai chat response: {:?}", json_response.clone());
-
-            if let Some(content) = json_response["choices"][0]["message"]["content"].as_str() {
-                Ok(content.to_string())
-            } else {
-                bail!("Failed to get content from response")
-            }
+            Ok(response)
         })
     }
 
@@ -179,152 +165,117 @@ impl ModelProvider for OpenAIProvider {
         cancel_token: CancellationToken,
     ) -> futures::future::BoxFuture<'static, Result<()>> {
         let config = self.llm_provider_config.clone();
-        let client = self.client.clone();
 
         Box::pin(async move {
             let config_map: HashMap<String, String> =
                 config.into_iter().map(|c| (c.name, c.value)).collect();
 
-            let default_endpoint = &"https://api.openai.com/v1".to_string();
-            let endpoint = config_map
-                .get("endpoint")
-                .unwrap_or(default_endpoint)
-                .trim_end_matches('/');
-            let url = format!("{}/chat/completions", endpoint);
-            let api_key = config_map.get("api_key").unwrap().clone();
+            let api_key = config_map
+                .get("api_key")
+                .ok_or_else(|| anyhow::anyhow!("Missing api_key in provider config"))?;
 
-            let json_messages = messages
+            // 若有自訂 endpoint 則改用 from_url
+            let endpoint_opt = config_map.get("endpoint");
+            let client = if let Some(ep) = endpoint_opt {
+                rig_openai::Client::from_url(api_key, ep.trim_end_matches('/'))
+            } else {
+                rig_openai::Client::new(api_key)
+            };
+
+            // 取得模型名稱與溫度
+            let model_conf = model_config
                 .iter()
-                .map(|(message_type, content, attachment_list)| {
-                    if attachment_list.len() > 0 {
-                        let mut content_array = vec![json!({
-                            "type": "text",
-                            "text": content
-                        })];
-                        let images = attachment_list
-                            .iter()
-                            .filter(|a| a.attachment_type == AttachmentType::Image)
-                            .map(|a| {
-                                json!({
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": a.attachment_content.clone().unwrap()
-                                    }
-                                })
-                            })
-                            .collect::<Vec<Value>>();
-                        content_array.extend(images);
-
-                        json!({
-                            "role": message_type,
-                            "content": content_array,
-                        })
-                    } else {
-                        json!({
-                            "role": message_type,
-                            "content": content
-                        })
-                    }
-                })
-                .collect::<Vec<serde_json::Value>>();
-
-            let model_config_map = model_config
-                .iter()
-                .filter_map(|config| {
-                    config
-                        .value
-                        .as_ref()
-                        .map(|value| (config.name.clone(), value.clone()))
-                })
+                .filter_map(|c| c.value.as_ref().map(|v| (c.name.clone(), v.clone())))
                 .collect::<HashMap<String, String>>();
-            let temperature = model_config_map
+
+            let model_name = model_conf
+                .get("model")
+                .cloned()
+                .unwrap_or_else(|| "gpt-3.5-turbo".to_string());
+
+            let temperature: f64 = model_conf
                 .get("temperature")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(0.75);
-            let top_p = model_config_map
-                .get("top_p")
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(1.0);
-            let max_tokens = model_config_map
-                .get("max_tokens")
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(2000);
 
-            let model = model_config_map.get("model"); // Assuming the first model config is the one to use
+            let max_tokens: Option<u64> = model_conf.get("max_tokens").and_then(|v| v.parse().ok());
 
-            let body = json!({
-                "model": model,
-                "temperature": temperature,
-                "top_p": top_p,
-                "max_tokens": max_tokens,
-                "messages": json_messages,
-                "stream": true
-            });
-            println!("openai chat stream url: {} body: {:?}", url, body);
+            let top_p: Option<f64> = model_conf.get("top_p").and_then(|v| v.parse().ok());
 
-            let request = client
-                .post(&url)
-                .header(AUTHORIZATION, &format!("Bearer {}", api_key))
-                .json(&body);
+            let mut agent_builder = client.agent(model_name.as_str()).temperature(temperature);
+            if let Some(mt) = max_tokens {
+                agent_builder = agent_builder.max_tokens(mt);
+            }
+            if let Some(tp) = top_p {
+                agent_builder = agent_builder.additional_params(serde_json::json!({"top_p": tp}));
+            }
 
-            let response = tokio::select! {
-                response = request.send() => response?,
-                _ = cancel_token.cancelled() => bail!("Request cancelled"),
-            };
+            // 若第一則是 system, 當作 preamble
+            if let Some((role, content, _)) = messages.first() {
+                if role == "system" {
+                    agent_builder = agent_builder.preamble(content);
+                }
+            }
 
-            let mut stream = response.bytes_stream();
-            let mut full_text = String::new();
-            let mut buffer = Vec::new();
+            let agent = agent_builder.build();
 
-            loop {
-                tokio::select! {
-                    chunk = stream.next() => {
-                        match chunk {
-                            Some(Ok(chunk)) => {
-                                let text = String::from_utf8_lossy(&chunk);
-                                println!("openai chat stream text: {}", text);
-                                buffer.extend_from_slice(&chunk);
-
-                                // 处理粘包和拆包
-                                while let Some(pos) = buffer.windows(2).position(|w| w == b"\n\n") {
-                                    let chunk_data = buffer.drain(..=pos + 1).collect::<Vec<_>>();
-                                    let chunk_str = String::from_utf8_lossy(&chunk_data);
-
-                                    if chunk_str.starts_with("data: ") {
-                                        let json_str = &chunk_str["data: ".len()..];
-                                        if json_str.trim() == "[DONE]" {
-                                            tx.send((message_id, full_text.clone(), true)).await?;
-                                            return Ok(());
-                                        }
-
-                                        if let Ok(chunk_response) =
-                                            serde_json::from_str::<serde_json::Value>(json_str)
-                                        {
-                                            if let Some(delta) =
-                                                chunk_response["choices"][0]["delta"]["content"].as_str()
-                                            {
-                                                full_text.push_str(delta);
-                                                tx.send((message_id, full_text.clone(), false)).await?;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            Some(Err(e)) => bail!(e),
-                            None => {
-                                println!("openai chat stream end");
-                                tx.send((message_id, full_text.clone(), true)).await?;
-                                return Ok(());
-                            },
-                        }
+            // 構造歷史與 prompt
+            let mut history: Vec<rig::completion::Message> = Vec::new();
+            if !messages.is_empty() {
+                for (idx, (role, content, _)) in messages.iter().enumerate() {
+                    if idx == messages.len() - 1 {
+                        break;
                     }
-                    _ = cancel_token.cancelled() => {
-                        tx.send((message_id, full_text.clone(), true)).await?;
-                        return Ok(());
+                    match role.as_str() {
+                        "user" => history.push(rig::completion::Message::user(content.clone())),
+                        "assistant" => {
+                            history.push(rig::completion::Message::assistant(content.clone()))
+                        }
+                        _ => {}
                     }
                 }
             }
 
+            let prompt_content = messages
+                .last()
+                .map(|(_, content, _)| content.clone())
+                .unwrap_or_default();
+
+            let mut stream = tokio::select! {
+                s = agent.stream_chat(&prompt_content, history) => s.map_err(|e| anyhow::anyhow!(e))?,
+                _ = cancel_token.cancelled() => bail!("Request cancelled"),
+            };
+
+            let mut full_text = String::new();
+
+            loop {
+                tokio::select! {
+                    maybe_chunk = stream.next() => {
+                        match maybe_chunk {
+                            Some(Ok(chunk)) => {
+                                if let rig::completion::AssistantContent::Text(text) = chunk {
+                                    full_text.push_str(text.text.as_str());
+                                }
+                                tx.send((message_id, full_text.clone(), false)).await?;
+                            },
+                            Some(Err(e)) => {
+                                eprintln!("stream chunk error: {:?}", e);
+                                break;
+                            },
+                            None => {
+                                // stream ended
+                                break;
+                            }
+                        }
+                    }
+                    _ = cancel_token.cancelled() => {
+                        break;
+                    }
+                }
+            }
+
+            // 結束後發送完成事件
+            tx.send((message_id, full_text.clone(), true)).await?;
             Ok(())
         })
     }

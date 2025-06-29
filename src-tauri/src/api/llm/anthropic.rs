@@ -1,17 +1,15 @@
 use super::ModelProvider;
 use crate::{
     api::llm_api::LlmModel,
-    db::{
-        conversation_db::{AttachmentType, MessageAttachment},
-        llm_db::LLMProviderConfig,
-    },
+    db::{conversation_db::MessageAttachment, llm_db::LLMProviderConfig},
 };
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use futures::StreamExt;
-use regex::Regex;
-use reqwest::Client;
+use rig::client::completion::CompletionClient;
+use rig::completion::Chat;
+use rig::providers::anthropic::ClientBuilder;
+use rig::streaming::StreamingChat;
 use serde::{Deserialize, Serialize, Serializer};
-use serde_json::{json, Value};
 use std::collections::HashMap;
 use tokio_util::sync::CancellationToken;
 
@@ -117,7 +115,6 @@ impl Serialize for ToolChoice {
 
 pub struct AnthropicProvider {
     llm_provider_config: Vec<LLMProviderConfig>,
-    client: Client,
 }
 
 impl ModelProvider for AnthropicProvider {
@@ -127,7 +124,6 @@ impl ModelProvider for AnthropicProvider {
     {
         AnthropicProvider {
             llm_provider_config,
-            client: Client::new(),
         }
     }
 
@@ -139,128 +135,94 @@ impl ModelProvider for AnthropicProvider {
         cancel_token: CancellationToken,
     ) -> futures::future::BoxFuture<'static, Result<String>> {
         let config = self.llm_provider_config.clone();
-        let client = self.client.clone();
 
         Box::pin(async move {
             let config_map: HashMap<String, String> =
                 config.into_iter().map(|c| (c.name, c.value)).collect();
 
-            let default_endpoint = &"https://api.anthropic.com".to_string();
-            let endpoint = config_map
-                .get("endpoint")
-                .unwrap_or(default_endpoint)
-                .trim_end_matches('/');
-            let url = format!("{}/v1/messages", endpoint);
-            let api_key = config_map.get("api_key").unwrap().clone();
+            let api_key = config_map
+                .get("api_key")
+                .ok_or_else(|| anyhow::anyhow!("Missing api_key in provider config"))?;
 
-            let json_messages = messages
+            let endpoint_opt = config_map.get("endpoint");
+            let client = if let Some(ep) = endpoint_opt {
+                ClientBuilder::new(api_key)
+                    .base_url(ep.trim_end_matches('/'))
+                    .anthropic_version("2023-06-01")
+                    .build()
+            } else {
+                ClientBuilder::new(api_key)
+                    .anthropic_version("2023-06-01")
+                    .build()
+            };
+
+            let model_conf = model_config
                 .iter()
-                .filter(|(message_type, _, _)| message_type != "system")
-                .map(|(message_type, content, attachment_list)| {
-                    if attachment_list.len() > 0 {
-                        let content_array = vec![json!({
-                            "type": "text",
-                            "text": content
-                        })];
-
-                        let mut images = attachment_list
-                            .iter()
-                            .filter(|a| a.attachment_type == AttachmentType::Image)
-                            .map(|a| {
-                                let attachment_content = a.attachment_content.clone().unwrap();
-                                let re =
-                                    Regex::new(r"data:(?P<media_type>[^;]+);base64,(?P<data>.+)")
-                                        .unwrap();
-                                let caps = re.captures(&attachment_content).unwrap();
-                                let media_type = caps.name("media_type").unwrap().as_str();
-                                let data = caps.name("data").unwrap().as_str();
-
-                                json!({
-                                    "type": "image",
-                                    "source": {
-                                        "type": "base64",
-                                        "media_type": media_type,
-                                        "data": data,
-                                    },
-                                })
-                            })
-                            .collect::<Vec<Value>>();
-                        images.extend(content_array);
-
-                        json!({
-                            "role": message_type,
-                            "content": images,
-                        })
-                    } else {
-                        json!({
-                            "role": message_type,
-                            "content": content
-                        })
-                    }
-                })
-                .collect::<Vec<serde_json::Value>>();
-            let system_message = messages
-                .iter()
-                .find(|(message_type, _, _)| message_type == "system");
-
-            let model_config_map = model_config
-                .iter()
-                .filter_map(|config| {
-                    config
-                        .value
-                        .as_ref()
-                        .map(|value| (config.name.clone(), value.clone()))
-                })
+                .filter_map(|c| c.value.as_ref().map(|v| (c.name.clone(), v.clone())))
                 .collect::<HashMap<String, String>>();
-            let temperature = model_config_map
+
+            let model_name = model_conf
+                .get("model")
+                .cloned()
+                .unwrap_or_else(|| "claude-3-sonnet-20240229".to_string());
+
+            let temperature: f64 = model_conf
                 .get("temperature")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(0.75);
-            let top_p = model_config_map
-                .get("top_p")
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(1.0);
-            let max_tokens = model_config_map
+
+            let max_tokens: u64 = model_conf
                 .get("max_tokens")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(2000);
 
-            let model = model_config_map.get("model"); // Assuming the first model config is the one to use
+            let top_p: Option<f64> = model_conf.get("top_p").and_then(|v| v.parse().ok());
 
-            let body = json!({
-                "model": model,
-                "temperature": temperature,
-                "top_p": top_p,
-                "system": system_message.map(|(_, content, _)| content),
-                "max_tokens": max_tokens,
-                "messages": json_messages,
-                "stream": false
-            });
-            println!("anthropic chat: {:?}", body);
+            let mut agent_builder = client
+                .agent(model_name.as_str())
+                .temperature(temperature)
+                .max_tokens(max_tokens);
+            if let Some(tp) = top_p {
+                agent_builder = agent_builder.additional_params(serde_json::json!({"top_p": tp}));
+            }
 
-            let request = client
-                .post(&url)
-                .header("X-API-Key", api_key)
-                .header("anthropic-version", "2023-06-01")
-                .json(&body);
+            if let Some((role, content, _)) = messages.first() {
+                if role == "system" {
+                    agent_builder = agent_builder.preamble(content);
+                }
+            }
+
+            let agent = agent_builder.build();
+
+            let mut history: Vec<rig::completion::Message> = Vec::new();
+            if !messages.is_empty() {
+                for (idx, (role, content, _)) in messages.iter().enumerate() {
+                    if idx == messages.len() - 1 {
+                        break;
+                    }
+                    match role.as_str() {
+                        "user" => history.push(rig::completion::Message::user(content.clone())),
+                        "assistant" => {
+                            history.push(rig::completion::Message::assistant(content.clone()))
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            let prompt_content = messages
+                .last()
+                .map(|(_, content, _)| content.clone())
+                .unwrap_or_default();
+
+            let resp_fut = agent.chat(&prompt_content, history);
 
             let response = tokio::select! {
-                response = request.send() => response?,
-                _ = cancel_token.cancelled() => return Err(anyhow!("Request cancelled")),
-            };
+                r = resp_fut => r.map_err(|e| anyhow::anyhow!("{:?}", e)),
+                _ = cancel_token.cancelled() => anyhow::bail!("Request cancelled"),
+            }?;
 
-            let json_response = tokio::select! {
-                json = response.json::<serde_json::Value>() => json?,
-                _ = cancel_token.cancelled() => return Err(anyhow!("Request cancelled")),
-            };
-
-            println!("anthropic chat response: {:?}", json_response.clone());
-
-            if let Some(content) = json_response["content"][0]["text"].as_str() {
-                Ok(content.to_string())
-            } else {
-                Err(anyhow!("Failed to get content from response"))
-            }
+            Ok(response)
         })
     }
 
@@ -273,209 +235,119 @@ impl ModelProvider for AnthropicProvider {
         cancel_token: CancellationToken,
     ) -> futures::future::BoxFuture<'static, Result<()>> {
         let config = self.llm_provider_config.clone();
-        let client = self.client.clone();
 
         Box::pin(async move {
             let config_map: HashMap<String, String> =
                 config.into_iter().map(|c| (c.name, c.value)).collect();
 
-            let default_endpoint = &"https://api.anthropic.com".to_string();
-            let endpoint = config_map
-                .get("endpoint")
-                .unwrap_or(default_endpoint)
-                .trim_end_matches('/');
-            let url = format!("{}/v1/messages", endpoint);
-            let api_key = config_map.get("api_key").unwrap().clone();
+            let api_key = config_map
+                .get("api_key")
+                .ok_or_else(|| anyhow::anyhow!("Missing api_key in provider config"))?;
 
-            let json_messages = messages
+            let endpoint_opt = config_map.get("endpoint");
+            let client = if let Some(ep) = endpoint_opt {
+                ClientBuilder::new(api_key)
+                    .base_url(ep.trim_end_matches('/'))
+                    .anthropic_version("2023-06-01")
+                    .build()
+            } else {
+                ClientBuilder::new(api_key)
+                    .anthropic_version("2023-06-01")
+                    .build()
+            };
+
+            let model_conf = model_config
                 .iter()
-                .filter(|(message_type, _, _)| message_type != "system")
-                .map(|(message_type, content, attachment_list)| {
-                    if attachment_list.len() > 0 {
-                        let content_array = vec![json!({
-                            "type": "text",
-                            "text": content
-                        })];
-
-                        let mut images = attachment_list
-                            .iter()
-                            .filter(|a| a.attachment_type == AttachmentType::Image)
-                            .map(|a| {
-                                let attachment_content = a.attachment_content.clone().unwrap();
-                                let re =
-                                    Regex::new(r"data:(?P<media_type>[^;]+);base64,(?P<data>.+)")
-                                        .unwrap();
-                                let caps = re.captures(&attachment_content).unwrap();
-                                let media_type = caps.name("media_type").unwrap().as_str();
-                                let data = caps.name("data").unwrap().as_str();
-
-                                json!({
-                                    "type": "image",
-                                    "source": {
-                                        "type": "base64",
-                                        "media_type": media_type,
-                                        "data": data,
-                                    },
-                                })
-                            })
-                            .collect::<Vec<Value>>();
-                        images.extend(content_array);
-
-                        json!({
-                            "role": message_type,
-                            "content": images,
-                        })
-                    } else {
-                        json!({
-                            "role": message_type,
-                            "content": content
-                        })
-                    }
-                })
-                .collect::<Vec<Value>>();
-            let system_message = messages
-                .iter()
-                .find(|(message_type, _, _)| message_type == "system");
-
-            let model_config_map = model_config
-                .iter()
-                .filter_map(|config| {
-                    config
-                        .value
-                        .as_ref()
-                        .map(|value| (config.name.clone(), value.clone()))
-                })
+                .filter_map(|c| c.value.as_ref().map(|v| (c.name.clone(), v.clone())))
                 .collect::<HashMap<String, String>>();
-            let temperature = model_config_map
+
+            let model_name = model_conf
+                .get("model")
+                .cloned()
+                .unwrap_or_else(|| "claude-3-sonnet-20240229".to_string());
+
+            let temperature: f64 = model_conf
                 .get("temperature")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(0.75);
-            let top_p = model_config_map
-                .get("top_p")
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(1.0);
-            let max_tokens = model_config_map
+
+            let max_tokens: u64 = model_conf
                 .get("max_tokens")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(2000);
 
-            let model = model_config_map.get("model"); // Assuming the first model config is the one to use
+            let top_p: Option<f64> = model_conf.get("top_p").and_then(|v| v.parse().ok());
 
-            let body = json!({
-                "model": model,
-                "temperature": temperature,
-                "top_p": top_p,
-                "system": system_message.map(|(_, content, _)| content),
-                "max_tokens": max_tokens,
-                "messages": json_messages,
-                "stream": true
-            });
-            println!("anthropic chat stream url: {} body: {:?}", url, body);
+            let mut agent_builder = client
+                .agent(model_name.as_str())
+                .temperature(temperature)
+                .max_tokens(max_tokens);
+            if let Some(tp) = top_p {
+                agent_builder = agent_builder.additional_params(serde_json::json!({"top_p": tp}));
+            }
 
-            let request = client
-                .post(&url)
-                .header("X-API-Key", api_key)
-                .header("anthropic-version", "2023-06-01")
-                .json(&body);
+            if let Some((role, content, _)) = messages.first() {
+                if role == "system" {
+                    agent_builder = agent_builder.preamble(content);
+                }
+            }
 
-            let response = tokio::select! {
-                response = request.send() => response?,
-                _ = cancel_token.cancelled() => return Err(anyhow!("Request cancelled")),
-            };
+            let agent = agent_builder.build();
 
-            let mut stream = response.bytes_stream();
-            let mut full_text = String::new();
-            let mut buffer = String::new();
-
-            loop {
-                tokio::select! {
-                    chunk = stream.next() => {
-                        match chunk {
-                            Some(Ok(chunk)) => {
-                                let s = std::str::from_utf8(&chunk)
-                                    .map_err(|e| anyhow!("Invalid UTF-8 sequence: {}", e))?;
-                                buffer.push_str(s);
-                                println!("anthropic chat stream text: {}", s);
-
-                                loop {
-                                    if let Some(index) = buffer.find("\n\n") {
-                                        let chunk = buffer[..index].to_string();
-                                        buffer.drain(..=index + 1);
-
-                                        let processed_chunk = chunk
-                                            .trim_start_matches("event: message_start")
-                                            .trim_start_matches("event: content_block_start")
-                                            .trim_start_matches("event: ping")
-                                            .trim_start_matches("event: content_block_delta")
-                                            .trim_start_matches("event: content_block_stop")
-                                            .trim_start_matches("event: message_delta")
-                                            .trim_start_matches("event: message_stop")
-                                            .to_string();
-
-                                        let cleaned_string = processed_chunk
-                                            .trim_start()
-                                            .strip_prefix("data: ")
-                                            .unwrap_or(&processed_chunk);
-                                        print!("clean string: {}", cleaned_string);
-
-                                        match serde_json::from_str::<AnthropicChatCompletionChunk>(cleaned_string) {
-                                            Ok(d) => {
-                                                if let Some(delta) = d.delta {
-                                                    println!("anthropic chat stream delta: {:?}", delta);
-
-                                                    if let Some(content) = delta.text {
-                                                        full_text.push_str(&content);
-                                                        tx.send((message_id, full_text.clone(), false)).await?;
-                                                    }
-                                                } else if d.event_type == "message_stop" {
-                                                    tx.send((message_id, full_text.clone(), true)).await?;
-                                                    break;
-                                                } else {
-                                                    eprintln!("Unknown AnthropicChatCompletionChunk: {:?}", d);
-                                                }
-                                            }
-                                            Err(_) => {
-                                                let processed_chunk = cleaned_string
-                                                    .trim_start_matches("event: error")
-                                                    .to_string();
-                                                let cleaned_string = &processed_chunk
-                                                    .trim_start()
-                                                    .strip_prefix("data: ")
-                                                    .unwrap_or(&processed_chunk);
-                                                match serde_json::from_str::<AnthropicErrorMessage>(&cleaned_string)
-                                                {
-                                                    Ok(error_message) => {
-                                                        eprintln!(
-                                                            "{}: {}",
-                                                            error_message.error.error_type,
-                                                            error_message.error.message
-                                                        );
-                                                    }
-                                                    Err(_) => {
-                                                        eprintln!(
-                                                                "Couldn't parse AnthropicChatCompletionChunk or AnthropicErrorMessage: {}",
-                                                                &cleaned_string
-                                                            );
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        break;
-                                    }
-                                }
-                            }
-                            Some(Err(e)) => return Err(e.into()),
-                            None => break,
-                        }
+            let mut history: Vec<rig::completion::Message> = Vec::new();
+            if !messages.is_empty() {
+                for (idx, (role, content, _)) in messages.iter().enumerate() {
+                    if idx == messages.len() - 1 {
+                        break;
                     }
-                    _ = cancel_token.cancelled() => {
-                        tx.send((message_id, full_text.clone(), true)).await?;
-                        return Ok(());
+                    match role.as_str() {
+                        "user" => history.push(rig::completion::Message::user(content.clone())),
+                        "assistant" => {
+                            history.push(rig::completion::Message::assistant(content.clone()))
+                        }
+                        _ => {}
                     }
                 }
             }
 
+            let prompt_content = messages
+                .last()
+                .map(|(_, content, _)| content.clone())
+                .unwrap_or_default();
+
+            let mut stream = tokio::select! {
+                s = agent.stream_chat(&prompt_content, history) => s.map_err(|e| anyhow::anyhow!("{:?}", e))?,
+                _ = cancel_token.cancelled() => anyhow::bail!("Request cancelled"),
+            };
+
+            let mut full_text = String::new();
+
+            loop {
+                tokio::select! {
+                    maybe_chunk = stream.next() => {
+                        match maybe_chunk {
+                            Some(Ok(chunk)) => {
+                                if let rig::completion::AssistantContent::Text(text) = chunk {
+                                    full_text.push_str(text.text.as_str());
+                                }
+                                tx.send((message_id, full_text.clone(), false)).await?;
+                            },
+                            Some(Err(e)) => {
+                                eprintln!("stream chunk error: {:?}", e);
+                                break;
+                            },
+                            None => {
+                                break;
+                            }
+                        }
+                    }
+                    _ = cancel_token.cancelled() => {
+                        break;
+                    }
+                }
+            }
+
+            tx.send((message_id, full_text.clone(), true)).await?;
             Ok(())
         })
     }
