@@ -1,5 +1,4 @@
 import React, { useEffect, useCallback, useMemo, useState } from "react";
-import "../../styles/LLMProviderConfig.css";
 import { invoke } from "@tauri-apps/api/core";
 import debounce from "lodash/debounce";
 import TagInputContainer from "./TagInputContainer";

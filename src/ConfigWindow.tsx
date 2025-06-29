@@ -1,5 +1,4 @@
 import React, { ReactNode, useEffect, useState } from "react";
-import SideMenu from "./components/SideMenu";
 import LLMProviderConfig from "./components/config/LLMProviderConfig";
 import AssistantConfig from "./components/config/AssistantConfig";
 import FeatureAssistantConfig from "./components/config/FeatureAssistantConfig";
@@ -23,11 +22,33 @@ const contentMap: Record<string, React.ComponentType<any>> = {
     'feature-assistant-config': FeatureAssistantConfig,
 }
 
+// 配置标题映射
+const titleMap: Record<string, string> = {
+    'llm-provider-config': '大模型配置',
+    'assistant-config': '个人助手配置',
+    'feature-assistant-config': '程序助手配置',
+}
+
 function ConfigWindow() {
     const menuList: Array<MenuItem> = [
-        { id: 'llm-provider-config', name: '大模型配置', icon: <Model fill="gray" />, iconSelected: <Model fill="black" /> },
-        { id: 'assistant-config', name: '个人助手配置', icon: <Assistant fill="gray" />, iconSelected: <Assistant fill="black" /> },
-        { id: 'feature-assistant-config', name: '程序助手配置', icon: <Program fill="gray" />, iconSelected: <Program fill="black" /> },
+        {
+            id: 'llm-provider-config',
+            name: '大模型配置',
+            icon: <Model fill="#64748b" className="w-full h-full" />,
+            iconSelected: <Model fill="#3b82f6" className="w-full h-full" />
+        },
+        {
+            id: 'assistant-config',
+            name: '个人助手配置',
+            icon: <Assistant fill="#64748b" className="w-full h-full" />,
+            iconSelected: <Assistant fill="#3b82f6" className="w-full h-full" />
+        },
+        {
+            id: 'feature-assistant-config',
+            name: '程序助手配置',
+            icon: <Program fill="#64748b" className="w-full h-full" />,
+            iconSelected: <Program fill="#3b82f6" className="w-full h-full" />
+        },
     ];
 
     const [selectedMenu, setSelectedMenu] = useState<string>('llm-provider-config');
@@ -73,10 +94,52 @@ function ConfigWindow() {
     const SelectedComponent = contentMap[selectedMenu];
 
     return (
-        <div className="mx-auto grid md:grid-cols-[210px_1fr] lg:grid-cols-[250px_1fr] bg-background">
-            <SideMenu menu={menuList} selectedMenu={selectedMenu} setSelectedMenu={setSelectedMenu} />
-            <div className="max-h-screen overflow-auto">
-                <SelectedComponent pluginList={pluginList} />
+        <div className="flex justify-center items-center h-screen bg-background">
+            <div className="bg-card shadow-lg w-full h-screen grid grid-cols-[250px_1fr] md:grid-cols-[200px_1fr] lg:grid-cols-[250px_1fr]" data-tauri-drag-region>
+                {/* 侧边栏 */}
+                <div className="bg-muted/30 border-r border-border px-3 md:px-4 py-6 overflow-y-auto">
+                    <div className="flex flex-col gap-1 mt-2">
+                        {menuList.map((item, index) => (
+                            <div
+                                key={index}
+                                className={`
+                                    relative flex items-center px-3 md:px-4 lg:px-5 py-3 md:py-3.5 rounded-lg cursor-pointer 
+                                    transition-all duration-200 ease-out font-medium text-xs md:text-sm
+                                    select-none hover:translate-x-0.5
+                                    ${selectedMenu === item.id
+                                        ? 'bg-blue-50 text-blue-700 font-semibold shadow-sm'
+                                        : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                                    }
+                                `}
+                                onClick={() => setSelectedMenu(item.id)}
+                            >
+                                {/* 选中状态的左侧指示条 */}
+                                {selectedMenu === item.id && (
+                                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-blue-600 rounded-r-sm" />
+                                )}
+                                <div className="flex items-center">
+                                    <div className="w-4 h-4 md:w-5 md:h-5 flex-shrink-0 mr-2 md:mr-3 lg:mr-3.5">
+                                        {selectedMenu === item.id ? item.iconSelected : item.icon}
+                                    </div>
+                                    <span className="truncate">{item.name}</span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* 内容区域 */}
+                <div className="bg-card px-4 md:px-6 lg:px-8 py-6 overflow-y-auto max-h-screen">
+                    {/* 标题区域 */}
+                    <div className="bg-gradient-to-br from-slate-50 to-slate-100 -mx-4 md:-mx-6 lg:-mx-8 -mt-6 mb-8 px-4 md:px-6 lg:px-8 py-6 border-b border-border">
+                        <h1 className="text-xl md:text-2xl lg:text-3xl font-bold text-foreground tracking-tight">
+                            {titleMap[selectedMenu]}
+                        </h1>
+                    </div>
+
+                    {/* 配置组件内容 */}
+                    <SelectedComponent pluginList={pluginList} />
+                </div>
             </div>
         </div>
     );

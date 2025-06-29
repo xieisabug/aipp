@@ -1,6 +1,5 @@
 // ConfirmDialog.tsx
 import React from 'react';
-import '../styles/ConfirmDialog.css';
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './ui/alert-dialog';
 import { Button } from './ui/button';
 
