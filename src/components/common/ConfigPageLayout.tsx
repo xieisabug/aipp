@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import StatsCard from './StatsCard';
 
 export interface StatItem {
@@ -23,10 +23,28 @@ const ConfigPageLayout: React.FC<ConfigPageLayoutProps> = ({
     emptyState,
     showEmptyState = false
 }) => {
+    const [windowHeight, setWindowHeight] = useState(window.innerHeight);
+
+    useEffect(() => {
+        const handleResize = () => {
+            setWindowHeight(window.innerHeight);
+        };
+
+        window.addEventListener('resize', handleResize);
+        
+        // 清理事件监听器
+        return () => {
+            window.removeEventListener('resize', handleResize);
+        };
+    }, []);
+
+    // 只有当窗口高度大于等于800px且stats存在时才显示统计卡片
+    const shouldShowStats = stats && windowHeight >= 800;
+
     return (
         <div className="max-w-7xl mx-auto px-4 py-6 space-y-8">
-            {/* 统计卡片 */}
-            {stats && (
+            {/* 统计卡片 - 根据窗口高度条件性显示 */}
+            {shouldShowStats && (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {stats.map((stat, index) => (
                         <StatsCard
