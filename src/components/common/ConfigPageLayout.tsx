@@ -64,8 +64,8 @@ const ConfigPageLayout: React.FC<ConfigPageLayoutProps> = ({
     // 只有当窗口高度大于等于800px且stats存在时才显示统计卡片
     const shouldShowStats = stats && windowHeight >= 800;
     
-    // 小屏幕时使用下拉菜单（宽度小于1024px）
-    const isSmallScreen = windowWidth < 1024;
+    // 小屏幕时使用下拉菜单（宽度小于1200px）
+    const isSmallScreen = windowWidth < 1200;
     const shouldShowDropdown = isSmallScreen && selectOptions && selectOptions.length > 0;
 
     // 为sidebar添加addButton props（如果sidebar是SidebarList组件）
