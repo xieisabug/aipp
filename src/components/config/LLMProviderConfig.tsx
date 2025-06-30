@@ -235,7 +235,7 @@ const LLMProviderConfig: React.FC = () => {
                         <div className="flex-1 truncate">
                             <div className="font-medium truncate">{provider.name}</div>
                             <div className={`text-xs ${selectedProvider?.id === provider.id ? 'text-gray-300' : 'text-gray-500'}`}>
-                                {provider.api_type}
+                                {apiTypes.find(type => type.value === provider.api_type)?.label || provider.api_type}
                             </div>
                         </div>
                         {provider.is_enabled && (
@@ -247,13 +247,14 @@ const LLMProviderConfig: React.FC = () => {
         </SidebarList>
     );
 
+    const selectedProviderApiType = selectedProvider ? apiTypes.find(type => type.value === selectedProvider.api_type)?.label || selectedProvider.api_type : "";
     // 右侧内容
     const content = selectedProvider ? (
         <div className="space-y-6">
             <InfoCard
                 icon={<Settings className="h-6 w-6 text-gray-600" />}
                 title={selectedProvider.name}
-                description={selectedProvider.description || `${selectedProvider.api_type} 提供商配置`}
+                description={selectedProvider.description || `${selectedProviderApiType} 提供商配置`}
                 badges={[
                     ...(selectedProvider.is_enabled ? [{ text: "已启用", variant: "green" as const }] : [{ text: "已禁用", variant: "gray" as const }])
                 ]}
@@ -285,7 +286,7 @@ const LLMProviderConfig: React.FC = () => {
             <LLMProviderConfigForm
                 id={selectedProvider.id}
                 index={LLMProviders.findIndex(p => p.id === selectedProvider.id)}
-                apiType={selectedProvider.api_type}
+                apiType={selectedProviderApiType}
                 name={selectedProvider.name}
                 isOffical={selectedProvider.is_official}
                 enabled={selectedProvider.is_enabled}
