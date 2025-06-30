@@ -175,21 +175,21 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
                 },
             },
             {
-                key: "fetchModelList",
-                config: {
-                    type: "button" as const,
-                    label: "",
-                    value: "获取Model列表",
-                    onClick: fetchModelList,
-                },
-            },
-            {
                 key: "tagInput",
                 config: {
                     type: "custom" as const,
                     label: "模型列表",
                     value: "",
                     customRender: tagInputRender,
+                },
+            },
+            {
+                key: "fetchModelList",
+                config: {
+                    type: "button" as const,
+                    label: "",
+                    value: "获取Model列表",
+                    onClick: fetchModelList,
                 },
             },
         ],
