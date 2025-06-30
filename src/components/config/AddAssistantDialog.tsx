@@ -11,13 +11,15 @@ import { AssistantType } from '../../types/assistant';
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from 'sonner';
 import { AssistantDetail } from '../../data/Assistant';
+import { PlusCircle } from 'lucide-react';
 
 interface AddAssistantDialogProps {
   assistantTypes: AssistantType[];
   onAssistantAdded: (assistantDetail: AssistantDetail) => void;
+  triggerButtonProps?: React.ComponentProps<typeof Button>;
 }
 
-const AddAssistantDialog: React.FC<AddAssistantDialogProps> = ({ assistantTypes, onAssistantAdded }) => {
+const AddAssistantDialog: React.FC<AddAssistantDialogProps> = ({ assistantTypes, onAssistantAdded, triggerButtonProps }) => {
   const [openAddAssistantDialog, setOpenAddAssistantDialog] = React.useState<boolean>(false);
 
   const formSchema = z.object({
@@ -54,7 +56,10 @@ const AddAssistantDialog: React.FC<AddAssistantDialogProps> = ({ assistantTypes,
   return (
     <Dialog open={openAddAssistantDialog} onOpenChange={setOpenAddAssistantDialog}>
       <DialogTrigger asChild>
-        <Button>新增</Button>
+        <Button {...triggerButtonProps}>
+          <PlusCircle className="h-4 w-4" />
+          新增助手
+        </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>

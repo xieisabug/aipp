@@ -11,7 +11,8 @@ import {
     SidebarList,
     ListItemButton,
     InfoCard,
-    StatItem
+    StatItem,
+    SelectOption
 } from "../common";
 
 interface ModelForSelect {
@@ -291,6 +292,22 @@ const FeatureAssistantConfig: React.FC = () => {
         }
     }, [featureConfig, summaryFormReturnData, previewFormReturnData]);
 
+    // 下拉菜单选项
+    const selectOptions: SelectOption[] = useMemo(() => 
+        featureList.map(feature => ({
+            id: feature.id,
+            label: feature.name,
+            icon: feature.icon
+        })), []);
+
+    // 下拉菜单选择回调
+    const handleSelectFromDropdown = useCallback((featureId: string) => {
+        const feature = featureList.find(f => f.id === featureId);
+        if (feature) {
+            handleSelectFeature(feature);
+        }
+    }, [handleSelectFeature]);
+
     // 渲染对应的配置表单
     const renderConfigForm = () => {
         switch (selectedFeature.id) {
@@ -379,6 +396,11 @@ const FeatureAssistantConfig: React.FC = () => {
             stats={null}
             sidebar={sidebar}
             content={content}
+            selectOptions={selectOptions}
+            selectedOptionId={selectedFeature.id}
+            onSelectOption={handleSelectFromDropdown}
+            selectPlaceholder="选择功能"
+            sidebarTitle="功能列表"
         />
     );
 };

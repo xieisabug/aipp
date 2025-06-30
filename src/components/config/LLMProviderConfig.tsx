@@ -16,7 +16,8 @@ import {
     ListItemButton,
     InfoCard,
     EmptyState,
-    StatItem
+    StatItem,
+    SelectOption
 } from "../common";
 
 interface LLMProvider {
@@ -164,6 +165,33 @@ const LLMProviderConfig: React.FC = () => {
         ];
     }, [LLMProviders]);
 
+    // 下拉菜单选项
+    const selectOptions: SelectOption[] = useMemo(() => 
+        LLMProviders.map(provider => ({
+            id: provider.id,
+            label: provider.name,
+            icon: provider.is_enabled ? <Zap className="h-4 w-4" /> : <Settings className="h-4 w-4" />
+        })), [LLMProviders]);
+
+    // 下拉菜单选择回调
+    const handleSelectFromDropdown = useCallback((providerId: string) => {
+        const provider = LLMProviders.find(p => p.id === providerId);
+        if (provider) {
+            handleSelectProvider(provider);
+        }
+    }, [LLMProviders, handleSelectProvider]);
+
+    // 新增按钮组件
+    const addButton = useMemo(() => (
+        <Button
+            onClick={openNewProviderDialog}
+            className="gap-2 bg-gray-800 hover:bg-gray-900 text-white shadow-sm hover:shadow-md transition-all"
+        >
+            <PlusCircle className="h-4 w-4" />
+            新增提供商
+        </Button>
+    ), [openNewProviderDialog]);
+
     // 空状态
     if (LLMProviders.length === 0) {
         return (
@@ -216,16 +244,6 @@ const LLMProviderConfig: React.FC = () => {
                     </div>
                 </ListItemButton>
             ))}
-            <div className="pt-2 border-t border-gray-200">
-                <Button
-                    onClick={openNewProviderDialog}
-                    variant="outline"
-                    className="w-full gap-2 hover:bg-gray-50 hover:border-gray-300"
-                >
-                    <PlusCircle className="h-4 w-4" />
-                    新增提供商
-                </Button>
-            </div>
         </SidebarList>
     );
 
@@ -289,6 +307,12 @@ const LLMProviderConfig: React.FC = () => {
                 stats={stats}
                 sidebar={sidebar}
                 content={content}
+                selectOptions={selectOptions}
+                selectedOptionId={selectedProvider?.id}
+                onSelectOption={handleSelectFromDropdown}
+                selectPlaceholder="选择提供商"
+                addButton={addButton}
+                sidebarTitle="提供商列表"
             />
 
             {/* 新增提供商对话框 */}

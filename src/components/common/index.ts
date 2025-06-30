@@ -6,4 +6,4 @@ export { default as EmptyState } from './EmptyState';
 export { default as InfoCard } from './InfoCard';
 
 // 类型导出
-export type { StatItem } from './ConfigPageLayout'; 
+export type { StatItem, SelectOption } from './ConfigPageLayout'; 

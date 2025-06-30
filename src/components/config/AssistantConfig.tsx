@@ -18,7 +18,8 @@ import {
     ListItemButton,
     InfoCard,
     EmptyState,
-    StatItem
+    StatItem,
+    SelectOption
 } from "../common";
 
 import "../../styles/AssistantConfig.css";
@@ -719,6 +720,33 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
         ];
     }, [assistants, assistantTypeNameMap]);
 
+    // 下拉菜单选项
+    const selectOptions: SelectOption[] = useMemo(() => 
+        assistants.map(assistant => ({
+            id: assistant.id.toString(),
+            label: assistant.name,
+            icon: <User className="h-4 w-4" />
+        })), [assistants]);
+
+    // 下拉菜单选择回调
+    const handleSelectFromDropdown = useCallback((assistantId: string) => {
+        const assistant = assistants.find(a => a.id.toString() === assistantId);
+        if (assistant) {
+            handleChooseAssistant(assistant);
+        }
+    }, [assistants, handleChooseAssistant]);
+
+    // 新增按钮组件
+    const addButton = useMemo(() => (
+        <AddAssistantDialog
+            assistantTypes={assistantTypes}
+            onAssistantAdded={handleAssistantAdded}
+            triggerButtonProps={{
+                className: "gap-2 bg-gray-800 hover:bg-gray-900 text-white shadow-sm hover:shadow-md transition-all"
+            }}
+        />
+    ), [assistantTypes, handleAssistantAdded]);
+
     // 空状态
     if (assistants.length === 0) {
         return (
@@ -759,12 +787,6 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                     <span className="truncate">{assistant.name}</span>
                 </ListItemButton>
             ))}
-            <div className="pt-2 border-t border-gray-200">
-                <AddAssistantDialog
-                    assistantTypes={assistantTypes}
-                    onAssistantAdded={handleAssistantAdded}
-                />
-            </div>
         </SidebarList>
     );
 
@@ -835,6 +857,12 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                 stats={stats}
                 sidebar={sidebar}
                 content={content}
+                selectOptions={selectOptions}
+                selectedOptionId={currentAssistant?.assistant.id.toString()}
+                onSelectOption={handleSelectFromDropdown}
+                selectPlaceholder="选择助手"
+                addButton={addButton}
+                sidebarTitle="助手列表"
             />
 
             {/* 对话框 */}
