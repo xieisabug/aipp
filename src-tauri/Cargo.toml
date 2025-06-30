@@ -40,7 +40,7 @@ tauri-plugin-clipboard-manager = { git = "https://github.com/tauri-apps/plugins-
 tauri-plugin-shell = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v2" }
 tauri-plugin-fs = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v2" }
 tauri-plugin-opener = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v2" }
-rig = { git = "https://github.com/xieisabug/rig.git", package = "rig-core", rev="0f88a308fdbecdb5599bf9f0e3b4022c669d5863" }
+rig = { git = "https://github.com/xieisabug/rig.git", package = "rig-core", rev="b3aaccf055f6bad51acf866f5337348857749348" }
 [target.'cfg(target_os = "macos")'.dependencies]
 macos-accessibility-client = "0.0.1"
 

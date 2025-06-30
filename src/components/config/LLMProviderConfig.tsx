@@ -83,6 +83,7 @@ const LLMProviderConfig: React.FC = () => {
         { value: 'ollama', label: 'Ollama API' },
         { value: 'anthropic', label: 'Anthropic API' },
         { value: 'cohere', label: 'Cohere API' },
+        { value: 'deepseek', label: 'DeepSeek API' },
     ]
 
     const openNewProviderDialog = useCallback(() => {
@@ -166,7 +167,7 @@ const LLMProviderConfig: React.FC = () => {
     }, [LLMProviders]);
 
     // 下拉菜单选项
-    const selectOptions: SelectOption[] = useMemo(() => 
+    const selectOptions: SelectOption[] = useMemo(() =>
         LLMProviders.map(provider => ({
             id: provider.id,
             label: provider.name,

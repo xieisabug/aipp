@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use anthropic::AnthropicProvider;
 use cohere::CohereProvider;
+use deepseek::DeepSeekProvider;
 use futures::future::BoxFuture;
 use ollama::OllamaProvider;
 use openai::OpenAIProvider;
@@ -20,6 +21,7 @@ use super::llm_api::LlmModel;
 
 mod anthropic;
 mod cohere;
+mod deepseek;
 mod ollama;
 mod openai;
 
@@ -57,6 +59,7 @@ pub fn get_provider(
         "openai_api" => Arc::new(OpenAIProvider::new(llm_provider_config)), // 传入适当的配置
         "anthropic" => Arc::new(AnthropicProvider::new(llm_provider_config)), // 传入适当的配置
         "cohere" => Arc::new(CohereProvider::new(llm_provider_config)), // 传入适当的配置
+        "deepseek" => Arc::new(DeepSeekProvider::new(llm_provider_config)), // DeepSeek 配置
         // 其他提供商...
         _ => panic!(
             "Unknown provider: {} and type: {}",
