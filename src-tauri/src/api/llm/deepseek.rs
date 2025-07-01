@@ -98,7 +98,11 @@ impl ModelProvider for DeepSeekProvider {
 
             let top_p: Option<f64> = model_conf.get("top_p").and_then(|v| v.parse().ok());
 
-            let mut agent_builder = client.agent(model_name.as_str()).temperature(temperature);
+            let mut agent_builder = client
+                .agent(model_name.as_str())
+                .temperature(temperature)
+                .include_reason_in_content(true)
+                .include_reason_in_content_tag("think");
             if let Some(mt) = max_tokens {
                 agent_builder = agent_builder.max_tokens(mt);
             }
@@ -196,7 +200,12 @@ impl ModelProvider for DeepSeekProvider {
 
             let top_p: Option<f64> = model_conf.get("top_p").and_then(|v| v.parse().ok());
 
-            let mut agent_builder = client.agent(model_name.as_str()).temperature(temperature);
+            let mut agent_builder = client
+                .agent(model_name.as_str())
+                .temperature(temperature)
+                .include_reason_in_content(true)
+                .include_reason_in_content_tag("think");
+
             if let Some(mt) = max_tokens {
                 agent_builder = agent_builder.max_tokens(mt);
             }
