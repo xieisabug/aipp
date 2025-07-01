@@ -1,4 +1,5 @@
 use crate::api::assistant_api::get_assistant;
+use crate::api::llm::get_provider;
 use crate::db::assistant_db::AssistantModelConfig;
 use crate::db::conversation_db::{AttachmentType, Repository};
 use crate::db::conversation_db::{Conversation, ConversationDatabase, Message, MessageAttachment};
@@ -14,106 +15,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use tauri::Emitter;
+use tauri::Listener;
 use tauri::State;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
-use genai::chat::{ChatMessage, ChatOptions, ChatRequest};
-use genai::resolver::{AuthData, Endpoint, ServiceTargetResolver};
-use genai::{Client, ModelIden, ServiceTarget};
-use genai::adapter::AdapterKind;
-
 use super::assistant_api::AssistantDetail;
-
-/// 根据模型名称推断 AdapterKind
-fn infer_adapter_kind(model_name: &str, api_type: &str) -> AdapterKind {
-    match api_type.to_lowercase().as_str() {
-        "openai_api" | "openai" => AdapterKind::OpenAI,
-        "anthropic" => AdapterKind::Anthropic,
-        "cohere" => AdapterKind::Cohere,
-        "gemini" => AdapterKind::Gemini,
-        "deepseek" => AdapterKind::DeepSeek, // DeepSeek 使用 OpenAI 兼容 API
-        "ollama" => AdapterKind::Ollama,
-        "xai" => AdapterKind::Xai,
-        _ => {
-            // 根据模型名称推断
-            if model_name.starts_with("gpt") || model_name.starts_with("o1") || model_name.starts_with("o3") || model_name.starts_with("o4") {
-                AdapterKind::OpenAI
-            } else if model_name.starts_with("claude") {
-                AdapterKind::Anthropic
-            } else if model_name.starts_with("command") {
-                AdapterKind::Cohere
-            } else if model_name.starts_with("gemini") {
-                AdapterKind::Gemini
-            } else if model_name.starts_with("grok") {
-                AdapterKind::Xai
-            } else if model_name.starts_with("deepseek") {
-                AdapterKind::OpenAI // DeepSeek 使用 OpenAI 兼容 API
-            } else {
-                AdapterKind::Ollama // 默认使用 Ollama
-            }
-        }
-    }
-}
-
-/// 从配置创建自定义 Client
-fn create_client_with_config(
-    configs: &[crate::db::llm_db::LLMProviderConfig], 
-    model_name: &str,
-    api_type: &str
-) -> Result<Client, AppError> {
-    let config_map: HashMap<String, String> = configs
-        .iter()
-        .map(|c| (c.name.clone(), c.value.clone()))
-        .collect();
-
-    let api_key = config_map
-        .get("api_key")
-        .ok_or_else(|| AppError::NoConfigError("api_key".to_string()))?;
-
-    let endpoint_opt = config_map.get("endpoint").cloned();
-    let adapter_kind = infer_adapter_kind(model_name, api_type);
-    let api_key = api_key.clone();
-
-    let target_resolver = ServiceTargetResolver::from_resolver_fn(
-        move |service_target: ServiceTarget| -> Result<ServiceTarget, genai::resolver::Error> {
-            let ServiceTarget { model, .. } = service_target;
-            
-            let auth = AuthData::from_single(api_key.clone());
-            let model_iden = ModelIden::new(adapter_kind, model.model_name);
-            
-            let endpoint = if let Some(ep) = &endpoint_opt {
-                Endpoint::from_owned(ep.trim_end_matches('/').to_string())
-            } else {
-                // 使用默认端点
-                match adapter_kind {
-                    AdapterKind::OpenAI => Endpoint::from_static("https://api.openai.com/v1"),
-                    AdapterKind::Anthropic => Endpoint::from_static("https://api.anthropic.com"),
-                    AdapterKind::Cohere => Endpoint::from_static("https://api.cohere.ai/v1"),
-                    AdapterKind::Gemini => Endpoint::from_static("https://generativelanguage.googleapis.com/v1beta"),
-                    AdapterKind::Groq => Endpoint::from_static("https://api.groq.com/openai/v1"),
-                    AdapterKind::Xai => Endpoint::from_static("https://api.x.ai/v1"),
-                    AdapterKind::DeepSeek => Endpoint::from_static("https://api.deepseek.com/"),
-                    AdapterKind::Ollama => Endpoint::from_static("http://localhost:11434/api"),
-                    _ => Endpoint::from_static("https://api.openai.com/v1"), // 默认
-                }
-            };
-
-            Ok(ServiceTarget {
-                endpoint,
-                auth,
-                model: model_iden,
-            })
-        },
-    );
-
-    let client = Client::builder()
-        .with_service_target_resolver(target_resolver)
-        .build();
-
-    Ok(client)
-}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AiRequest {
@@ -188,6 +96,7 @@ pub async fn ask_ai(
     if new_message_id.is_some() {
         let config_feature_map = feature_config_state.config_feature_map.lock().await.clone();
 
+        let request_prompt_result_clone = request_prompt_result.clone();
         let app_handle_clone = app_handle.clone();
 
         let cancel_token = CancellationToken::new();
@@ -209,21 +118,15 @@ pub async fn ask_ai(
                 .context("Failed to get LLM model detail")?;
             println!("model detail : {:#?}", model_detail);
 
-            // Create genai client with custom config
-            let client = create_client_with_config(
-                &model_detail.configs, 
-                &model_detail.model.code, 
-                &model_detail.provider.api_type
-            )?;
+            let provider = get_provider(model_detail.provider, model_detail.configs);
 
-            // Prepare model configurations
             let mut model_config_clone = assistant_detail.model_configs.clone();
             model_config_clone.push(AssistantModelConfig {
                 id: 0,
                 assistant_id: assistant_detail.assistant.id,
                 assistant_model_id: model_detail.model.id,
                 name: "model".to_string(),
-                value: Some(model_detail.model.code.clone()),
+                value: Some(model_detail.model.code),
                 value_type: "string".to_string(),
             });
 
@@ -259,7 +162,8 @@ pub async fn ask_ai(
                 }
             }
 
-            let config_map = model_config_clone
+            let config_map = assistant_detail
+                .model_configs
                 .iter()
                 .filter_map(|config| {
                     config
@@ -274,86 +178,25 @@ pub async fn ask_ai(
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(false);
 
-            // Extract model name from config
-            let model_name = config_map
-                .get("model")
-                .cloned()
-                .unwrap_or_else(|| model_detail.model.code.clone());
-
-            // Convert messages to ChatMessage format
-            let mut chat_messages = Vec::new();
-            for (role, content, _attachments) in &init_message_list {
-                match role.as_str() {
-                    "system" => chat_messages.push(ChatMessage::system(content)),
-                    "user" => chat_messages.push(ChatMessage::user(content)),
-                    "assistant" => chat_messages.push(ChatMessage::assistant(content)),
-                    _ => {}
-                }
-            }
-
-            let chat_request = ChatRequest::new(chat_messages);
-
-            // Build chat options
-            let mut chat_options = ChatOptions::default();
-
-            if let Some(temp_str) = config_map.get("temperature") {
-                if let Ok(temp) = temp_str.parse::<f64>() {
-                    chat_options = chat_options.with_temperature(temp);
-                }
-            }
-
-            if let Some(max_tokens_str) = config_map.get("max_tokens") {
-                if let Ok(max_tokens) = max_tokens_str.parse::<u32>() {
-                    chat_options = chat_options.with_max_tokens(max_tokens);
-                }
-            }
-
-            if let Some(top_p_str) = config_map.get("top_p") {
-                if let Ok(top_p) = top_p_str.parse::<f64>() {
-                    chat_options = chat_options.with_top_p(top_p);
-                }
-            }
-
-            println!("Using model: {}, stream: {}", model_name, stream);
+            println!("prompt: {}", request_prompt_result_clone);
 
             if stream {
-                // TODO: 暂时禁用流式处理，使用非流式作为替代
-                // 在正确配置 genai 流式处理之前，我们使用非流式处理
-                conversation_db
-                    .message_repo()
-                    .unwrap()
-                    .update_start_time(message_id)
-                    .unwrap();
-
-                let chat_result = tokio::select! {
-                    result = client.exec_chat(&model_name, chat_request, Some(&chat_options)) => result,
-                    _ = cancel_token.cancelled() => {
-                        let mut map = tokens.lock().await;
-                        map.remove(&message_id);
-                        return Err(anyhow::anyhow!("Request cancelled"));
-                    }
-                };
-
-                match chat_result {
-                    Ok(chat_response) => {
-                        let content = chat_response.first_text().unwrap_or("").to_string();
-                        println!("Chat content: {}", content.clone());
-
-                        conversation_db
-                            .message_repo()
-                            .unwrap()
-                            .update_finish_time(message_id)
-                            .unwrap();
-                        tx.send((message_id, content.clone(), true)).await.unwrap();
-                        drop(tx);
-                    }
-                    Err(e) => {
-                        let mut map = tokens.lock().await;
-                        map.remove(&message_id);
-                        let err_msg = format!("Chat error: {}", e);
-                        tx.send((message_id, err_msg, true)).await.unwrap();
-                        eprintln!("Chat error: {}", e);
-                    }
+                let tx_clone = tx.clone();
+                if let Err(e) = provider
+                    .chat_stream(
+                        message_id,
+                        init_message_list,
+                        model_config_clone,
+                        tx,
+                        cancel_token,
+                    )
+                    .await
+                {
+                    let mut map = tokens.lock().await;
+                    map.remove(&message_id);
+                    let err_msg = format!("Chat stream error: {}", e);
+                    tx_clone.send((message_id, err_msg, true)).await.unwrap();
+                    eprintln!("Chat stream error: {}", e);
                 }
             } else {
                 conversation_db
@@ -361,39 +204,27 @@ pub async fn ask_ai(
                     .unwrap()
                     .update_start_time(message_id)
                     .unwrap();
+                let content = provider
+                    .chat(
+                        message_id,
+                        init_message_list,
+                        model_config_clone,
+                        cancel_token,
+                    )
+                    .await
+                    .map_err(Error::from)
+                    .context("Failed to chat")?;
 
-                // Use genai non-streaming
-                let chat_result = tokio::select! {
-                    result = client.exec_chat(&model_name, chat_request, Some(&chat_options)) => result,
-                    _ = cancel_token.cancelled() => {
-                        let mut map = tokens.lock().await;
-                        map.remove(&message_id);
-                        return Err(anyhow::anyhow!("Request cancelled"));
-                    }
-                };
+                println!("Chat content: {}", content.clone());
 
-                match chat_result {
-                    Ok(chat_response) => {
-                        let content = chat_response.first_text().unwrap_or("").to_string();
-                        println!("Chat content: {}", content.clone());
-
-                        conversation_db
-                            .message_repo()
-                            .unwrap()
-                            .update_finish_time(message_id)
-                            .unwrap();
-                        tx.send((message_id, content.clone(), true)).await.unwrap();
-                        // Ensure tx is closed after sending the message
-                        drop(tx);
-                    }
-                    Err(e) => {
-                        let mut map = tokens.lock().await;
-                        map.remove(&message_id);
-                        let err_msg = format!("Chat error: {}", e);
-                        tx.send((message_id, err_msg, true)).await.unwrap();
-                        eprintln!("Chat error: {}", e);
-                    }
-                }
+                conversation_db
+                    .message_repo()
+                    .unwrap()
+                    .update_finish_time(message_id)
+                    .unwrap();
+                tx.send((message_id, content.clone(), true)).await.unwrap();
+                // Ensure tx is closed after sending the message
+                drop(tx);
             }
 
             Ok::<(), Error>(())
@@ -606,7 +437,7 @@ pub async fn regenerate_ai(
         .into_iter()
         .filter_map(|m: (Message, Option<MessageAttachment>)| {
             if m.0.id >= message_id {
-                return None::<(String, String, Vec<MessageAttachment>)>;
+                return None;
             }
 
             if parent_ids.contains(&m.0.id) {
@@ -657,12 +488,7 @@ pub async fn regenerate_ai(
             .get_llm_model_detail(provider_id, model_code)
             .context("Failed to get LLM model detail")?;
 
-        // Create genai client with custom config
-        let client = create_client_with_config(
-            &model_detail.configs, 
-            &model_detail.model.code, 
-            &model_detail.provider.api_type
-        )?;
+        let provider = get_provider(model_detail.provider, model_detail.configs);
 
         let mut model_config_clone = assistant_detail.model_configs.clone();
         model_config_clone.push(AssistantModelConfig {
@@ -670,11 +496,12 @@ pub async fn regenerate_ai(
             assistant_id: assistant_detail.assistant.id,
             assistant_model_id: model_detail.model.id,
             name: "model".to_string(),
-            value: Some(model_detail.model.code.clone()),
+            value: Some(model_detail.model.code),
             value_type: "string".to_string(),
         });
 
-        let config_map = model_config_clone
+        let config_map = assistant_detail
+            .model_configs
             .iter()
             .filter_map(|config| {
                 config
@@ -689,85 +516,26 @@ pub async fn regenerate_ai(
             .and_then(|v| v.parse().ok())
             .unwrap_or(false);
 
-        // Extract model name from config
-        let model_name = config_map
-            .get("model")
-            .cloned()
-            .unwrap_or_else(|| model_detail.model.code.clone());
-
-        // Convert messages to ChatMessage format
-        let mut chat_messages = Vec::new();
-        for (role, content, _attachments) in &init_message_list {
-            match role.as_str() {
-                "system" => chat_messages.push(ChatMessage::system(content)),
-                "user" => chat_messages.push(ChatMessage::user(content)),
-                "assistant" => chat_messages.push(ChatMessage::assistant(content)),
-                _ => {}
-            }
-        }
-
-        let chat_request = ChatRequest::new(chat_messages);
-
-        // Build chat options
-        let mut chat_options = ChatOptions::default();
-
-        if let Some(temp_str) = config_map.get("temperature") {
-            if let Ok(temp) = temp_str.parse::<f64>() {
-                chat_options = chat_options.with_temperature(temp);
-            }
-        }
-
-        if let Some(max_tokens_str) = config_map.get("max_tokens") {
-            if let Ok(max_tokens) = max_tokens_str.parse::<u32>() {
-                chat_options = chat_options.with_max_tokens(max_tokens);
-            }
-        }
-
-        if let Some(top_p_str) = config_map.get("top_p") {
-            if let Ok(top_p) = top_p_str.parse::<f64>() {
-                chat_options = chat_options.with_top_p(top_p);
-            }
-        }
-
         if stream {
-            // TODO: 暂时禁用流式处理，使用非流式作为替代
-            // 在正确配置 genai 流式处理之前，我们使用非流式处理
-            conversation_db
-                .message_repo()
-                .unwrap()
-                .update_start_time(new_message_id)
-                .unwrap();
-
-            let chat_result = tokio::select! {
-                result = client.exec_chat(&model_name, chat_request, Some(&chat_options)) => result,
-                _ = cancel_token.cancelled() => {
-                    let mut map = tokens.lock().await;
-                    map.remove(&new_message_id);
-                    return Err(anyhow::anyhow!("Request cancelled"));
-                }
-            };
-
-            match chat_result {
-                Ok(chat_response) => {
-                    let content = chat_response.first_text().unwrap_or("").to_string();
-
-                    conversation_db
-                        .message_repo()
-                        .unwrap()
-                        .update_finish_time(new_message_id)
-                        .unwrap();
-                    tx.send((new_message_id, content.clone(), true))
-                        .await
-                        .unwrap();
-                    drop(tx);
-                }
-                Err(e) => {
-                    let mut map = tokens.lock().await;
-                    map.remove(&new_message_id);
-                    let err_msg = format!("Chat error: {}", e);
-                    tx.send((new_message_id, err_msg, true)).await.unwrap();
-                    eprintln!("Chat error: {}", e);
-                }
+            let tx_clone = tx.clone();
+            if let Err(e) = provider
+                .chat_stream(
+                    new_message_id,
+                    init_message_list,
+                    model_config_clone,
+                    tx,
+                    cancel_token,
+                )
+                .await
+            {
+                let mut map = tokens.lock().await;
+                map.remove(&new_message_id);
+                let err_msg = format!("Chat stream error: {}", e);
+                tx_clone
+                    .send((new_message_id, err_msg, true))
+                    .await
+                    .unwrap();
+                eprintln!("Chat stream error: {}", e);
             }
         } else {
             conversation_db
@@ -775,40 +543,27 @@ pub async fn regenerate_ai(
                 .unwrap()
                 .update_start_time(new_message_id)
                 .unwrap();
+            let content = provider
+                .chat(
+                    new_message_id,
+                    init_message_list,
+                    model_config_clone,
+                    cancel_token,
+                )
+                .await
+                .map_err(Error::from)
+                .context("Failed to chat")?;
 
-            // Use genai non-streaming
-            let chat_result = tokio::select! {
-                result = client.exec_chat(&model_name, chat_request, Some(&chat_options)) => result,
-                _ = cancel_token.cancelled() => {
-                    let mut map = tokens.lock().await;
-                    map.remove(&new_message_id);
-                    return Err(anyhow::anyhow!("Request cancelled"));
-                }
-            };
-
-            match chat_result {
-                Ok(chat_response) => {
-                    let content = chat_response.first_text().unwrap_or("").to_string();
-
-                    conversation_db
-                        .message_repo()
-                        .unwrap()
-                        .update_finish_time(new_message_id)
-                        .unwrap();
-                    tx.send((new_message_id, content.clone(), true))
-                        .await
-                        .unwrap();
-                    // Ensure tx is closed after sending the message
-                    drop(tx);
-                }
-                Err(e) => {
-                    let mut map = tokens.lock().await;
-                    map.remove(&new_message_id);
-                    let err_msg = format!("Chat error: {}", e);
-                    tx.send((new_message_id, err_msg, true)).await.unwrap();
-                    eprintln!("Chat error: {}", e);
-                }
-            }
+            conversation_db
+                .message_repo()
+                .unwrap()
+                .update_finish_time(new_message_id)
+                .unwrap();
+            tx.send((new_message_id, content.clone(), true))
+                .await
+                .unwrap();
+            // Ensure tx is closed after sending the message
+            drop(tx);
         }
 
         Ok::<(), Error>(())
@@ -1173,24 +928,25 @@ async fn generate_title(
         let db = get_llm_db(app_handle)?;
         let model_detail = db.get_llm_model_detail(&provider_id, &model_code).unwrap();
 
-        // Create genai client with custom config
-        let client = create_client_with_config(
-            &model_detail.configs, 
-            &model_detail.model.code, 
-            &model_detail.provider.api_type
-        )?;
-
-        // Convert messages to ChatMessage format
-        let chat_messages = vec![ChatMessage::system(&prompt), ChatMessage::user(&context)];
-        let chat_request = ChatRequest::new(chat_messages);
-
-        // Use model code as model name
-        let model_name = &model_detail.model.code;
-
-        let response = client
-            .exec_chat(model_name, chat_request, None)
+        let provider = get_provider(model_detail.provider, model_detail.configs);
+        let response = provider
+            .chat(
+                -1,
+                vec![
+                    ("system".to_string(), prompt, vec![]),
+                    ("user".to_string(), context, vec![]),
+                ],
+                vec![AssistantModelConfig {
+                    id: 0,
+                    assistant_id: 0,
+                    assistant_model_id: 0,
+                    name: "model".to_string(),
+                    value: Some(model_detail.model.code),
+                    value_type: "string".to_string(),
+                }],
+                CancellationToken::new(),
+            )
             .await
-            .map(|chat_response| chat_response.first_text().unwrap_or("").to_string())
             .map_err(|e| e.to_string());
         match response {
             Err(e) => {
