@@ -248,6 +248,234 @@ pub struct AiResponse {
     add_message_id: i64,
     request_prompt_result_with_context: String,
 }
+
+/// 处理流式聊天
+async fn handle_stream_chat(
+    client: &Client,
+    model_name: &str,
+    chat_request: ChatRequest,
+    chat_options: &ChatOptions,
+    message_id: i64,
+    tx: &mpsc::Sender<(i64, String, bool)>,
+    cancel_token: &CancellationToken,
+    conversation_db: &ConversationDatabase,
+    tokens: &Arc<tokio::sync::Mutex<HashMap<i64, CancellationToken>>>,
+) -> Result<(), anyhow::Error> {
+    match client.exec_chat_stream(model_name, chat_request, Some(chat_options)).await {
+        Ok(chat_stream_response) => {
+            let mut chat_stream = chat_stream_response.stream;
+            let mut full_content = String::new();
+            
+            loop {
+                tokio::select! {
+                    stream_result = chat_stream.next() => {
+                        match stream_result {
+                            Some(Ok(stream_event)) => {
+                                use genai::chat::ChatStreamEvent;
+                                match stream_event {
+                                    ChatStreamEvent::Start => {
+                                        conversation_db
+                                            .message_repo()
+                                            .unwrap()
+                                            .update_start_time(message_id)
+                                            .unwrap();
+                                    }
+                                    ChatStreamEvent::Chunk(chunk) => {
+                                        full_content.push_str(&chunk.content);
+                                                                            if let Err(e) = tx.send((message_id, full_content.clone(), false)).await {
+                                        eprintln!("Failed to send chunk: {}", e);
+                                        return Ok(());
+                                    }
+                                    }
+                                    ChatStreamEvent::ReasoningChunk(reasoning_chunk) => {
+                                        full_content.push_str(&reasoning_chunk.content);
+                                                                            if let Err(e) = tx.send((message_id, full_content.clone(), false)).await {
+                                        eprintln!("Failed to send reasoning chunk: {}", e);
+                                        return Ok(());
+                                    }
+                                    }
+                                    ChatStreamEvent::ToolCallChunk(_tool_chunk) => {
+                                        // 工具调用块，暂时忽略
+                                    }
+                                    ChatStreamEvent::End(stream_end) => {
+                                        if let Some(captured_text) = stream_end.captured_first_text() {
+                                            full_content = captured_text.to_string();
+                                        }
+                                        
+                                        conversation_db
+                                            .message_repo()
+                                            .unwrap()
+                                            .update_finish_time(message_id)
+                                            .unwrap();
+                                        
+                                        tx.send((message_id, full_content.clone(), true)).await.unwrap();
+                                        return Ok(());
+                                    }
+                                }
+                            },
+                            Some(Err(e)) => {
+                                eprintln!("Stream error: {}", e);
+                                cleanup_token(tokens, message_id).await;
+                                let err_msg = format!("Chat stream error: {}", e);
+                                tx.send((message_id, err_msg, true)).await.unwrap();
+                                return Err(anyhow::anyhow!("Stream error: {}", e));
+                            },
+                            None => {
+                                conversation_db
+                                    .message_repo()
+                                    .unwrap()
+                                    .update_finish_time(message_id)
+                                    .unwrap();
+                                tx.send((message_id, full_content.clone(), true)).await.unwrap();
+                                return Ok(());
+                            }
+                        }
+                    }
+                    _ = cancel_token.cancelled() => {
+                        println!("Chat stream cancelled");
+                        return Ok(());
+                    }
+                }
+            }
+        },
+        Err(e) => {
+            cleanup_token(tokens, message_id).await;
+            let err_msg = format!("Chat stream error: {}", e);
+            tx.send((message_id, err_msg, true)).await.unwrap();
+            eprintln!("Chat stream error: {}", e);
+            return Err(anyhow::anyhow!("Chat stream error: {}", e));
+        }
+    }
+}
+
+/// 处理非流式聊天
+async fn handle_non_stream_chat(
+    client: &Client,
+    model_name: &str,
+    chat_request: ChatRequest,
+    chat_options: &ChatOptions,
+    message_id: i64,
+    tx: &mpsc::Sender<(i64, String, bool)>,
+    cancel_token: &CancellationToken,
+    conversation_db: &ConversationDatabase,
+    tokens: &Arc<tokio::sync::Mutex<HashMap<i64, CancellationToken>>>,
+) -> Result<(), anyhow::Error> {
+    conversation_db
+        .message_repo()
+        .unwrap()
+        .update_start_time(message_id)
+        .unwrap();
+
+    let chat_result = tokio::select! {
+        result = client.exec_chat(model_name, chat_request, Some(chat_options)) => result,
+        _ = cancel_token.cancelled() => {
+            cleanup_token(tokens, message_id).await;
+            return Err(anyhow::anyhow!("Request cancelled"));
+        }
+    };
+
+    match chat_result {
+        Ok(chat_response) => {
+            let content = chat_response.first_text().unwrap_or("").to_string();
+            println!("Chat content: {}", content.clone());
+
+            conversation_db
+                .message_repo()
+                .unwrap()
+                .update_finish_time(message_id)
+                .unwrap();
+            tx.send((message_id, content.clone(), true)).await.unwrap();
+            Ok(())
+        }
+        Err(e) => {
+            cleanup_token(tokens, message_id).await;
+            let err_msg = format!("Chat error: {}", e);
+            tx.send((message_id, err_msg, true)).await.unwrap();
+            eprintln!("Chat error: {}", e);
+            Err(anyhow::anyhow!("Chat error: {}", e))
+        }
+    }
+}
+
+/// 处理聊天响应消息
+async fn handle_chat_response(
+    app_handle: tauri::AppHandle,
+    window: tauri::Window,
+    message_id: i64,
+    conversation_id: i64,
+    request_prompt_result: String,
+    need_generate_title: bool,
+    config_feature_map: HashMap<String, HashMap<String, FeatureConfig>>,
+    tokens: Arc<tokio::sync::Mutex<HashMap<i64, CancellationToken>>>,
+    mut rx: mpsc::Receiver<(i64, String, bool)>,
+) {
+    loop {
+        match timeout(Duration::from_secs(600), rx.recv()).await {
+            Ok(Some((id, content, done))) => {
+                println!("Received data: id={}, content={}", id, content);
+                window
+                    .emit(format!("message_{}", id).as_str(), content.clone())
+                    .map_err(|e| e.to_string())
+                    .unwrap();
+
+                if done {
+                    let conversation_db = ConversationDatabase::new(&app_handle)
+                        .map_err(|e: rusqlite::Error| e.to_string())
+                        .unwrap();
+
+                    let mut message = conversation_db
+                        .message_repo()
+                        .unwrap()
+                        .read(message_id)
+                        .unwrap()
+                        .unwrap();
+                    message.content = content.clone().to_string();
+                    conversation_db
+                        .message_repo()
+                        .unwrap()
+                        .update(&message)
+                        .unwrap();
+
+                    println!("Message finish: id={}", id);
+                    window
+                        .emit(
+                            format!("message_{}", id).as_str(),
+                            MESSAGE_FINISH_EVENT,
+                        )
+                        .map_err(|e| e.to_string())
+                        .unwrap();
+                    
+                    if need_generate_title {
+                        generate_title(
+                            &app_handle,
+                            conversation_id,
+                            request_prompt_result.clone(),
+                            content.clone().to_string(),
+                            config_feature_map.clone(),
+                            window.clone(),
+                        )
+                        .await
+                        .map_err(|e| e.to_string())
+                        .unwrap();
+                    }
+                    cleanup_token(&tokens, message_id).await;
+                    break;
+                }
+            }
+            Ok(None) => {
+                cleanup_token(&tokens, message_id).await;
+                println!("Channel closed");
+                break;
+            }
+            Err(err) => {
+                cleanup_token(&tokens, message_id).await;
+                println!("Timeout waiting for data from channel: {:?}", err);
+                break;
+            }
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn ask_ai(
     app_handle: tauri::AppHandle,
@@ -301,6 +529,7 @@ pub async fn ask_ai(
 
     if new_message_id.is_some() {
         let config_feature_map = feature_config_state.config_feature_map.lock().await.clone();
+        let request_prompt_result_with_context_clone = request_prompt_result_with_context.clone();
 
         let app_handle_clone = app_handle.clone();
 
@@ -367,134 +596,30 @@ pub async fn ask_ai(
 
             if stream {
                 // 使用 genai 流式处理
-                match client.exec_chat_stream(&model_name, chat_request, Some(&chat_options)).await {
-                    Ok(chat_stream_response) => {
-                        let mut chat_stream = chat_stream_response.stream;
-                        let mut full_content = String::new();
-                        
-                        loop {
-                            tokio::select! {
-                                stream_result = chat_stream.next() => {
-                                    match stream_result {
-                                        Some(Ok(stream_event)) => {
-                                            use genai::chat::ChatStreamEvent;
-                                            match stream_event {
-                                                ChatStreamEvent::Start => {
-                                                    // 流开始，更新开始时间
-                                                    conversation_db
-                                                        .message_repo()
-                                                        .unwrap()
-                                                        .update_start_time(message_id)
-                                                        .unwrap();
-                                                }
-                                                ChatStreamEvent::Chunk(chunk) => {
-                                                    // 接收到内容块
-                                                    full_content.push_str(&chunk.content);
-                                                    if let Err(e) = tx.send((message_id, full_content.clone(), false)).await {
-                                                        eprintln!("Failed to send chunk: {}", e);
-                                                        break;
-                                                    }
-                                                }
-                                                ChatStreamEvent::ReasoningChunk(reasoning_chunk) => {
-                                                    // 推理内容块 (如 o1 模型的推理过程)
-                                                    // 这里我们也加入到内容中，但可以根据需要单独处理
-                                                    full_content.push_str(&reasoning_chunk.content);
-                                                    if let Err(e) = tx.send((message_id, full_content.clone(), false)).await {
-                                                        eprintln!("Failed to send reasoning chunk: {}", e);
-                                                        break;
-                                                    }
-                                                }
-                                                ChatStreamEvent::ToolCallChunk(_tool_chunk) => {
-                                                    // 工具调用块，暂时忽略
-                                                    // 可以根据需要处理工具调用
-                                                }
-                                                ChatStreamEvent::End(stream_end) => {
-                                                    // 流结束
-                                                    if let Some(captured_text) = stream_end.captured_first_text() {
-                                                        full_content = captured_text.to_string();
-                                                    }
-                                                    
-                                                    conversation_db
-                                                        .message_repo()
-                                                        .unwrap()
-                                                        .update_finish_time(message_id)
-                                                        .unwrap();
-                                                    
-                                                    tx.send((message_id, full_content.clone(), true)).await.unwrap();
-                                                    break;
-                                                }
-                                            }
-                                        },
-                                        Some(Err(e)) => {
-                                            eprintln!("Stream error: {}", e);
-                                            cleanup_token(&tokens, message_id).await;
-                                            let err_msg = format!("Chat stream error: {}", e);
-                                            tx.send((message_id, err_msg, true)).await.unwrap();
-                                            break;
-                                        },
-                                        None => {
-                                            // 流意外结束
-                                            conversation_db
-                                                .message_repo()
-                                                .unwrap()
-                                                .update_finish_time(message_id)
-                                                .unwrap();
-                                            tx.send((message_id, full_content.clone(), true)).await.unwrap();
-                                            break;
-                                        }
-                                    }
-                                }
-                                _ = cancel_token.cancelled() => {
-                                    println!("Chat stream cancelled");
-                                    break;
-                                }
-                            }
-                        }
-                    },
-                    Err(e) => {
-                        cleanup_token(&tokens, message_id).await;
-                        let err_msg = format!("Chat stream error: {}", e);
-                        tx.send((message_id, err_msg, true)).await.unwrap();
-                        eprintln!("Chat stream error: {}", e);
-                    }
-                }
+                handle_stream_chat(
+                    &client,
+                    &model_name,
+                    chat_request,
+                    &chat_options,
+                    message_id,
+                    &tx,
+                    &cancel_token,
+                    &conversation_db,
+                    &tokens,
+                ).await?;
             } else {
-                conversation_db
-                    .message_repo()
-                    .unwrap()
-                    .update_start_time(message_id)
-                    .unwrap();
-
                 // Use genai non-streaming
-                let chat_result = tokio::select! {
-                    result = client.exec_chat(&model_name, chat_request, Some(&chat_options)) => result,
-                    _ = cancel_token.cancelled() => {
-                        cleanup_token(&tokens, message_id).await;
-                        return Err(anyhow::anyhow!("Request cancelled"));
-                    }
-                };
-
-                match chat_result {
-                    Ok(chat_response) => {
-                        let content = chat_response.first_text().unwrap_or("").to_string();
-                        println!("Chat content: {}", content.clone());
-
-                        conversation_db
-                            .message_repo()
-                            .unwrap()
-                            .update_finish_time(message_id)
-                            .unwrap();
-                        tx.send((message_id, content.clone(), true)).await.unwrap();
-                        // Ensure tx is closed after sending the message
-                        drop(tx);
-                    }
-                    Err(e) => {
-                        cleanup_token(&tokens, message_id).await;
-                        let err_msg = format!("Chat error: {}", e);
-                        tx.send((message_id, err_msg, true)).await.unwrap();
-                        eprintln!("Chat error: {}", e);
-                    }
-                }
+                handle_non_stream_chat(
+                    &client,
+                    &model_name,
+                    chat_request,
+                    &chat_options,
+                    message_id,
+                    &tx,
+                    &cancel_token,
+                    &conversation_db,
+                    &tokens,
+                ).await?;
             }
 
             Ok::<(), Error>(())
@@ -504,69 +629,17 @@ pub async fn ask_ai(
         let tokens = message_token_manager.get_tokens();
         let window_clone = window.clone();
         tokio::spawn(async move {
-            loop {
-                match timeout(Duration::from_secs(600), rx.recv()).await {
-                    Ok(Some((id, content, done))) => {
-                        println!("Received data: id={}, content={}", id, content);
-                        window_clone
-                            .emit(format!("message_{}", id).as_str(), content.clone())
-                            .map_err(|e| e.to_string())
-                            .unwrap();
-
-                        if done {
-                            let conversation_db = ConversationDatabase::new(&app_handle_clone)
-                                .map_err(|e: rusqlite::Error| e.to_string())
-                                .unwrap();
-
-                            let mut message = conversation_db
-                                .message_repo()
-                                .unwrap()
-                                .read(new_message_id.unwrap())
-                                .unwrap()
-                                .unwrap();
-                            message.content = content.clone().to_string();
-                            conversation_db
-                                .message_repo()
-                                .unwrap()
-                                .update(&message)
-                                .unwrap();
-
-                            println!("Message finish: id={}", id);
-                            window_clone
-                                .emit(
-                                    format!("message_{}", id).as_str(),
-                                    MESSAGE_FINISH_EVENT,
-                                )
-                                .map_err(|e| e.to_string())
-                                .unwrap();
-                            if need_generate_title {
-                                generate_title(
-                                    &app_handle_clone,
-                                    conversation_id,
-                                    request_prompt_result.clone(),
-                                    content.clone().to_string(),
-                                    config_feature_map.clone(),
-                                    window_clone.clone(),
-                                )
-                                .await
-                                .map_err(|e| e.to_string())
-                                .unwrap();
-                            }
-                            cleanup_token(&tokens, message_id).await;
-                        }
-                    }
-                    Ok(None) => {
-                        cleanup_token(&tokens, message_id).await;
-                        println!("Channel closed");
-                        break;
-                    }
-                    Err(err) => {
-                        cleanup_token(&tokens, message_id).await;
-                        println!("Timeout waiting for data from channel: {:?}", err);
-                        break;
-                    }
-                }
-            }
+            handle_chat_response(
+                app_handle_clone,
+                window_clone,
+                new_message_id.unwrap(),
+                conversation_id,
+                request_prompt_result_with_context_clone,
+                need_generate_title,
+                config_feature_map.clone(),
+                tokens,
+                rx,
+            ).await;
         });
     }
 
@@ -796,133 +869,30 @@ pub async fn regenerate_ai(
 
         if stream {
             // 使用 genai 流式处理
-            match client.exec_chat_stream(&model_name, chat_request, Some(&chat_options)).await {
-                Ok(chat_stream_response) => {
-                    let mut chat_stream = chat_stream_response.stream;
-                    let mut full_content = String::new();
-                    
-                    loop {
-                        tokio::select! {
-                            stream_result = chat_stream.next() => {
-                                match stream_result {
-                                    Some(Ok(stream_event)) => {
-                                        use genai::chat::ChatStreamEvent;
-                                        match stream_event {
-                                            ChatStreamEvent::Start => {
-                                                // 流开始，更新开始时间
-                                                conversation_db
-                                                    .message_repo()
-                                                    .unwrap()
-                                                    .update_start_time(new_message_id)
-                                                    .unwrap();
-                                            }
-                                            ChatStreamEvent::Chunk(chunk) => {
-                                                // 接收到内容块
-                                                full_content.push_str(&chunk.content);
-                                                if let Err(e) = tx.send((new_message_id, full_content.clone(), false)).await {
-                                                    eprintln!("Failed to send chunk: {}", e);
-                                                    break;
-                                                }
-                                            }
-                                            ChatStreamEvent::ReasoningChunk(reasoning_chunk) => {
-                                                // 推理内容块 (如 o1 模型的推理过程)
-                                                full_content.push_str(&reasoning_chunk.content);
-                                                if let Err(e) = tx.send((new_message_id, full_content.clone(), false)).await {
-                                                    eprintln!("Failed to send reasoning chunk: {}", e);
-                                                    break;
-                                                }
-                                            }
-                                            ChatStreamEvent::ToolCallChunk(_tool_chunk) => {
-                                                // 工具调用块，暂时忽略
-                                            }
-                                            ChatStreamEvent::End(stream_end) => {
-                                                // 流结束
-                                                if let Some(captured_text) = stream_end.captured_first_text() {
-                                                    full_content = captured_text.to_string();
-                                                }
-                                                
-                                                conversation_db
-                                                    .message_repo()
-                                                    .unwrap()
-                                                    .update_finish_time(new_message_id)
-                                                    .unwrap();
-                                                
-                                                tx.send((new_message_id, full_content.clone(), true)).await.unwrap();
-                                                break;
-                                            }
-                                        }
-                                    },
-                                    Some(Err(e)) => {
-                                        eprintln!("Stream error: {}", e);
-                                        cleanup_token(&tokens, new_message_id).await;
-                                        let err_msg = format!("Chat stream error: {}", e);
-                                        tx.send((new_message_id, err_msg, true)).await.unwrap();
-                                        break;
-                                    },
-                                    None => {
-                                        // 流意外结束
-                                        conversation_db
-                                            .message_repo()
-                                            .unwrap()
-                                            .update_finish_time(new_message_id)
-                                            .unwrap();
-                                        tx.send((new_message_id, full_content.clone(), true)).await.unwrap();
-                                        break;
-                                    }
-                                }
-                            }
-                            _ = cancel_token.cancelled() => {
-                                println!("Chat stream cancelled");
-                                break;
-                            }
-                        }
-                    }
-                },
-                Err(e) => {
-                    cleanup_token(&tokens, new_message_id).await;
-                    let err_msg = format!("Chat stream error: {}", e);
-                    tx.send((new_message_id, err_msg, true)).await.unwrap();
-                    eprintln!("Chat stream error: {}", e);
-                }
-            }
+            handle_stream_chat(
+                &client,
+                &model_name,
+                chat_request,
+                &chat_options,
+                new_message_id,
+                &tx,
+                &cancel_token,
+                &conversation_db,
+                &tokens,
+            ).await?;
         } else {
-            conversation_db
-                .message_repo()
-                .unwrap()
-                .update_start_time(new_message_id)
-                .unwrap();
-
             // Use genai non-streaming
-            let chat_result = tokio::select! {
-                result = client.exec_chat(&model_name, chat_request, Some(&chat_options)) => result,
-                _ = cancel_token.cancelled() => {
-                    cleanup_token(&tokens, new_message_id).await;
-                    return Err(anyhow::anyhow!("Request cancelled"));
-                }
-            };
-
-            match chat_result {
-                Ok(chat_response) => {
-                    let content = chat_response.first_text().unwrap_or("").to_string();
-
-                    conversation_db
-                        .message_repo()
-                        .unwrap()
-                        .update_finish_time(new_message_id)
-                        .unwrap();
-                    tx.send((new_message_id, content.clone(), true))
-                        .await
-                        .unwrap();
-                    // Ensure tx is closed after sending the message
-                    drop(tx);
-                }
-                Err(e) => {
-                    cleanup_token(&tokens, new_message_id).await;
-                    let err_msg = format!("Chat error: {}", e);
-                    tx.send((new_message_id, err_msg, true)).await.unwrap();
-                    eprintln!("Chat error: {}", e);
-                }
-            }
+            handle_non_stream_chat(
+                &client,
+                &model_name,
+                chat_request,
+                &chat_options,
+                new_message_id,
+                &tx,
+                &cancel_token,
+                &conversation_db,
+                &tokens,
+            ).await?;
         }
 
         Ok::<(), Error>(())
@@ -932,58 +902,17 @@ pub async fn regenerate_ai(
     let tokens = message_token_manager.get_tokens();
     let window_clone = window.clone();
     tokio::spawn(async move {
-        loop {
-            match timeout(Duration::from_secs(600), rx.recv()).await {
-                Ok(Some((id, content, done))) => {
-                    println!("Received data: id={}, content={}", id, content);
-                    window_clone
-                        .emit(format!("message_{}", id).as_str(), content.clone())
-                        .map_err(|e| e.to_string())
-                        .unwrap();
-
-                    if done {
-                        let conversation_db = ConversationDatabase::new(&app_handle_clone)
-                            .map_err(|e: rusqlite::Error| e.to_string())
-                            .unwrap();
-
-                        let mut message = conversation_db
-                            .message_repo()
-                            .unwrap()
-                            .read(new_message_id)
-                            .unwrap()
-                            .unwrap();
-                        message.content = content.clone().to_string();
-                        conversation_db
-                            .message_repo()
-                            .unwrap()
-                            .update(&message)
-                            .unwrap();
-
-                        println!("Message finish: id={}", id);
-                        window_clone
-                            .emit(
-                                format!("message_{}", id).as_str(),
-                                "Tea::Event::MessageFinish",
-                            )
-                            .map_err(|e| e.to_string())
-                            .unwrap();
-
-                        cleanup_token(&tokens, new_message_id).await;
-                        break;
-                    }
-                }
-                Ok(None) => {
-                    cleanup_token(&tokens, new_message_id).await;
-                    println!("Channel closed");
-                    break;
-                }
-                Err(err) => {
-                    cleanup_token(&tokens, new_message_id).await;
-                    println!("Timeout waiting for data from channel: {:?}", err);
-                    break;
-                }
-            }
-        }
+        handle_chat_response(
+            app_handle_clone,
+            window_clone,
+            new_message_id,
+            conversation_id,
+            String::new(),
+            false,
+            HashMap::new(),
+            tokens,
+            rx,
+        ).await;
     });
 
     Ok(AiResponse {
