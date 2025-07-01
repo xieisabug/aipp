@@ -12,6 +12,7 @@ use anyhow::Context;
 use anyhow::Error;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::Duration;
 use tauri::Emitter;
 use tauri::State;
@@ -26,6 +27,129 @@ use genai::adapter::AdapterKind;
 use futures::StreamExt;
 
 use super::assistant_api::AssistantDetail;
+
+// 事件名称常量
+const MESSAGE_FINISH_EVENT: &str = "Tea::Event::MessageFinish";
+const TITLE_CHANGE_EVENT: &str = "title_change";
+const ERROR_NOTIFICATION_EVENT: &str = "conversation-window-error-notification";
+
+// 默认端点映射
+const DEFAULT_ENDPOINTS: &[(AdapterKind, &str)] = &[
+    (AdapterKind::OpenAI, "https://api.openai.com/v1"),
+    (AdapterKind::Anthropic, "https://api.anthropic.com"),
+    (AdapterKind::Cohere, "https://api.cohere.ai/v1"),
+    (AdapterKind::Gemini, "https://generativelanguage.googleapis.com/v1beta"),
+    (AdapterKind::Groq, "https://api.groq.com/openai/v1"),
+    (AdapterKind::Xai, "https://api.x.ai/v1"),
+    (AdapterKind::DeepSeek, "https://api.deepseek.com/"),
+    (AdapterKind::Ollama, "http://localhost:11434/api"),
+];
+
+/// 构建 ChatOptions 从配置映射
+fn build_chat_options(config_map: &HashMap<String, String>) -> ChatOptions {
+    let mut chat_options = ChatOptions::default();
+
+    if let Some(temp_str) = config_map.get("temperature") {
+        if let Ok(temp) = temp_str.parse::<f64>() {
+            chat_options = chat_options.with_temperature(temp);
+        }
+    }
+
+    if let Some(max_tokens_str) = config_map.get("max_tokens") {
+        if let Ok(max_tokens) = max_tokens_str.parse::<u32>() {
+            chat_options = chat_options.with_max_tokens(max_tokens);
+        }
+    }
+
+    if let Some(top_p_str) = config_map.get("top_p") {
+        if let Ok(top_p) = top_p_str.parse::<f64>() {
+            chat_options = chat_options.with_top_p(top_p);
+        }
+    }
+
+    chat_options
+}
+
+/// 将消息列表转换为 ChatMessage 格式
+fn build_chat_messages(init_message_list: &[(String, String, Vec<MessageAttachment>)]) -> Vec<ChatMessage> {
+    let mut chat_messages = Vec::new();
+    for (role, content, _attachments) in init_message_list {
+        match role.as_str() {
+            "system" => chat_messages.push(ChatMessage::system(content)),
+            "user" => chat_messages.push(ChatMessage::user(content)),
+            "assistant" => chat_messages.push(ChatMessage::assistant(content)),
+            _ => {}
+        }
+    }
+    chat_messages
+}
+
+/// 合并模型配置
+fn merge_model_configs(
+    base_configs: Vec<AssistantModelConfig>,
+    model_detail: &crate::db::llm_db::ModelDetail,
+    override_configs: Option<HashMap<String, serde_json::Value>>,
+) -> Vec<AssistantModelConfig> {
+    let mut model_config_clone = base_configs;
+    
+    // 添加模型配置
+    model_config_clone.push(AssistantModelConfig {
+        id: 0,
+        assistant_id: model_config_clone.first().map(|c| c.assistant_id).unwrap_or(0),
+        assistant_model_id: model_detail.model.id,
+        name: "model".to_string(),
+        value: Some(model_detail.model.code.clone()),
+        value_type: "string".to_string(),
+    });
+
+    // 应用覆盖配置
+    if let Some(override_configs) = override_configs {
+        for (key, value) in override_configs {
+            let value_type = match &value {
+                serde_json::Value::String(_) => "string",
+                serde_json::Value::Number(_) => "number",
+                serde_json::Value::Bool(_) => "boolean",
+                serde_json::Value::Array(_) => "array",
+                serde_json::Value::Object(_) => "object",
+                serde_json::Value::Null => "null",
+            }
+            .to_string();
+
+            let value_str = value.to_string();
+
+            if let Some(existing_config) = model_config_clone.iter_mut().find(|c| c.name == key) {
+                existing_config.value = Some(value_str);
+                existing_config.value_type = value_type;
+            } else {
+                model_config_clone.push(AssistantModelConfig {
+                    id: 0,
+                    assistant_id: model_config_clone.first().map(|c| c.assistant_id).unwrap_or(0),
+                    assistant_model_id: model_detail.model.id,
+                    name: key,
+                    value: Some(value_str),
+                    value_type,
+                });
+            }
+        }
+    }
+
+    model_config_clone
+}
+
+/// 清理消息令牌
+async fn cleanup_token(tokens: &Arc<tokio::sync::Mutex<HashMap<i64, CancellationToken>>>, message_id: i64) {
+    let mut map = tokens.lock().await;
+    map.remove(&message_id);
+}
+
+/// 获取默认端点
+fn get_default_endpoint(adapter_kind: AdapterKind) -> &'static str {
+    DEFAULT_ENDPOINTS
+        .iter()
+        .find(|(kind, _)| *kind == adapter_kind)
+        .map(|(_, endpoint)| *endpoint)
+        .unwrap_or("https://api.openai.com/v1")
+}
 
 /// 根据模型名称推断 AdapterKind
 fn infer_adapter_kind(model_name: &str, api_type: &str) -> AdapterKind {
@@ -87,18 +211,7 @@ fn create_client_with_config(
             let endpoint = if let Some(ep) = &endpoint_opt {
                 Endpoint::from_owned(ep.trim_end_matches('/').to_string())
             } else {
-                // 使用默认端点
-                match adapter_kind {
-                    AdapterKind::OpenAI => Endpoint::from_static("https://api.openai.com/v1"),
-                    AdapterKind::Anthropic => Endpoint::from_static("https://api.anthropic.com"),
-                    AdapterKind::Cohere => Endpoint::from_static("https://api.cohere.ai/v1"),
-                    AdapterKind::Gemini => Endpoint::from_static("https://generativelanguage.googleapis.com/v1beta"),
-                    AdapterKind::Groq => Endpoint::from_static("https://api.groq.com/openai/v1"),
-                    AdapterKind::Xai => Endpoint::from_static("https://api.x.ai/v1"),
-                    AdapterKind::DeepSeek => Endpoint::from_static("https://api.deepseek.com/"),
-                    AdapterKind::Ollama => Endpoint::from_static("http://localhost:11434/api"),
-                    _ => Endpoint::from_static("https://api.openai.com/v1"), // 默认
-                }
+                Endpoint::from_static(get_default_endpoint(adapter_kind))
             };
 
             Ok(ServiceTarget {
@@ -218,47 +331,11 @@ pub async fn ask_ai(
             )?;
 
             // Prepare model configurations
-            let mut model_config_clone = assistant_detail.model_configs.clone();
-            model_config_clone.push(AssistantModelConfig {
-                id: 0,
-                assistant_id: assistant_detail.assistant.id,
-                assistant_model_id: model_detail.model.id,
-                name: "model".to_string(),
-                value: Some(model_detail.model.code.clone()),
-                value_type: "string".to_string(),
-            });
-
-            if let Some(override_configs) = override_model_config {
-                for (key, value) in override_configs {
-                    let value_type = match &value {
-                        serde_json::Value::String(_) => "string",
-                        serde_json::Value::Number(_) => "number",
-                        serde_json::Value::Bool(_) => "boolean",
-                        serde_json::Value::Array(_) => "array",
-                        serde_json::Value::Object(_) => "object",
-                        serde_json::Value::Null => "null",
-                    }
-                    .to_string();
-
-                    let value_str = value.to_string();
-
-                    if let Some(existing_config) =
-                        model_config_clone.iter_mut().find(|c| c.name == key)
-                    {
-                        existing_config.value = Some(value_str);
-                        existing_config.value_type = value_type;
-                    } else {
-                        model_config_clone.push(AssistantModelConfig {
-                            id: 0,
-                            assistant_id: assistant_detail.assistant.id,
-                            assistant_model_id: model_detail.model.id,
-                            name: key,
-                            value: Some(value_str),
-                            value_type,
-                        });
-                    }
-                }
-            }
+            let model_config_clone = merge_model_configs(
+                assistant_detail.model_configs.clone(),
+                &model_detail,
+                override_model_config,
+            );
 
             let config_map = model_config_clone
                 .iter()
@@ -281,39 +358,10 @@ pub async fn ask_ai(
                 .cloned()
                 .unwrap_or_else(|| model_detail.model.code.clone());
 
-            // Convert messages to ChatMessage format
-            let mut chat_messages = Vec::new();
-            for (role, content, _attachments) in &init_message_list {
-                match role.as_str() {
-                    "system" => chat_messages.push(ChatMessage::system(content)),
-                    "user" => chat_messages.push(ChatMessage::user(content)),
-                    "assistant" => chat_messages.push(ChatMessage::assistant(content)),
-                    _ => {}
-                }
-            }
-
+            // Convert messages to ChatMessage format and build chat options
+            let chat_messages = build_chat_messages(&init_message_list);
             let chat_request = ChatRequest::new(chat_messages);
-
-            // Build chat options
-            let mut chat_options = ChatOptions::default();
-
-            if let Some(temp_str) = config_map.get("temperature") {
-                if let Ok(temp) = temp_str.parse::<f64>() {
-                    chat_options = chat_options.with_temperature(temp);
-                }
-            }
-
-            if let Some(max_tokens_str) = config_map.get("max_tokens") {
-                if let Ok(max_tokens) = max_tokens_str.parse::<u32>() {
-                    chat_options = chat_options.with_max_tokens(max_tokens);
-                }
-            }
-
-            if let Some(top_p_str) = config_map.get("top_p") {
-                if let Ok(top_p) = top_p_str.parse::<f64>() {
-                    chat_options = chat_options.with_top_p(top_p);
-                }
-            }
+            let chat_options = build_chat_options(&config_map);
 
             println!("Using model: {}, stream: {}", model_name, stream);
 
@@ -379,8 +427,7 @@ pub async fn ask_ai(
                                         },
                                         Some(Err(e)) => {
                                             eprintln!("Stream error: {}", e);
-                                            let mut map = tokens.lock().await;
-                                            map.remove(&message_id);
+                                            cleanup_token(&tokens, message_id).await;
                                             let err_msg = format!("Chat stream error: {}", e);
                                             tx.send((message_id, err_msg, true)).await.unwrap();
                                             break;
@@ -405,8 +452,7 @@ pub async fn ask_ai(
                         }
                     },
                     Err(e) => {
-                        let mut map = tokens.lock().await;
-                        map.remove(&message_id);
+                        cleanup_token(&tokens, message_id).await;
                         let err_msg = format!("Chat stream error: {}", e);
                         tx.send((message_id, err_msg, true)).await.unwrap();
                         eprintln!("Chat stream error: {}", e);
@@ -423,8 +469,7 @@ pub async fn ask_ai(
                 let chat_result = tokio::select! {
                     result = client.exec_chat(&model_name, chat_request, Some(&chat_options)) => result,
                     _ = cancel_token.cancelled() => {
-                        let mut map = tokens.lock().await;
-                        map.remove(&message_id);
+                        cleanup_token(&tokens, message_id).await;
                         return Err(anyhow::anyhow!("Request cancelled"));
                     }
                 };
@@ -444,8 +489,7 @@ pub async fn ask_ai(
                         drop(tx);
                     }
                     Err(e) => {
-                        let mut map = tokens.lock().await;
-                        map.remove(&message_id);
+                        cleanup_token(&tokens, message_id).await;
                         let err_msg = format!("Chat error: {}", e);
                         tx.send((message_id, err_msg, true)).await.unwrap();
                         eprintln!("Chat error: {}", e);
@@ -491,7 +535,7 @@ pub async fn ask_ai(
                             window_clone
                                 .emit(
                                     format!("message_{}", id).as_str(),
-                                    "Tea::Event::MessageFinish",
+                                    MESSAGE_FINISH_EVENT,
                                 )
                                 .map_err(|e| e.to_string())
                                 .unwrap();
@@ -508,19 +552,16 @@ pub async fn ask_ai(
                                 .map_err(|e| e.to_string())
                                 .unwrap();
                             }
-                            let mut map = tokens.lock().await;
-                            map.remove(&message_id);
+                            cleanup_token(&tokens, message_id).await;
                         }
                     }
                     Ok(None) => {
-                        let mut map = tokens.lock().await;
-                        map.remove(&message_id);
+                        cleanup_token(&tokens, message_id).await;
                         println!("Channel closed");
                         break;
                     }
                     Err(err) => {
-                        let mut map = tokens.lock().await;
-                        map.remove(&message_id);
+                        cleanup_token(&tokens, message_id).await;
                         println!("Timeout waiting for data from channel: {:?}", err);
                         break;
                     }
@@ -721,15 +762,11 @@ pub async fn regenerate_ai(
             &model_detail.provider.api_type
         )?;
 
-        let mut model_config_clone = assistant_detail.model_configs.clone();
-        model_config_clone.push(AssistantModelConfig {
-            id: 0,
-            assistant_id: assistant_detail.assistant.id,
-            assistant_model_id: model_detail.model.id,
-            name: "model".to_string(),
-            value: Some(model_detail.model.code.clone()),
-            value_type: "string".to_string(),
-        });
+        let model_config_clone = merge_model_configs(
+            assistant_detail.model_configs.clone(),
+            &model_detail,
+            None,
+        );
 
         let config_map = model_config_clone
             .iter()
@@ -752,39 +789,10 @@ pub async fn regenerate_ai(
             .cloned()
             .unwrap_or_else(|| model_detail.model.code.clone());
 
-        // Convert messages to ChatMessage format
-        let mut chat_messages = Vec::new();
-        for (role, content, _attachments) in &init_message_list {
-            match role.as_str() {
-                "system" => chat_messages.push(ChatMessage::system(content)),
-                "user" => chat_messages.push(ChatMessage::user(content)),
-                "assistant" => chat_messages.push(ChatMessage::assistant(content)),
-                _ => {}
-            }
-        }
-
+        // Convert messages to ChatMessage format and build chat options
+        let chat_messages = build_chat_messages(&init_message_list);
         let chat_request = ChatRequest::new(chat_messages);
-
-        // Build chat options
-        let mut chat_options = ChatOptions::default();
-
-        if let Some(temp_str) = config_map.get("temperature") {
-            if let Ok(temp) = temp_str.parse::<f64>() {
-                chat_options = chat_options.with_temperature(temp);
-            }
-        }
-
-        if let Some(max_tokens_str) = config_map.get("max_tokens") {
-            if let Ok(max_tokens) = max_tokens_str.parse::<u32>() {
-                chat_options = chat_options.with_max_tokens(max_tokens);
-            }
-        }
-
-        if let Some(top_p_str) = config_map.get("top_p") {
-            if let Ok(top_p) = top_p_str.parse::<f64>() {
-                chat_options = chat_options.with_top_p(top_p);
-            }
-        }
+        let chat_options = build_chat_options(&config_map);
 
         if stream {
             // 使用 genai 流式处理
@@ -846,8 +854,7 @@ pub async fn regenerate_ai(
                                     },
                                     Some(Err(e)) => {
                                         eprintln!("Stream error: {}", e);
-                                        let mut map = tokens.lock().await;
-                                        map.remove(&new_message_id);
+                                        cleanup_token(&tokens, new_message_id).await;
                                         let err_msg = format!("Chat stream error: {}", e);
                                         tx.send((new_message_id, err_msg, true)).await.unwrap();
                                         break;
@@ -872,8 +879,7 @@ pub async fn regenerate_ai(
                     }
                 },
                 Err(e) => {
-                    let mut map = tokens.lock().await;
-                    map.remove(&new_message_id);
+                    cleanup_token(&tokens, new_message_id).await;
                     let err_msg = format!("Chat stream error: {}", e);
                     tx.send((new_message_id, err_msg, true)).await.unwrap();
                     eprintln!("Chat stream error: {}", e);
@@ -890,8 +896,7 @@ pub async fn regenerate_ai(
             let chat_result = tokio::select! {
                 result = client.exec_chat(&model_name, chat_request, Some(&chat_options)) => result,
                 _ = cancel_token.cancelled() => {
-                    let mut map = tokens.lock().await;
-                    map.remove(&new_message_id);
+                    cleanup_token(&tokens, new_message_id).await;
                     return Err(anyhow::anyhow!("Request cancelled"));
                 }
             };
@@ -912,8 +917,7 @@ pub async fn regenerate_ai(
                     drop(tx);
                 }
                 Err(e) => {
-                    let mut map = tokens.lock().await;
-                    map.remove(&new_message_id);
+                    cleanup_token(&tokens, new_message_id).await;
                     let err_msg = format!("Chat error: {}", e);
                     tx.send((new_message_id, err_msg, true)).await.unwrap();
                     eprintln!("Chat error: {}", e);
@@ -964,20 +968,17 @@ pub async fn regenerate_ai(
                             .map_err(|e| e.to_string())
                             .unwrap();
 
-                        let mut map = tokens.lock().await;
-                        map.remove(&new_message_id);
+                        cleanup_token(&tokens, new_message_id).await;
                         break;
                     }
                 }
                 Ok(None) => {
-                    let mut map = tokens.lock().await;
-                    map.remove(&new_message_id);
+                    cleanup_token(&tokens, new_message_id).await;
                     println!("Channel closed");
                     break;
                 }
                 Err(err) => {
-                    let mut map = tokens.lock().await;
-                    map.remove(&new_message_id);
+                    cleanup_token(&tokens, new_message_id).await;
                     println!("Timeout waiting for data from channel: {:?}", err);
                     break;
                 }
@@ -1306,7 +1307,7 @@ async fn generate_title(
             Err(e) => {
                 println!("Chat error: {}", e);
                 let _ = window.emit(
-                    "conversation-window-error-notification",
+                    ERROR_NOTIFICATION_EVENT,
                     "生成对话标题失败，请检查配置",
                 );
             }
@@ -1324,7 +1325,7 @@ async fn generate_title(
                         created_time: chrono::Utc::now(),
                     });
                 window
-                    .emit("title_change", (conversation_id, response_text.clone()))
+                    .emit(TITLE_CHANGE_EVENT, (conversation_id, response_text.clone()))
                     .map_err(|e| e.to_string())
                     .unwrap();
             }
