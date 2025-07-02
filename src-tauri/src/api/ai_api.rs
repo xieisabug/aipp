@@ -134,8 +134,10 @@ impl ConfigBuilder {
 
     /// 推断适配器类型
     fn infer_adapter_kind(model_name: &str, api_type: &str) -> AdapterKind {
+        println!("model_name: {:?} api_type: {:?}", model_name, api_type);
         match api_type.to_lowercase().as_str() {
             "openai" => AdapterKind::OpenAI,
+            "openai_api" => AdapterKind::OpenAI,
             "anthropic" => AdapterKind::Anthropic,
             "cohere" => AdapterKind::Cohere,
             "gemini" => AdapterKind::Gemini,
@@ -276,15 +278,15 @@ fn build_chat_messages(
             match attachment.attachment_type {
                 crate::db::conversation_db::AttachmentType::Image => {
                     // 图像附件
-                    if let Some(url) = &attachment.attachment_url {
+                    if let Some(content) = &attachment.attachment_content {
+                        // 解析 data URL 格式的内容，提取 MIME type 和纯 base64 内容
+                        if let Some((content_type, base64_content)) = parse_data_url(content) {
+                            content_parts.push(ContentPart::from_image_base64(&content_type, &*base64_content));
+                        }
+                    } else if let Some(url) = &attachment.attachment_url {
                         // 推断图像的媒体类型
                         let media_type = infer_media_type_from_url(url);
-                        content_parts.push(ContentPart::from_image_url(&media_type, url));
-                    } else if let Some(content) = &attachment.attachment_content {
-                        // 如果没有URL但有内容（可能是base64），作为文本处理
-                        content_parts.push(ContentPart::from_text(&format!(
-                            "\n\n[图像附件内容]\n{}", content
-                        )));
+                        content_parts.push(ContentPart::from_image_url(&media_type, url.as_str()));
                     }
                 },
                 crate::db::conversation_db::AttachmentType::Text => {
@@ -349,7 +351,9 @@ fn build_chat_messages(
             _ => {}
         }
     }
-    
+    println!("================================ Chat Messages ===============================================");
+    println!("{:?}", chat_messages);
+    println!("================================ Chat Messages End ===============================================");
     chat_messages
 }
 
@@ -369,6 +373,37 @@ fn infer_media_type_from_url(url: &str) -> String {
     } else {
         "image/jpeg".to_string() // 默认值
     }
+}
+
+/// 解析 data URL 格式的内容，提取 MIME type 和纯 base64 内容
+/// 支持格式：data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...
+fn parse_data_url(data_url: &str) -> Option<(String, String)> {
+    if !data_url.starts_with("data:") {
+        return None;
+    }
+    
+    let parts: Vec<&str> = data_url.splitn(2, ',').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+    
+    let header = parts[0];
+    let content = parts[1];
+    
+    // 提取 MIME type
+    let header_without_data = header.strip_prefix("data:")?;
+    let mime_type = if let Some(semicolon_pos) = header_without_data.find(';') {
+        &header_without_data[..semicolon_pos]
+    } else {
+        header_without_data
+    };
+    
+    // 检查是否包含 base64 标识
+    if !header.contains("base64") {
+        return None;
+    }
+    
+    Some((mime_type.to_string(), content.to_string()))
 }
 
 /// 清理消息令牌
