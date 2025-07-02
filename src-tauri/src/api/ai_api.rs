@@ -1,4 +1,5 @@
 use crate::api::assistant_api::get_assistant;
+use crate::api::genai_client;
 use crate::db::assistant_db::AssistantModelConfig;
 use crate::db::conversation_db::{AttachmentType, Repository};
 use crate::db::conversation_db::{Conversation, ConversationDatabase, Message, MessageAttachment};
@@ -22,8 +23,7 @@ use tokio_util::sync::CancellationToken;
 
 use futures::StreamExt;
 use genai::chat::{ChatMessage, ChatOptions, ChatRequest, ContentPart};
-use genai::resolver::{AuthData, Endpoint, ServiceTargetResolver};
-use genai::{adapter::AdapterKind, Client, ModelIden, ServiceTarget};
+use genai::Client;
 
 use super::assistant_api::AssistantDetail;
 
@@ -32,20 +32,7 @@ const MESSAGE_FINISH_EVENT: &str = "Tea::Event::MessageFinish";
 const TITLE_CHANGE_EVENT: &str = "title_change";
 const ERROR_NOTIFICATION_EVENT: &str = "conversation-window-error-notification";
 
-// 默认端点映射
-const DEFAULT_ENDPOINTS: &[(AdapterKind, &str)] = &[
-    (AdapterKind::OpenAI, "https://api.openai.com/v1/"),
-    (AdapterKind::Anthropic, "https://api.anthropic.com/"),
-    (AdapterKind::Cohere, "https://api.cohere.ai/v1/"),
-    (
-        AdapterKind::Gemini,
-        "https://generativelanguage.googleapis.com/v1beta/",
-    ),
-    (AdapterKind::Groq, "https://api.groq.com/openai/v1/"),
-    (AdapterKind::Xai, "https://api.x.ai/v1/"),
-    (AdapterKind::DeepSeek, "https://api.deepseek.com/"),
-    (AdapterKind::Ollama, "http://localhost:11434/"),
-];
+
 
 /// AI聊天配置
 #[derive(Debug, Clone)]
@@ -69,108 +56,8 @@ struct ChatContext {
 struct ConfigBuilder;
 
 impl ConfigBuilder {
-    /// 创建客户端配置
-    fn create_client_with_config(
-        configs: &[crate::db::llm_db::LLMProviderConfig],
-        model_name: &str,
-        api_type: &str,
-    ) -> Result<Client, AppError> {
-        let adapter_kind = Self::infer_adapter_kind(model_name, api_type);
 
-        let mut api_key = String::new();
-        let mut endpoint_opt: Option<String> = None;
 
-        for config in configs {
-            match config.name.as_str() {
-                "api_key" => {
-                    api_key = config.value.clone();
-                }
-                "endpoint" => {
-                    endpoint_opt = Some(config.value.clone());
-                }
-                _ => {}
-            }
-        }
-
-        // 克隆值以便在闭包中使用
-        let api_key_clone = api_key.clone();
-        let endpoint_clone = endpoint_opt.clone();
-
-        // 使用 ServiceTargetResolver 来配置端点和认证
-        let target_resolver = ServiceTargetResolver::from_resolver_fn(
-            move |service_target: ServiceTarget| -> Result<ServiceTarget, genai::resolver::Error> {
-                let ServiceTarget { model, .. } = service_target;
-
-                let endpoint = if let Some(ref ep) = endpoint_clone {
-                    let mut endpoint_str = ep.clone();
-                    if !endpoint_str.ends_with('/') {
-                        endpoint_str.push('/');
-                    }
-                    Endpoint::from_owned(endpoint_str)
-                } else {
-                    let default_endpoint = Self::get_default_endpoint(adapter_kind);
-                    Endpoint::from_static(default_endpoint)
-                };
-
-                let auth = AuthData::from_single(api_key_clone.clone());
-                let model = ModelIden::new(adapter_kind, model.model_name);
-
-                println!("endpoint: {:?} model: {:?}", endpoint, model);
-
-                Ok(ServiceTarget {
-                    endpoint,
-                    auth,
-                    model,
-                })
-            },
-        );
-
-        let client = Client::builder()
-            .with_service_target_resolver(target_resolver)
-            .build();
-
-        Ok(client)
-    }
-
-    /// 推断适配器类型
-    fn infer_adapter_kind(model_name: &str, api_type: &str) -> AdapterKind {
-        println!("model_name: {:?} api_type: {:?}", model_name, api_type);
-        match api_type.to_lowercase().as_str() {
-            "openai" => AdapterKind::OpenAI,
-            "openai_api" => AdapterKind::OpenAI,
-            "anthropic" => AdapterKind::Anthropic,
-            "cohere" => AdapterKind::Cohere,
-            "gemini" => AdapterKind::Gemini,
-            "groq" => AdapterKind::Groq,
-            "xai" => AdapterKind::Xai,
-            "deepseek" => AdapterKind::DeepSeek,
-            "ollama" => AdapterKind::Ollama,
-            _ => {
-                // 根据模型名称推断
-                let model_lower = model_name.to_lowercase();
-                if model_lower.contains("gpt") || model_lower.contains("o1") {
-                    AdapterKind::OpenAI
-                } else if model_lower.contains("claude") {
-                    AdapterKind::Anthropic
-                } else if model_lower.contains("gemini") {
-                    AdapterKind::Gemini
-                } else if model_lower.contains("llama") || model_lower.contains("qwen") {
-                    AdapterKind::Ollama
-                } else {
-                    AdapterKind::OpenAI // 默认
-                }
-            }
-        }
-    }
-
-    /// 获取默认端点
-    fn get_default_endpoint(adapter_kind: AdapterKind) -> &'static str {
-        DEFAULT_ENDPOINTS
-            .iter()
-            .find(|(kind, _)| *kind == adapter_kind)
-            .map(|(_, endpoint)| *endpoint)
-            .unwrap_or("https://api.openai.com/v1/")
-    }
 
     /// 构建聊天选项
     fn build_chat_options(config_map: &HashMap<String, String>) -> ChatOptions {
@@ -737,7 +624,7 @@ pub async fn ask_ai(
             let conversation_db = ConversationDatabase::new(&app_handle_clone).unwrap();
 
             // 构建聊天配置
-            let client = ConfigBuilder::create_client_with_config(
+            let client = genai_client::create_client_with_config(
                 &model_detail.configs,
                 &model_detail.model.code,
                 &model_detail.provider.api_type,
@@ -1041,12 +928,12 @@ pub async fn regenerate_ai(
         // 直接创建数据库连接（避免线程安全问题）
         let conversation_db = ConversationDatabase::new(&app_handle_clone).unwrap();
 
-        // 构建聊天配置
-        let client = ConfigBuilder::create_client_with_config(
-            &model_detail.configs,
-            &model_detail.model.code,
-            &model_detail.provider.api_type,
-        )?;
+                    // 构建聊天配置
+            let client = genai_client::create_client_with_config(
+                &model_detail.configs,
+                &model_detail.model.code,
+                &model_detail.provider.api_type,
+            )?;
 
         let model_config_clone = ConfigBuilder::merge_model_configs(
             assistant_detail.model_configs.clone(),
@@ -1447,7 +1334,7 @@ async fn generate_title(
             .unwrap();
 
         // Create genai client with custom config
-        let client = ConfigBuilder::create_client_with_config(
+        let client = genai_client::create_client_with_config(
             &model_detail.configs,
             &model_detail.model.code,
             &model_detail.provider.api_type,
