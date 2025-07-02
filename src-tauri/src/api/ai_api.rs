@@ -944,60 +944,67 @@ pub async fn regenerate_ai(
         .unwrap()
         .list_by_conversation_id(conversation_id)?;
 
-    let parent_ids: HashSet<i64> = messages.iter().filter_map(|m| m.0.parent_id).collect();
-    println!("parent_ids: {:?}", parent_ids);
+    // 1. 仅保留在待重新生成消息之前的历史消息
+    let filtered_messages: Vec<(Message, Option<MessageAttachment>)> =
+        messages.into_iter().filter(|m| m.0.id < message_id).collect();
 
-    let parent_max_child: HashMap<i64, i64> = messages
-        .iter()
-        .filter(|m| {
-            if let Some(pid) = m.0.parent_id {
-                parent_ids.contains(&pid)
-            } else {
-                false
-            }
-        })
-        .fold(HashMap::new(), |mut acc, m| {
-            if let Some(parent_id) = m.0.parent_id {
-                let msg_id = m.0.id;
-                let entry = acc.entry(parent_id).or_insert(msg_id);
-                if msg_id > *entry {
-                    *entry = msg_id;
-                }
-            }
-            acc
-        });
-    println!("parent_max_child: {:?}", parent_max_child);
+    // 2. 计算每个父消息最新的子消息（parent_id -> latest child）
+    let mut latest_children: HashMap<i64, (Message, Option<MessageAttachment>)> = HashMap::new();
+    let mut child_ids: HashSet<i64> = HashSet::new();
 
-    let max_child_ids: HashSet<i64> = parent_max_child.values().cloned().collect();
-    println!("max_child_ids: {:?}", max_child_ids);
+    for (msg, attach) in filtered_messages.iter() {
+        if let Some(parent_id) = msg.parent_id {
+            child_ids.insert(msg.id);
+            latest_children
+                .entry(parent_id)
+                .and_modify(|e| {
+                    if msg.id > e.0.id {
+                        *e = (msg.clone(), attach.clone());
+                    }
+                })
+                .or_insert((msg.clone(), attach.clone()));
+        }
+    }
 
+    // 3. 构建最终的消息列表：
+    //    - 对于没有子消息的根消息(包括 system / user / assistant)，直接保留
+    //    - 对于有子消息的根消息，仅保留最新的子消息
+    let mut init_message_list: Vec<(String, String, Vec<MessageAttachment>)> = Vec::new();
+
+    for (msg, attach) in filtered_messages.into_iter() {
+        if child_ids.contains(&msg.id) {
+            // 根消息，有子消息，后续处理
+            continue;
+        }
+
+        // 使用最新的子消息（如果存在）替换当前消息
+        let (final_msg, final_attach_opt) = latest_children
+            .get(&msg.id)
+            .cloned()
+            .unwrap_or((msg, attach));
+
+        let attachments_vec = final_attach_opt
+            .map(|a| vec![a])
+            .unwrap_or_else(Vec::new);
+
+        init_message_list.push((
+            final_msg.message_type,
+            final_msg.content,
+            attachments_vec,
+        ));
+    }
+
+    println!("init_message_list (regenerate): {:?}", init_message_list);
+
+    // ----------------------------------------------------------------
+    // 4. 获取助手信息（在构建消息列表之后，以确保对话已确定）
+    // ----------------------------------------------------------------
     let assistant_id = conversation.assistant_id.unwrap();
     let assistant_detail = get_assistant(app_handle.clone(), assistant_id).unwrap();
 
     if assistant_detail.model.is_empty() {
         return Err(AppError::NoModelFound);
     }
-
-    let init_message_list = messages
-        .into_iter()
-        .filter_map(|m: (Message, Option<MessageAttachment>)| {
-            if m.0.id >= message_id {
-                return None::<(String, String, Vec<MessageAttachment>)>;
-            }
-
-            if parent_ids.contains(&m.0.id) {
-                // 这是一个父消息，保留它
-                Some((m.0.message_type, m.0.content, vec![]))
-            } else if max_child_ids.contains(&m.0.id) {
-                // 这是一个子消息，并且是最大 id 的子消息，保留它
-                Some((m.0.message_type, m.0.content, vec![]))
-            } else {
-                // 其他情况，过滤掉
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    println!("init_message_list: {:?}", init_message_list);
 
     let (tx, rx) = mpsc::channel(100);
 
