@@ -34,17 +34,17 @@ const ERROR_NOTIFICATION_EVENT: &str = "conversation-window-error-notification";
 
 // 默认端点映射
 const DEFAULT_ENDPOINTS: &[(AdapterKind, &str)] = &[
-    (AdapterKind::OpenAI, "https://api.openai.com/v1"),
-    (AdapterKind::Anthropic, "https://api.anthropic.com"),
-    (AdapterKind::Cohere, "https://api.cohere.ai/v1"),
+    (AdapterKind::OpenAI, "https://api.openai.com/v1/"),
+    (AdapterKind::Anthropic, "https://api.anthropic.com/"),
+    (AdapterKind::Cohere, "https://api.cohere.ai/v1/"),
     (
         AdapterKind::Gemini,
-        "https://generativelanguage.googleapis.com/v1beta",
+        "https://generativelanguage.googleapis.com/v1beta/",
     ),
-    (AdapterKind::Groq, "https://api.groq.com/openai/v1"),
-    (AdapterKind::Xai, "https://api.x.ai/v1"),
+    (AdapterKind::Groq, "https://api.groq.com/openai/v1/"),
+    (AdapterKind::Xai, "https://api.x.ai/v1/"),
     (AdapterKind::DeepSeek, "https://api.deepseek.com/"),
-    (AdapterKind::Ollama, "http://localhost:11434"),
+    (AdapterKind::Ollama, "http://localhost:11434/"),
 ];
 
 /// AI聊天配置
@@ -102,7 +102,11 @@ impl ConfigBuilder {
                 let ServiceTarget { model, .. } = service_target;
 
                 let endpoint = if let Some(ref ep) = endpoint_clone {
-                    Endpoint::from_owned(ep.trim_end_matches('/').to_string())
+                    let mut endpoint_str = ep.clone();
+                    if !endpoint_str.ends_with('/') {
+                        endpoint_str.push('/');
+                    }
+                    Endpoint::from_owned(endpoint_str)
                 } else {
                     let default_endpoint = Self::get_default_endpoint(adapter_kind);
                     Endpoint::from_static(default_endpoint)
@@ -110,6 +114,8 @@ impl ConfigBuilder {
 
                 let auth = AuthData::from_single(api_key_clone.clone());
                 let model = ModelIden::new(adapter_kind, model.model_name);
+
+                println!("endpoint: {:?} model: {:?}", endpoint, model);
 
                 Ok(ServiceTarget {
                     endpoint,
@@ -161,7 +167,7 @@ impl ConfigBuilder {
             .iter()
             .find(|(kind, _)| *kind == adapter_kind)
             .map(|(_, endpoint)| *endpoint)
-            .unwrap_or("https://api.openai.com/v1")
+            .unwrap_or("https://api.openai.com/v1/")
     }
 
     /// 构建聊天选项
@@ -629,6 +635,7 @@ pub async fn ask_ai(
     override_model_config: Option<HashMap<String, serde_json::Value>>,
     override_prompt: Option<String>,
 ) -> Result<AiResponse, AppError> {
+    println!("================================ Ask AI Start ===============================================");
     println!(
         "ask_ai: {:?}, override_model_config: {:?}, override_prompt: {:?}",
         request, override_model_config, override_prompt
@@ -803,6 +810,8 @@ pub async fn ask_ai(
         });
     }
 
+    println!("================================ Ask AI End ===============================================");
+
     Ok(AiResponse {
         conversation_id,
         add_message_id: new_message_id.unwrap(),
@@ -881,6 +890,7 @@ pub async fn regenerate_ai(
     window: tauri::Window,
     message_id: i64,
 ) -> Result<AiResponse, AppError> {
+    println!("================================ Regenerate AI Start ===============================================");
     let db = ConversationDatabase::new(&app_handle).map_err(AppError::from)?;
     let message = db
         .message_repo()
@@ -1091,6 +1101,7 @@ pub async fn regenerate_ai(
         )
         .await;
     });
+    println!("================================ Regenerate AI End ===============================================");
 
     Ok(AiResponse {
         conversation_id,
