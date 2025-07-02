@@ -20,11 +20,10 @@ use tokio::sync::mpsc;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
+use futures::StreamExt;
 use genai::chat::{ChatMessage, ChatOptions, ChatRequest};
 use genai::resolver::{AuthData, Endpoint, ServiceTargetResolver};
-use genai::{Client, ModelIden, ServiceTarget};
-use genai::adapter::AdapterKind;
-use futures::StreamExt;
+use genai::{adapter::AdapterKind, Client, ModelIden, ServiceTarget};
 
 use super::assistant_api::AssistantDetail;
 
@@ -38,40 +37,218 @@ const DEFAULT_ENDPOINTS: &[(AdapterKind, &str)] = &[
     (AdapterKind::OpenAI, "https://api.openai.com/v1"),
     (AdapterKind::Anthropic, "https://api.anthropic.com"),
     (AdapterKind::Cohere, "https://api.cohere.ai/v1"),
-    (AdapterKind::Gemini, "https://generativelanguage.googleapis.com/v1beta"),
+    (
+        AdapterKind::Gemini,
+        "https://generativelanguage.googleapis.com/v1beta",
+    ),
     (AdapterKind::Groq, "https://api.groq.com/openai/v1"),
     (AdapterKind::Xai, "https://api.x.ai/v1"),
     (AdapterKind::DeepSeek, "https://api.deepseek.com/"),
-    (AdapterKind::Ollama, "http://localhost:11434/api"),
+    (AdapterKind::Ollama, "http://localhost:11434"),
 ];
 
-/// 构建 ChatOptions 从配置映射
-fn build_chat_options(config_map: &HashMap<String, String>) -> ChatOptions {
-    let mut chat_options = ChatOptions::default();
+/// AI聊天配置
+#[derive(Debug, Clone)]
+struct ChatConfig {
+    model_name: String,
+    stream: bool,
+    chat_options: ChatOptions,
+    client: Client,
+}
 
-    if let Some(temp_str) = config_map.get("temperature") {
-        if let Ok(temp) = temp_str.parse::<f64>() {
-            chat_options = chat_options.with_temperature(temp);
+/// 聊天上下文
+#[derive(Debug)]
+struct ChatContext {
+    conversation_id: i64,
+    message_id: i64,
+    assistant_detail: crate::api::assistant_api::AssistantDetail,
+    need_generate_title: bool,
+    request_prompt_result: String,
+}
+
+/// 配置构建器
+struct ConfigBuilder;
+
+impl ConfigBuilder {
+    /// 创建客户端配置
+    fn create_client_with_config(
+        configs: &[crate::db::llm_db::LLMProviderConfig],
+        model_name: &str,
+        api_type: &str,
+    ) -> Result<Client, AppError> {
+        let adapter_kind = Self::infer_adapter_kind(model_name, api_type);
+
+        let mut api_key = String::new();
+        let mut endpoint_opt: Option<String> = None;
+
+        for config in configs {
+            match config.name.as_str() {
+                "api_key" => {
+                    api_key = config.value.clone();
+                }
+                "endpoint" => {
+                    endpoint_opt = Some(config.value.clone());
+                }
+                _ => {}
+            }
+        }
+
+        // 克隆值以便在闭包中使用
+        let api_key_clone = api_key.clone();
+        let endpoint_clone = endpoint_opt.clone();
+
+        // 使用 ServiceTargetResolver 来配置端点和认证
+        let target_resolver = ServiceTargetResolver::from_resolver_fn(
+            move |service_target: ServiceTarget| -> Result<ServiceTarget, genai::resolver::Error> {
+                let ServiceTarget { model, .. } = service_target;
+
+                let endpoint = if let Some(ref ep) = endpoint_clone {
+                    Endpoint::from_owned(ep.trim_end_matches('/').to_string())
+                } else {
+                    let default_endpoint = Self::get_default_endpoint(adapter_kind);
+                    Endpoint::from_static(default_endpoint)
+                };
+
+                let auth = AuthData::from_single(api_key_clone.clone());
+                let model = ModelIden::new(adapter_kind, model.model_name);
+
+                Ok(ServiceTarget {
+                    endpoint,
+                    auth,
+                    model,
+                })
+            },
+        );
+
+        let client = Client::builder()
+            .with_service_target_resolver(target_resolver)
+            .build();
+
+        Ok(client)
+    }
+
+    /// 推断适配器类型
+    fn infer_adapter_kind(model_name: &str, api_type: &str) -> AdapterKind {
+        match api_type.to_lowercase().as_str() {
+            "openai" => AdapterKind::OpenAI,
+            "anthropic" => AdapterKind::Anthropic,
+            "cohere" => AdapterKind::Cohere,
+            "gemini" => AdapterKind::Gemini,
+            "groq" => AdapterKind::Groq,
+            "xai" => AdapterKind::Xai,
+            "deepseek" => AdapterKind::DeepSeek,
+            "ollama" => AdapterKind::Ollama,
+            _ => {
+                // 根据模型名称推断
+                let model_lower = model_name.to_lowercase();
+                if model_lower.contains("gpt") || model_lower.contains("o1") {
+                    AdapterKind::OpenAI
+                } else if model_lower.contains("claude") {
+                    AdapterKind::Anthropic
+                } else if model_lower.contains("gemini") {
+                    AdapterKind::Gemini
+                } else if model_lower.contains("llama") || model_lower.contains("qwen") {
+                    AdapterKind::Ollama
+                } else {
+                    AdapterKind::OpenAI // 默认
+                }
+            }
         }
     }
 
-    if let Some(max_tokens_str) = config_map.get("max_tokens") {
-        if let Ok(max_tokens) = max_tokens_str.parse::<u32>() {
-            chat_options = chat_options.with_max_tokens(max_tokens);
-        }
+    /// 获取默认端点
+    fn get_default_endpoint(adapter_kind: AdapterKind) -> &'static str {
+        DEFAULT_ENDPOINTS
+            .iter()
+            .find(|(kind, _)| *kind == adapter_kind)
+            .map(|(_, endpoint)| *endpoint)
+            .unwrap_or("https://api.openai.com/v1")
     }
 
-    if let Some(top_p_str) = config_map.get("top_p") {
-        if let Ok(top_p) = top_p_str.parse::<f64>() {
-            chat_options = chat_options.with_top_p(top_p);
+    /// 构建聊天选项
+    fn build_chat_options(config_map: &HashMap<String, String>) -> ChatOptions {
+        let mut chat_options = ChatOptions::default();
+
+        if let Some(temp_str) = config_map.get("temperature") {
+            if let Ok(temp) = temp_str.parse::<f64>() {
+                chat_options = chat_options.with_temperature(temp);
+            }
         }
+
+        if let Some(max_tokens_str) = config_map.get("max_tokens") {
+            if let Ok(max_tokens) = max_tokens_str.parse::<u32>() {
+                chat_options = chat_options.with_max_tokens(max_tokens);
+            }
+        }
+
+        if let Some(top_p_str) = config_map.get("top_p") {
+            if let Ok(top_p) = top_p_str.parse::<f64>() {
+                chat_options = chat_options.with_top_p(top_p);
+            }
+        }
+
+        chat_options
     }
 
-    chat_options
+    /// 合并模型配置
+    fn merge_model_configs(
+        base_configs: Vec<AssistantModelConfig>,
+        model_detail: &crate::db::llm_db::ModelDetail,
+        override_configs: Option<HashMap<String, serde_json::Value>>,
+    ) -> Vec<AssistantModelConfig> {
+        let mut model_config_clone = base_configs;
+        model_config_clone.push(AssistantModelConfig {
+            id: 0,
+            assistant_id: model_detail.model.id, // 使用正确的字段
+            assistant_model_id: model_detail.model.id,
+            name: "model".to_string(),
+            value: Some(model_detail.model.code.clone()),
+            value_type: "string".to_string(),
+        });
+
+        if let Some(override_configs) = override_configs {
+            for (key, value) in override_configs {
+                let value_type = match &value {
+                    serde_json::Value::String(_) => "string",
+                    serde_json::Value::Number(_) => "number",
+                    serde_json::Value::Bool(_) => "boolean",
+                    serde_json::Value::Array(_) => "array",
+                    serde_json::Value::Object(_) => "object",
+                    serde_json::Value::Null => "null",
+                };
+
+                let value_str = match value {
+                    serde_json::Value::String(s) => s,
+                    other => other.to_string(),
+                };
+
+                // 查找是否已存在该配置
+                if let Some(existing_config) = model_config_clone.iter_mut().find(|c| c.name == key)
+                {
+                    existing_config.value = Some(value_str);
+                    existing_config.value_type = value_type.to_string();
+                } else {
+                    // 添加新配置
+                    model_config_clone.push(AssistantModelConfig {
+                        id: 0,
+                        assistant_id: model_detail.model.id,
+                        assistant_model_id: model_detail.model.id,
+                        name: key,
+                        value: Some(value_str),
+                        value_type: value_type.to_string(),
+                    });
+                }
+            }
+        }
+
+        model_config_clone
+    }
 }
 
 /// 将消息列表转换为 ChatMessage 格式
-fn build_chat_messages(init_message_list: &[(String, String, Vec<MessageAttachment>)]) -> Vec<ChatMessage> {
+fn build_chat_messages(
+    init_message_list: &[(String, String, Vec<MessageAttachment>)],
+) -> Vec<ChatMessage> {
     let mut chat_messages = Vec::new();
     for (role, content, _attachments) in init_message_list {
         match role.as_str() {
@@ -84,149 +261,13 @@ fn build_chat_messages(init_message_list: &[(String, String, Vec<MessageAttachme
     chat_messages
 }
 
-/// 合并模型配置
-fn merge_model_configs(
-    base_configs: Vec<AssistantModelConfig>,
-    model_detail: &crate::db::llm_db::ModelDetail,
-    override_configs: Option<HashMap<String, serde_json::Value>>,
-) -> Vec<AssistantModelConfig> {
-    let mut model_config_clone = base_configs;
-    
-    // 添加模型配置
-    model_config_clone.push(AssistantModelConfig {
-        id: 0,
-        assistant_id: model_config_clone.first().map(|c| c.assistant_id).unwrap_or(0),
-        assistant_model_id: model_detail.model.id,
-        name: "model".to_string(),
-        value: Some(model_detail.model.code.clone()),
-        value_type: "string".to_string(),
-    });
-
-    // 应用覆盖配置
-    if let Some(override_configs) = override_configs {
-        for (key, value) in override_configs {
-            let value_type = match &value {
-                serde_json::Value::String(_) => "string",
-                serde_json::Value::Number(_) => "number",
-                serde_json::Value::Bool(_) => "boolean",
-                serde_json::Value::Array(_) => "array",
-                serde_json::Value::Object(_) => "object",
-                serde_json::Value::Null => "null",
-            }
-            .to_string();
-
-            let value_str = value.to_string();
-
-            if let Some(existing_config) = model_config_clone.iter_mut().find(|c| c.name == key) {
-                existing_config.value = Some(value_str);
-                existing_config.value_type = value_type;
-            } else {
-                model_config_clone.push(AssistantModelConfig {
-                    id: 0,
-                    assistant_id: model_config_clone.first().map(|c| c.assistant_id).unwrap_or(0),
-                    assistant_model_id: model_detail.model.id,
-                    name: key,
-                    value: Some(value_str),
-                    value_type,
-                });
-            }
-        }
-    }
-
-    model_config_clone
-}
-
 /// 清理消息令牌
-async fn cleanup_token(tokens: &Arc<tokio::sync::Mutex<HashMap<i64, CancellationToken>>>, message_id: i64) {
+async fn cleanup_token(
+    tokens: &Arc<tokio::sync::Mutex<HashMap<i64, CancellationToken>>>,
+    message_id: i64,
+) {
     let mut map = tokens.lock().await;
     map.remove(&message_id);
-}
-
-/// 获取默认端点
-fn get_default_endpoint(adapter_kind: AdapterKind) -> &'static str {
-    DEFAULT_ENDPOINTS
-        .iter()
-        .find(|(kind, _)| *kind == adapter_kind)
-        .map(|(_, endpoint)| *endpoint)
-        .unwrap_or("https://api.openai.com/v1")
-}
-
-/// 根据模型名称推断 AdapterKind
-fn infer_adapter_kind(model_name: &str, api_type: &str) -> AdapterKind {
-    match api_type.to_lowercase().as_str() {
-        "openai_api" | "openai" => AdapterKind::OpenAI,
-        "anthropic" => AdapterKind::Anthropic,
-        "cohere" => AdapterKind::Cohere,
-        "gemini" => AdapterKind::Gemini,
-        "deepseek" => AdapterKind::DeepSeek, // DeepSeek 使用 OpenAI 兼容 API
-        "ollama" => AdapterKind::Ollama,
-        "xai" => AdapterKind::Xai,
-        _ => {
-            // 根据模型名称推断
-            if model_name.starts_with("gpt") || model_name.starts_with("o1") || model_name.starts_with("o3") || model_name.starts_with("o4") {
-                AdapterKind::OpenAI
-            } else if model_name.starts_with("claude") {
-                AdapterKind::Anthropic
-            } else if model_name.starts_with("command") {
-                AdapterKind::Cohere
-            } else if model_name.starts_with("gemini") {
-                AdapterKind::Gemini
-            } else if model_name.starts_with("grok") {
-                AdapterKind::Xai
-            } else if model_name.starts_with("deepseek") {
-                AdapterKind::OpenAI // DeepSeek 使用 OpenAI 兼容 API
-            } else {
-                AdapterKind::Ollama // 默认使用 Ollama
-            }
-        }
-    }
-}
-
-/// 从配置创建自定义 Client
-fn create_client_with_config(
-    configs: &[crate::db::llm_db::LLMProviderConfig], 
-    model_name: &str,
-    api_type: &str
-) -> Result<Client, AppError> {
-    let config_map: HashMap<String, String> = configs
-        .iter()
-        .map(|c| (c.name.clone(), c.value.clone()))
-        .collect();
-
-    let api_key = config_map
-        .get("api_key")
-        .ok_or_else(|| AppError::NoConfigError("api_key".to_string()))?;
-
-    let endpoint_opt = config_map.get("endpoint").cloned();
-    let adapter_kind = infer_adapter_kind(model_name, api_type);
-    let api_key = api_key.clone();
-
-    let target_resolver = ServiceTargetResolver::from_resolver_fn(
-        move |service_target: ServiceTarget| -> Result<ServiceTarget, genai::resolver::Error> {
-            let ServiceTarget { model, .. } = service_target;
-            
-            let auth = AuthData::from_single(api_key.clone());
-            let model_iden = ModelIden::new(adapter_kind, model.model_name);
-            
-            let endpoint = if let Some(ep) = &endpoint_opt {
-                Endpoint::from_owned(ep.trim_end_matches('/').to_string())
-            } else {
-                Endpoint::from_static(get_default_endpoint(adapter_kind))
-            };
-
-            Ok(ServiceTarget {
-                endpoint,
-                auth,
-                model: model_iden,
-            })
-        },
-    );
-
-    let client = Client::builder()
-        .with_service_target_resolver(target_resolver)
-        .build();
-
-    Ok(client)
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -261,11 +302,14 @@ async fn handle_stream_chat(
     conversation_db: &ConversationDatabase,
     tokens: &Arc<tokio::sync::Mutex<HashMap<i64, CancellationToken>>>,
 ) -> Result<(), anyhow::Error> {
-    match client.exec_chat_stream(model_name, chat_request, Some(chat_options)).await {
+    match client
+        .exec_chat_stream(model_name, chat_request, Some(chat_options))
+        .await
+    {
         Ok(chat_stream_response) => {
             let mut chat_stream = chat_stream_response.stream;
             let mut full_content = String::new();
-            
+
             loop {
                 tokio::select! {
                     stream_result = chat_stream.next() => {
@@ -301,13 +345,13 @@ async fn handle_stream_chat(
                                         if let Some(captured_text) = stream_end.captured_first_text() {
                                             full_content = captured_text.to_string();
                                         }
-                                        
+
                                         conversation_db
                                             .message_repo()
                                             .unwrap()
                                             .update_finish_time(message_id)
                                             .unwrap();
-                                        
+
                                         tx.send((message_id, full_content.clone(), true)).await.unwrap();
                                         return Ok(());
                                     }
@@ -337,7 +381,7 @@ async fn handle_stream_chat(
                     }
                 }
             }
-        },
+        }
         Err(e) => {
             cleanup_token(tokens, message_id).await;
             let err_msg = format!("Chat stream error: {}", e);
@@ -401,10 +445,7 @@ async fn handle_non_stream_chat(
 async fn handle_chat_response(
     app_handle: tauri::AppHandle,
     window: tauri::Window,
-    message_id: i64,
-    conversation_id: i64,
-    request_prompt_result: String,
-    need_generate_title: bool,
+    chat_context: ChatContext,
     config_feature_map: HashMap<String, HashMap<String, FeatureConfig>>,
     tokens: Arc<tokio::sync::Mutex<HashMap<i64, CancellationToken>>>,
     mut rx: mpsc::Receiver<(i64, String, bool)>,
@@ -426,7 +467,7 @@ async fn handle_chat_response(
                     let mut message = conversation_db
                         .message_repo()
                         .unwrap()
-                        .read(message_id)
+                        .read(chat_context.message_id)
                         .unwrap()
                         .unwrap();
                     message.content = content.clone().to_string();
@@ -438,18 +479,15 @@ async fn handle_chat_response(
 
                     println!("Message finish: id={}", id);
                     window
-                        .emit(
-                            format!("message_{}", id).as_str(),
-                            MESSAGE_FINISH_EVENT,
-                        )
+                        .emit(format!("message_{}", id).as_str(), MESSAGE_FINISH_EVENT)
                         .map_err(|e| e.to_string())
                         .unwrap();
-                    
-                    if need_generate_title {
+
+                    if chat_context.need_generate_title {
                         generate_title(
                             &app_handle,
-                            conversation_id,
-                            request_prompt_result.clone(),
+                            chat_context.conversation_id,
+                            chat_context.request_prompt_result.clone(),
                             content.clone().to_string(),
                             config_feature_map.clone(),
                             window.clone(),
@@ -458,17 +496,17 @@ async fn handle_chat_response(
                         .map_err(|e| e.to_string())
                         .unwrap();
                     }
-                    cleanup_token(&tokens, message_id).await;
+                    cleanup_token(&tokens, chat_context.message_id).await;
                     break;
                 }
             }
             Ok(None) => {
-                cleanup_token(&tokens, message_id).await;
+                cleanup_token(&tokens, chat_context.message_id).await;
                 println!("Channel closed");
                 break;
             }
             Err(err) => {
-                cleanup_token(&tokens, message_id).await;
+                cleanup_token(&tokens, chat_context.message_id).await;
                 println!("Timeout waiting for data from channel: {:?}", err);
                 break;
             }
@@ -500,6 +538,7 @@ pub async fn ask_ai(
 
     let app_handle_clone = app_handle.clone();
     let assistant_detail = get_assistant(app_handle_clone, request.assistant_id).unwrap();
+    let assistant_detail_clone = assistant_detail.clone();
     let assistant_prompt_origin = &assistant_detail.prompts[0].prompt;
     let assistant_prompt_result = template_engine
         .parse(&assistant_prompt_origin, &template_context)
@@ -539,28 +578,27 @@ pub async fn ask_ai(
             .store_token(new_message_id.unwrap(), cancel_token.clone())
             .await;
 
+        // 在异步任务外获取模型详情（避免线程安全问题）
+        let llm_db = LLMDatabase::new(&app_handle).map_err(AppError::from)?;
+        let provider_id = &assistant_detail.model[0].provider_id;
+        let model_code = &assistant_detail.model[0].model_code;
+        let model_detail = llm_db
+            .get_llm_model_detail(provider_id, model_code)
+            .context("Failed to get LLM model detail")?;
+
         let tokens = message_token_manager.get_tokens();
         tokio::spawn(async move {
-            let db = LLMDatabase::new(&app_handle_clone)
-                .map_err(Error::from)
-                .context("Failed to create LLMDatabase")?;
+            // 直接创建数据库连接（避免线程安全问题）
             let conversation_db = ConversationDatabase::new(&app_handle_clone).unwrap();
-            let provider_id = &assistant_detail.model[0].provider_id;
-            let model_code = &assistant_detail.model[0].model_code;
-            let model_detail = db
-                .get_llm_model_detail(provider_id, model_code)
-                .context("Failed to get LLM model detail")?;
-            println!("model detail : {:#?}", model_detail);
 
-            // Create genai client with custom config
-            let client = create_client_with_config(
-                &model_detail.configs, 
-                &model_detail.model.code, 
-                &model_detail.provider.api_type
+            // 构建聊天配置
+            let client = ConfigBuilder::create_client_with_config(
+                &model_detail.configs,
+                &model_detail.model.code,
+                &model_detail.provider.api_type,
             )?;
 
-            // Prepare model configurations
-            let model_config_clone = merge_model_configs(
+            let model_config_clone = ConfigBuilder::merge_model_configs(
                 assistant_detail.model_configs.clone(),
                 &model_detail,
                 override_model_config,
@@ -581,45 +619,57 @@ pub async fn ask_ai(
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(false);
 
-            // Extract model name from config
             let model_name = config_map
                 .get("model")
                 .cloned()
                 .unwrap_or_else(|| model_detail.model.code.clone());
 
-            // Convert messages to ChatMessage format and build chat options
+            let chat_options = ConfigBuilder::build_chat_options(&config_map);
+
+            let chat_config = ChatConfig {
+                model_name,
+                stream,
+                chat_options,
+                client,
+            };
+
+            println!(
+                "Using model: {}, stream: {}",
+                chat_config.model_name, chat_config.stream
+            );
+
+            // Convert messages to ChatMessage format
             let chat_messages = build_chat_messages(&init_message_list);
             let chat_request = ChatRequest::new(chat_messages);
-            let chat_options = build_chat_options(&config_map);
 
-            println!("Using model: {}, stream: {}", model_name, stream);
-
-            if stream {
+            if chat_config.stream {
                 // 使用 genai 流式处理
                 handle_stream_chat(
-                    &client,
-                    &model_name,
+                    &chat_config.client,
+                    &chat_config.model_name,
                     chat_request,
-                    &chat_options,
+                    &chat_config.chat_options,
                     message_id,
                     &tx,
                     &cancel_token,
                     &conversation_db,
                     &tokens,
-                ).await?;
+                )
+                .await?;
             } else {
                 // Use genai non-streaming
                 handle_non_stream_chat(
-                    &client,
-                    &model_name,
+                    &chat_config.client,
+                    &chat_config.model_name,
                     chat_request,
-                    &chat_options,
+                    &chat_config.chat_options,
                     message_id,
                     &tx,
                     &cancel_token,
                     &conversation_db,
                     &tokens,
-                ).await?;
+                )
+                .await?;
             }
 
             Ok::<(), Error>(())
@@ -628,18 +678,26 @@ pub async fn ask_ai(
         let app_handle_clone = app_handle.clone();
         let tokens = message_token_manager.get_tokens();
         let window_clone = window.clone();
+
+        // 创建 ChatContext
+        let chat_context = ChatContext {
+            conversation_id,
+            message_id: new_message_id.unwrap(),
+            assistant_detail: assistant_detail_clone,
+            need_generate_title,
+            request_prompt_result: request_prompt_result_with_context_clone,
+        };
+
         tokio::spawn(async move {
             handle_chat_response(
                 app_handle_clone,
                 window_clone,
-                new_message_id.unwrap(),
-                conversation_id,
-                request_prompt_result_with_context_clone,
-                need_generate_title,
+                chat_context,
                 config_feature_map.clone(),
                 tokens,
                 rx,
-            ).await;
+            )
+            .await;
         });
     }
 
@@ -768,6 +826,7 @@ pub async fn regenerate_ai(
 
     let assistant_id = conversation.assistant_id.unwrap();
     let assistant_detail = get_assistant(app_handle.clone(), assistant_id).unwrap();
+    let assistant_detail_clone = assistant_detail.clone();
 
     if assistant_detail.model.is_empty() {
         return Err(AppError::NoModelFound);
@@ -816,29 +875,30 @@ pub async fn regenerate_ai(
         .store_token(new_message_id, cancel_token.clone())
         .await;
 
+    // 在异步任务外获取模型详情（避免线程安全问题）
+    let llm_db = LLMDatabase::new(&app_handle).map_err(AppError::from)?;
+    let provider_id = &assistant_detail.model[0].provider_id;
+    let model_code = &assistant_detail.model[0].model_code;
+    let model_detail = llm_db
+        .get_llm_model_detail(provider_id, model_code)
+        .context("Failed to get LLM model detail")?;
+
     let tokens = message_token_manager.get_tokens();
     tokio::spawn(async move {
-        let db = LLMDatabase::new(&app_handle_clone)
-            .map_err(Error::from)
-            .context("Failed to create LLMDatabase")?;
+        // 直接创建数据库连接（避免线程安全问题）
         let conversation_db = ConversationDatabase::new(&app_handle_clone).unwrap();
-        let provider_id = &assistant_detail.model[0].provider_id;
-        let model_code = &assistant_detail.model[0].model_code;
-        let model_detail = db
-            .get_llm_model_detail(provider_id, model_code)
-            .context("Failed to get LLM model detail")?;
 
-        // Create genai client with custom config
-        let client = create_client_with_config(
-            &model_detail.configs, 
-            &model_detail.model.code, 
-            &model_detail.provider.api_type
+        // 构建聊天配置
+        let client = ConfigBuilder::create_client_with_config(
+            &model_detail.configs,
+            &model_detail.model.code,
+            &model_detail.provider.api_type,
         )?;
 
-        let model_config_clone = merge_model_configs(
+        let model_config_clone = ConfigBuilder::merge_model_configs(
             assistant_detail.model_configs.clone(),
             &model_detail,
-            None,
+            None, // regenerate 不使用覆盖配置
         );
 
         let config_map = model_config_clone
@@ -856,43 +916,52 @@ pub async fn regenerate_ai(
             .and_then(|v| v.parse().ok())
             .unwrap_or(false);
 
-        // Extract model name from config
         let model_name = config_map
             .get("model")
             .cloned()
             .unwrap_or_else(|| model_detail.model.code.clone());
 
-        // Convert messages to ChatMessage format and build chat options
+        let chat_options = ConfigBuilder::build_chat_options(&config_map);
+
+        let chat_config = ChatConfig {
+            model_name,
+            stream,
+            chat_options,
+            client,
+        };
+
+        // Convert messages to ChatMessage format
         let chat_messages = build_chat_messages(&init_message_list);
         let chat_request = ChatRequest::new(chat_messages);
-        let chat_options = build_chat_options(&config_map);
 
-        if stream {
+        if chat_config.stream {
             // 使用 genai 流式处理
             handle_stream_chat(
-                &client,
-                &model_name,
+                &chat_config.client,
+                &chat_config.model_name,
                 chat_request,
-                &chat_options,
+                &chat_config.chat_options,
                 new_message_id,
                 &tx,
                 &cancel_token,
                 &conversation_db,
                 &tokens,
-            ).await?;
+            )
+            .await?;
         } else {
             // Use genai non-streaming
             handle_non_stream_chat(
-                &client,
-                &model_name,
+                &chat_config.client,
+                &chat_config.model_name,
                 chat_request,
-                &chat_options,
+                &chat_config.chat_options,
                 new_message_id,
                 &tx,
                 &cancel_token,
                 &conversation_db,
                 &tokens,
-            ).await?;
+            )
+            .await?;
         }
 
         Ok::<(), Error>(())
@@ -901,18 +970,26 @@ pub async fn regenerate_ai(
     let app_handle_clone = app_handle.clone();
     let tokens = message_token_manager.get_tokens();
     let window_clone = window.clone();
+
+    // 创建 ChatContext
+    let chat_context = ChatContext {
+        conversation_id,
+        message_id: new_message_id,
+        assistant_detail: assistant_detail_clone,
+        need_generate_title: false,
+        request_prompt_result: String::new(),
+    };
+
     tokio::spawn(async move {
         handle_chat_response(
             app_handle_clone,
             window_clone,
-            new_message_id,
-            conversation_id,
-            String::new(),
-            false,
+            chat_context,
             HashMap::new(),
             tokens,
             rx,
-        ).await;
+        )
+        .await;
     });
 
     Ok(AiResponse {
@@ -971,7 +1048,7 @@ async fn initialize_conversation(
     ),
     AppError,
 > {
-    let db = get_conversation_db(app_handle)?;
+    let db = ConversationDatabase::new(app_handle).map_err(AppError::from)?;
 
     let (conversation_id, add_message_id, request_prompt_result_with_context, init_message_list) =
         if request.conversation_id.is_empty() {
@@ -1210,14 +1287,17 @@ async fn generate_title(
             }
         }
 
-        let db = get_llm_db(app_handle)?;
-        let model_detail = db.get_llm_model_detail(&provider_id, &model_code).unwrap();
+        // 直接创建数据库连接
+        let llm_db = LLMDatabase::new(app_handle).map_err(AppError::from)?;
+        let model_detail = llm_db
+            .get_llm_model_detail(&provider_id, &model_code)
+            .unwrap();
 
         // Create genai client with custom config
-        let client = create_client_with_config(
-            &model_detail.configs, 
-            &model_detail.model.code, 
-            &model_detail.provider.api_type
+        let client = ConfigBuilder::create_client_with_config(
+            &model_detail.configs,
+            &model_detail.model.code,
+            &model_detail.provider.api_type,
         )?;
 
         // Convert messages to ChatMessage format
@@ -1235,15 +1315,13 @@ async fn generate_title(
         match response {
             Err(e) => {
                 println!("Chat error: {}", e);
-                let _ = window.emit(
-                    ERROR_NOTIFICATION_EVENT,
-                    "生成对话标题失败，请检查配置",
-                );
+                let _ = window.emit(ERROR_NOTIFICATION_EVENT, "生成对话标题失败，请检查配置");
             }
             Ok(response_text) => {
                 println!("Chat content: {}", response_text.clone());
 
-                let conversation_db = get_conversation_db(app_handle)?;
+                let conversation_db =
+                    ConversationDatabase::new(app_handle).map_err(AppError::from)?;
                 let _ = conversation_db
                     .conversation_repo()
                     .unwrap()
@@ -1262,12 +1340,4 @@ async fn generate_title(
     }
 
     Ok(())
-}
-
-fn get_conversation_db(app_handle: &tauri::AppHandle) -> Result<ConversationDatabase, AppError> {
-    ConversationDatabase::new(app_handle).map_err(AppError::from)
-}
-
-fn get_llm_db(app_handle: &tauri::AppHandle) -> Result<LLMDatabase, AppError> {
-    LLMDatabase::new(app_handle).map_err(AppError::from)
 }
