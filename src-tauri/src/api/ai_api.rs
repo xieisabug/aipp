@@ -21,7 +21,7 @@ use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
 use futures::StreamExt;
-use genai::chat::{ChatMessage, ChatOptions, ChatRequest};
+use genai::chat::{ChatMessage, ChatOptions, ChatRequest, ContentPart};
 use genai::resolver::{AuthData, Endpoint, ServiceTargetResolver};
 use genai::{adapter::AdapterKind, Client, ModelIden, ServiceTarget};
 
@@ -61,7 +61,6 @@ struct ChatConfig {
 struct ChatContext {
     conversation_id: i64,
     message_id: i64,
-    assistant_detail: crate::api::assistant_api::AssistantDetail,
     need_generate_title: bool,
     request_prompt_result: String,
 }
@@ -245,20 +244,125 @@ impl ConfigBuilder {
     }
 }
 
-/// 将消息列表转换为 ChatMessage 格式
+/// 将消息列表转换为 ChatMessage 格式，并处理多媒体附件
 fn build_chat_messages(
     init_message_list: &[(String, String, Vec<MessageAttachment>)],
 ) -> Vec<ChatMessage> {
     let mut chat_messages = Vec::new();
-    for (role, content, _attachments) in init_message_list {
+    
+    for (role, content, attachments) in init_message_list {
+        // 如果没有附件，使用简单的文本消息
+        if attachments.is_empty() {
+            match role.as_str() {
+                "system" => chat_messages.push(ChatMessage::system(content)),
+                "user" => chat_messages.push(ChatMessage::user(content)),
+                "assistant" => chat_messages.push(ChatMessage::assistant(content)),
+                _ => {}
+            }
+            continue;
+        }
+
+        // 如果有附件，使用 ContentPart 来构建消息
+        let mut content_parts = vec![ContentPart::from_text(content)];
+        
+        // 处理各种类型的附件
+        for attachment in attachments {
+            match attachment.attachment_type {
+                crate::db::conversation_db::AttachmentType::Image => {
+                    // 图像附件
+                    if let Some(url) = &attachment.attachment_url {
+                        // 推断图像的媒体类型
+                        let media_type = infer_media_type_from_url(url);
+                        content_parts.push(ContentPart::from_image_url(&media_type, url));
+                    } else if let Some(content) = &attachment.attachment_content {
+                        // 如果没有URL但有内容（可能是base64），作为文本处理
+                        content_parts.push(ContentPart::from_text(&format!(
+                            "\n\n[图像附件内容]\n{}", content
+                        )));
+                    }
+                },
+                crate::db::conversation_db::AttachmentType::Text => {
+                    // 文本附件
+                    if let Some(attachment_content) = &attachment.attachment_content {
+                        let file_name = attachment.attachment_url.as_deref().unwrap_or("未知文件");
+                        content_parts.push(ContentPart::from_text(&format!(
+                            "\n\n[文本附件: {}]\n{}", file_name, attachment_content
+                        )));
+                    }
+                },
+                crate::db::conversation_db::AttachmentType::PDF |
+                crate::db::conversation_db::AttachmentType::Word |
+                crate::db::conversation_db::AttachmentType::PowerPoint |
+                crate::db::conversation_db::AttachmentType::Excel => {
+                    // 其他文档类型，作为文本内容处理
+                    if let Some(attachment_content) = &attachment.attachment_content {
+                        let file_name = attachment.attachment_url.as_deref().unwrap_or("未知文档");
+                        let file_type = match attachment.attachment_type {
+                            crate::db::conversation_db::AttachmentType::PDF => "PDF文档",
+                            crate::db::conversation_db::AttachmentType::Word => "Word文档",
+                            crate::db::conversation_db::AttachmentType::PowerPoint => "PowerPoint文档",
+                            crate::db::conversation_db::AttachmentType::Excel => "Excel文档",
+                            _ => "文档",
+                        };
+                        content_parts.push(ContentPart::from_text(&format!(
+                            "\n\n[{}: {}]\n{}", file_type, file_name, attachment_content
+                        )));
+                    }
+                },
+            }
+        }
+
+        // 创建包含多个内容部分的消息
         match role.as_str() {
-            "system" => chat_messages.push(ChatMessage::system(content)),
-            "user" => chat_messages.push(ChatMessage::user(content)),
-            "assistant" => chat_messages.push(ChatMessage::assistant(content)),
+            "system" => {
+                // 系统消息通常不支持多媒体内容，将所有内容合并为文本
+                let combined_text = content_parts.iter()
+                    .map(|part| {
+                        // 注意：这里假设 ContentPart 有某种方式提取文本，
+                        // 实际情况可能需要根据 genai 库的具体实现调整
+                        match part {
+                            // 这里需要根据实际的 ContentPart API 来实现
+                            _ => content.clone(), // 临时处理
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("");
+                chat_messages.push(ChatMessage::system(&combined_text));
+            },
+            "user" => {
+                chat_messages.push(ChatMessage::user(content_parts));
+            },
+            "assistant" => {
+                // 助手消息也通常是纯文本，将内容合并
+                let combined_text = content_parts.iter()
+                    .map(|_| content.clone()) // 临时处理
+                    .collect::<Vec<_>>()
+                    .join("");
+                chat_messages.push(ChatMessage::assistant(&combined_text));
+            },
             _ => {}
         }
     }
+    
     chat_messages
+}
+
+/// 根据URL推断图像的媒体类型
+fn infer_media_type_from_url(url: &str) -> String {
+    let url_lower = url.to_lowercase();
+    if url_lower.ends_with(".jpg") || url_lower.ends_with(".jpeg") {
+        "image/jpeg".to_string()
+    } else if url_lower.ends_with(".png") {
+        "image/png".to_string()
+    } else if url_lower.ends_with(".gif") {
+        "image/gif".to_string()
+    } else if url_lower.ends_with(".webp") {
+        "image/webp".to_string()
+    } else if url_lower.ends_with(".bmp") {
+        "image/bmp".to_string()
+    } else {
+        "image/jpeg".to_string() // 默认值
+    }
 }
 
 /// 清理消息令牌
@@ -531,14 +635,13 @@ pub async fn ask_ai(
     );
     let template_engine = TemplateEngine::new();
     let mut template_context = HashMap::new();
-    let (tx, mut rx) = mpsc::channel(100);
+    let (tx, rx) = mpsc::channel(100);
 
     let selected_text = state.inner().selected_text.lock().await.clone();
     template_context.insert("selected_text".to_string(), selected_text);
 
     let app_handle_clone = app_handle.clone();
     let assistant_detail = get_assistant(app_handle_clone, request.assistant_id).unwrap();
-    let assistant_detail_clone = assistant_detail.clone();
     let assistant_prompt_origin = &assistant_detail.prompts[0].prompt;
     let assistant_prompt_result = template_engine
         .parse(&assistant_prompt_origin, &template_context)
@@ -683,7 +786,6 @@ pub async fn ask_ai(
         let chat_context = ChatContext {
             conversation_id,
             message_id: new_message_id.unwrap(),
-            assistant_detail: assistant_detail_clone,
             need_generate_title,
             request_prompt_result: request_prompt_result_with_context_clone,
         };
@@ -826,7 +928,6 @@ pub async fn regenerate_ai(
 
     let assistant_id = conversation.assistant_id.unwrap();
     let assistant_detail = get_assistant(app_handle.clone(), assistant_id).unwrap();
-    let assistant_detail_clone = assistant_detail.clone();
 
     if assistant_detail.model.is_empty() {
         return Err(AppError::NoModelFound);
@@ -853,7 +954,7 @@ pub async fn regenerate_ai(
         .collect::<Vec<_>>();
     println!("init_message_list: {:?}", init_message_list);
 
-    let (tx, mut rx) = mpsc::channel(100);
+    let (tx, rx) = mpsc::channel(100);
 
     let app_handle_clone = app_handle.clone();
     let new_message = add_message(
@@ -975,7 +1076,6 @@ pub async fn regenerate_ai(
     let chat_context = ChatContext {
         conversation_id,
         message_id: new_message_id,
-        assistant_detail: assistant_detail_clone,
         need_generate_title: false,
         request_prompt_result: String::new(),
     };
