@@ -11,7 +11,7 @@ const ConversationTitle: React.FC<{
 }> = React.memo(({ conversation, onEdit, onDelete }) => (
     <div className="conversation-title-panel">
         <div className="conversation-title-panel-text-group">
-            <div className="conversation-title-panel-title">{conversation?.name}</div>
+            <div className="conversation-title-panel-title cursor-pointer" onClick={onEdit}>{conversation?.name}</div>
             <div className="conversation-title-panel-assistant-name">{conversation?.assistant_name}</div>
         </div>
         <div className="conversation-title-panel-button-group">

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { Sparkles } from "lucide-react";
 
 import { Conversation, FileInfo, Message } from "../data/Conversation";
 import "katex/dist/katex.min.css";
@@ -705,6 +706,7 @@ function ConversationUI({
     }, []);
     const [formConversationTitle, setFormConversationTitle] =
         useState<string>("");
+    const [isRegeneratingTitle, setIsRegeneratingTitle] = useState<boolean>(false);
 
     const handleFormSubmit = useCallback(() => {
         invoke("update_conversation", {
@@ -714,6 +716,31 @@ function ConversationUI({
             closeFormDialog();
         });
     }, [conversation, formConversationTitle]);
+
+    const handleRegenerateTitle = useCallback(async () => {
+        if (!conversation?.id || isRegeneratingTitle) return;
+
+        setIsRegeneratingTitle(true);
+
+        try {
+            await invoke("regenerate_conversation_title", {
+                conversationId: conversation.id,
+            });
+            toast.success("标题已重新生成");
+        } catch (error) {
+            console.error("重新生成标题失败:", error);
+            toast.error("重新生成标题失败: " + error);
+        } finally {
+            setIsRegeneratingTitle(false);
+        }
+    }, [conversation, isRegeneratingTitle]);
+
+    // 监听标题变化，同步到表单
+    useEffect(() => {
+        if (formDialogIsOpen && conversation?.name) {
+            setFormConversationTitle(conversation.name);
+        }
+    }, [formDialogIsOpen, conversation?.name]);
 
     const { deleteConversation } = useConversationManager();
     const handleDeleteConversation = useCallback(() => {
@@ -869,20 +896,35 @@ function ConversationUI({
                 onClose={closeFormDialog}
                 isOpen={formDialogIsOpen}
             >
-                <form className="form-group-container">
-                    <div className="form-group">
-                        <label>标题:</label>
+                <div className="space-y-4">
+                    <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                            <label className="text-sm font-medium leading-none text-gray-700">
+                                标题
+                            </label>
+                            <button
+                                type="button"
+                                onClick={handleRegenerateTitle}
+                                disabled={isRegeneratingTitle}
+                                className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 px-2 py-1"
+                                title="重新生成标题"
+                            >
+                                <Sparkles className={`h-4 w-4 ${isRegeneratingTitle ? 'animate-pulse' : ''}`} />
+                            </button>
+                        </div>
                         <input
-                            className="form-input"
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
                             type="text"
                             name="name"
                             value={formConversationTitle}
                             onChange={(e) =>
                                 setFormConversationTitle(e.target.value)
                             }
+                            placeholder="请输入对话标题"
+                            autoFocus
                         />
                     </div>
-                </form>
+                </div>
             </FormDialog>
 
             {isLoadingShow ? (
