@@ -3,6 +3,83 @@ use sha2::{Digest, Sha256};
 use tauri::Emitter;
 use tauri::Listener;
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{LogicalPosition, LogicalSize};
+
+// 获取合适的窗口大小和位置
+fn get_window_size_and_position(
+    app: &AppHandle,
+    default_width: f64,
+    default_height: f64,
+    reference_window_labels: &[&str],
+) -> (LogicalSize<f64>, Option<LogicalPosition<f64>>) {
+    let mut window_size = LogicalSize::new(default_width, default_height);
+    let mut window_position: Option<LogicalPosition<f64>> = None;
+
+    // 按优先级尝试获取参考窗口信息
+    for ref_label in reference_window_labels {
+        if let Some(ref_window) = app.get_webview_window(ref_label) {
+            // 检查窗口是否可见
+            if let Ok(is_visible) = ref_window.is_visible() {
+                if is_visible {
+                    // 获取参考窗口所在的屏幕
+                    if let Ok(current_monitor) = ref_window.current_monitor() {
+                        if let Some(monitor) = current_monitor {
+                            let monitor_size = monitor.size();
+                            let monitor_position = monitor.position();
+
+                            // 调整窗口大小以适应屏幕
+                            let screen_width = monitor_size.width as f64;
+                            let screen_height = monitor_size.height as f64;
+
+                            // 留出一些边距（10%）
+                            let max_width = screen_width * 0.9;
+                            let max_height = screen_height * 0.9;
+
+                            window_size.width = window_size.width.min(max_width);
+                            window_size.height = window_size.height.min(max_height);
+
+                            // 计算窗口位置（居中到参考窗口所在屏幕）
+                            let center_x = monitor_position.x as f64
+                                + (screen_width - window_size.width) / 2.0;
+                            let center_y = monitor_position.y as f64
+                                + (screen_height - window_size.height) / 2.0;
+
+                            window_position = Some(LogicalPosition::new(center_x, center_y));
+                            break; // 找到可见的参考窗口后停止搜索
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 如果没有参考窗口，使用主屏幕
+    if window_position.is_none() {
+        if let Ok(Some(primary_monitor)) = app.primary_monitor() {
+            let monitor_size = primary_monitor.size();
+            let monitor_position = primary_monitor.position();
+
+            // 调整窗口大小以适应屏幕
+            let screen_width = monitor_size.width as f64;
+            let screen_height = monitor_size.height as f64;
+
+            // 留出一些边距（10%）
+            let max_width = screen_width * 0.9;
+            let max_height = screen_height * 0.9;
+
+            window_size.width = window_size.width.min(max_width);
+            window_size.height = window_size.height.min(max_height);
+
+            // 计算窗口位置（居中到主屏幕）
+            let center_x = monitor_position.x as f64 + (screen_width - window_size.width) / 2.0;
+            let center_y = monitor_position.y as f64 + (screen_height - window_size.height) / 2.0;
+
+            window_position = Some(LogicalPosition::new(center_x, center_y));
+        }
+    }
+
+    (window_size, window_position)
+}
 
 pub fn create_ask_window(app: &AppHandle) {
     let window_builder =
@@ -31,14 +108,22 @@ pub fn create_ask_window(app: &AppHandle) {
 }
 
 pub fn create_config_window(app: &AppHandle) {
-    let window_builder =
+    let (window_size, window_position) =
+        get_window_size_and_position(app, 1300.0, 1000.0, &["ask", "chat_ui"]);
+
+    let mut window_builder =
         WebviewWindowBuilder::new(app, "config", WebviewUrl::App("index.html".into()))
             .title("Aipp")
-            .inner_size(1000.0, 800.0)
+            .inner_size(window_size.width, window_size.height)
             .fullscreen(false)
             .resizable(true)
-            .decorations(true)
-            .center();
+            .decorations(true);
+
+    if let Some(position) = window_position {
+        window_builder = window_builder.position(position.x, position.y);
+    } else {
+        window_builder = window_builder.center();
+    }
 
     #[cfg(not(target_os = "macos"))]
     let window_builder = window_builder.transparent(false);
@@ -57,15 +142,22 @@ pub fn create_config_window(app: &AppHandle) {
 }
 
 pub fn create_chat_ui_window(app: &AppHandle) {
-    let window_builder =
+    let (window_size, window_position) = get_window_size_and_position(app, 1000.0, 800.0, &["ask"]);
+
+    let mut window_builder =
         WebviewWindowBuilder::new(app, "chat_ui", WebviewUrl::App("index.html".into()))
             .title("Aipp")
-            .inner_size(1000.0, 800.0)
+            .inner_size(window_size.width, window_size.height)
             .fullscreen(false)
             .resizable(true)
             .decorations(true)
-            .disable_drag_drop_handler()
-            .center();
+            .disable_drag_drop_handler();
+
+    if let Some(position) = window_position {
+        window_builder = window_builder.position(position.x, position.y);
+    } else {
+        window_builder = window_builder.center();
+    }
 
     #[cfg(not(target_os = "macos"))]
     let window_builder = window_builder.transparent(false);
