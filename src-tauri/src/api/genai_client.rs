@@ -1,7 +1,7 @@
-use genai::Client;
-use genai::resolver::{AuthData, Endpoint, ServiceTargetResolver};
-use genai::{adapter::AdapterKind, ModelIden, ServiceTarget};
 use crate::errors::AppError;
+use genai::resolver::{AuthData, Endpoint, ServiceTargetResolver};
+use genai::Client;
+use genai::{adapter::AdapterKind, ModelIden, ServiceTarget};
 
 // 默认端点映射
 pub const DEFAULT_ENDPOINTS: &[(AdapterKind, &str)] = &[
@@ -15,7 +15,7 @@ pub const DEFAULT_ENDPOINTS: &[(AdapterKind, &str)] = &[
     (AdapterKind::Groq, "https://api.groq.com/openai/v1/"),
     (AdapterKind::Xai, "https://api.x.ai/v1/"),
     (AdapterKind::DeepSeek, "https://api.deepseek.com/"),
-    (AdapterKind::Ollama, "http://localhost:11434/"),
+    (AdapterKind::Ollama, "http://localhost:11434/v1/"),
 ];
 
 /// 推断适配器类型
@@ -91,7 +91,10 @@ pub fn create_client_with_config(
                 api_key = config.value.clone();
             }
             "endpoint" => {
-                endpoint_opt = Some(config.value.clone());
+                let trimmed = config.value.trim();
+                if !trimmed.is_empty() {
+                    endpoint_opt = Some(trimmed.to_string());
+                }
             }
             _ => {}
         }
@@ -106,15 +109,18 @@ pub fn create_client_with_config(
         move |service_target: ServiceTarget| -> Result<ServiceTarget, genai::resolver::Error> {
             let ServiceTarget { model, .. } = service_target;
 
-            let endpoint = if let Some(ref ep) = endpoint_clone {
-                let mut endpoint_str = ep.clone();
-                if !endpoint_str.ends_with('/') {
-                    endpoint_str.push('/');
+            let endpoint = match endpoint_clone.as_deref() {
+                Some(ep) if !ep.trim().is_empty() && ep.trim().starts_with("http") => {
+                    let mut endpoint_str = ep.trim().to_string();
+                    if !endpoint_str.ends_with('/') {
+                        endpoint_str.push('/');
+                    }
+                    Endpoint::from_owned(endpoint_str)
                 }
-                Endpoint::from_owned(endpoint_str)
-            } else {
-                let default_endpoint = get_default_endpoint(adapter_kind);
-                Endpoint::from_static(default_endpoint)
+                _ => {
+                    let default_endpoint = get_default_endpoint(adapter_kind);
+                    Endpoint::from_static(default_endpoint)
+                }
             };
 
             let auth = AuthData::from_single(api_key_clone.clone());
@@ -135,4 +141,4 @@ pub fn create_client_with_config(
         .build();
 
     Ok(client)
-} 
+}
