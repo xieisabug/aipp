@@ -1,5 +1,7 @@
-use crate::{api::llm::get_provider, db::llm_db::LLMDatabase};
+use crate::db::llm_db::LLMDatabase;
+use crate::api::genai_client;
 use serde::{Deserialize, Serialize};
+
 
 #[derive(Serialize, Deserialize)]
 pub struct LlmProvider {
@@ -171,15 +173,33 @@ pub async fn fetch_model_list(
         .get_llm_provider_config(llm_provider_id)
         .map_err(|e| e.to_string())?;
 
-    let provider = get_provider(llm_provider, llm_provider_config);
+    // 使用共用的客户端创建函数
+    let client = genai_client::create_client_with_config(
+        &llm_provider_config,
+        "",
+        &llm_provider.api_type,
+    ).map_err(|e| e.to_string())?;
+    
+    let adapter_kind = genai_client::infer_adapter_kind_simple(&llm_provider.api_type);
 
-    let models_future = provider.models();
-    match models_future.await {
-        Ok(models) => {
+    match client.all_model_names(adapter_kind).await {
+        Ok(model_names) => {
             db.delete_llm_model_by_provider(llm_provider_id)
                 .map_err(|e| e.to_string())?;
-            for model in &models {
-                println!("Model: {:?}", model);
+            
+            let mut models = Vec::new();
+            for model_name in &model_names {
+                let model = LlmModel {
+                    id: 0,
+                    name: model_name.clone(),
+                    llm_provider_id,
+                    code: model_name.clone(),
+                    description: format!("Model: {}", model_name),
+                    vision_support: false,
+                    audio_support: false,
+                    video_support: false,
+                };
+                
                 db.add_llm_model(
                     &model.name,
                     llm_provider_id,
@@ -190,16 +210,20 @@ pub async fn fetch_model_list(
                     model.video_support,
                 )
                 .map_err(|e| e.to_string())?;
+                
+                models.push(model);
             }
 
             Ok(models)
         }
         Err(e) => {
-            eprintln!("Models error: {}", e);
+            eprintln!("获取模型列表错误: {}", e);
             Err(e.to_string())
         }
     }
 }
+
+
 
 #[tauri::command]
 pub async fn add_llm_model(

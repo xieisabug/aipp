@@ -428,6 +428,10 @@ impl LLMDatabase {
             "INSERT INTO llm_provider (id, name, api_type, description, is_official) VALUES (20, 'Anthropic', 'anthropic', 'Anthropic API', 1);",
             [],
         )?;
+        self.conn.execute(
+            "INSERT INTO llm_provider (id, name, api_type, description, is_official) VALUES (30, 'DeepSeek', 'deepseek', 'DeepSeek API', 1);",
+            [],
+        )?;
 
         Ok(())
     }

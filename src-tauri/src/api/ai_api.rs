@@ -1,5 +1,5 @@
 use crate::api::assistant_api::get_assistant;
-use crate::api::llm::get_provider;
+use crate::api::genai_client;
 use crate::db::assistant_db::AssistantModelConfig;
 use crate::db::conversation_db::{AttachmentType, Repository};
 use crate::db::conversation_db::{Conversation, ConversationDatabase, Message, MessageAttachment};
@@ -13,15 +13,294 @@ use anyhow::Context;
 use anyhow::Error;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::Duration;
 use tauri::Emitter;
-use tauri::Listener;
 use tauri::State;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
+use futures::StreamExt;
+use genai::chat::{ChatMessage, ChatOptions, ChatRequest, ContentPart};
+use genai::Client;
+
 use super::assistant_api::AssistantDetail;
+
+// 事件名称常量
+const MESSAGE_FINISH_EVENT: &str = "Tea::Event::MessageFinish";
+const TITLE_CHANGE_EVENT: &str = "title_change";
+const ERROR_NOTIFICATION_EVENT: &str = "conversation-window-error-notification";
+
+
+
+/// AI聊天配置
+#[derive(Debug, Clone)]
+struct ChatConfig {
+    model_name: String,
+    stream: bool,
+    chat_options: ChatOptions,
+    client: Client,
+}
+
+/// 聊天上下文
+#[derive(Debug)]
+struct ChatContext {
+    conversation_id: i64,
+    message_id: i64,
+    need_generate_title: bool,
+    request_prompt_result: String,
+}
+
+/// 配置构建器
+struct ConfigBuilder;
+
+impl ConfigBuilder {
+
+
+
+    /// 构建聊天选项
+    fn build_chat_options(config_map: &HashMap<String, String>) -> ChatOptions {
+        let mut chat_options = ChatOptions::default();
+
+        if let Some(temp_str) = config_map.get("temperature") {
+            if let Ok(temp) = temp_str.parse::<f64>() {
+                chat_options = chat_options.with_temperature(temp);
+            }
+        }
+
+        if let Some(max_tokens_str) = config_map.get("max_tokens") {
+            if let Ok(max_tokens) = max_tokens_str.parse::<u32>() {
+                chat_options = chat_options.with_max_tokens(max_tokens);
+            }
+        }
+
+        if let Some(top_p_str) = config_map.get("top_p") {
+            if let Ok(top_p) = top_p_str.parse::<f64>() {
+                chat_options = chat_options.with_top_p(top_p);
+            }
+        }
+
+        chat_options
+    }
+
+    /// 合并模型配置
+    fn merge_model_configs(
+        base_configs: Vec<AssistantModelConfig>,
+        model_detail: &crate::db::llm_db::ModelDetail,
+        override_configs: Option<HashMap<String, serde_json::Value>>,
+    ) -> Vec<AssistantModelConfig> {
+        let mut model_config_clone = base_configs;
+        model_config_clone.push(AssistantModelConfig {
+            id: 0,
+            assistant_id: model_detail.model.id, // 使用正确的字段
+            assistant_model_id: model_detail.model.id,
+            name: "model".to_string(),
+            value: Some(model_detail.model.code.clone()),
+            value_type: "string".to_string(),
+        });
+
+        if let Some(override_configs) = override_configs {
+            for (key, value) in override_configs {
+                let value_type = match &value {
+                    serde_json::Value::String(_) => "string",
+                    serde_json::Value::Number(_) => "number",
+                    serde_json::Value::Bool(_) => "boolean",
+                    serde_json::Value::Array(_) => "array",
+                    serde_json::Value::Object(_) => "object",
+                    serde_json::Value::Null => "null",
+                };
+
+                let value_str = match value {
+                    serde_json::Value::String(s) => s,
+                    other => other.to_string(),
+                };
+
+                // 查找是否已存在该配置
+                if let Some(existing_config) = model_config_clone.iter_mut().find(|c| c.name == key)
+                {
+                    existing_config.value = Some(value_str);
+                    existing_config.value_type = value_type.to_string();
+                } else {
+                    // 添加新配置
+                    model_config_clone.push(AssistantModelConfig {
+                        id: 0,
+                        assistant_id: model_detail.model.id,
+                        assistant_model_id: model_detail.model.id,
+                        name: key,
+                        value: Some(value_str),
+                        value_type: value_type.to_string(),
+                    });
+                }
+            }
+        }
+
+        model_config_clone
+    }
+}
+
+/// 将消息列表转换为 ChatMessage 格式，并处理多媒体附件
+fn build_chat_messages(
+    init_message_list: &[(String, String, Vec<MessageAttachment>)],
+) -> Vec<ChatMessage> {
+    let mut chat_messages = Vec::new();
+    
+    for (role, content, attachments) in init_message_list {
+        // 如果没有附件，使用简单的文本消息
+        if attachments.is_empty() {
+            match role.as_str() {
+                "system" => chat_messages.push(ChatMessage::system(content)),
+                "user" => chat_messages.push(ChatMessage::user(content)),
+                "assistant" => chat_messages.push(ChatMessage::assistant(content)),
+                _ => {}
+            }
+            continue;
+        }
+
+        // 如果有附件，使用 ContentPart 来构建消息
+        let mut content_parts = vec![ContentPart::from_text(content)];
+        
+        // 处理各种类型的附件
+        for attachment in attachments {
+            match attachment.attachment_type {
+                crate::db::conversation_db::AttachmentType::Image => {
+                    // 图像附件
+                    if let Some(content) = &attachment.attachment_content {
+                        // 解析 data URL 格式的内容，提取 MIME type 和纯 base64 内容
+                        if let Some((content_type, base64_content)) = parse_data_url(content) {
+                            content_parts.push(ContentPart::from_image_base64(&content_type, &*base64_content));
+                        }
+                    } else if let Some(url) = &attachment.attachment_url {
+                        // 推断图像的媒体类型
+                        let media_type = infer_media_type_from_url(url);
+                        content_parts.push(ContentPart::from_image_url(&media_type, url.as_str()));
+                    }
+                },
+                crate::db::conversation_db::AttachmentType::Text => {
+                    // 文本附件
+                    if let Some(attachment_content) = &attachment.attachment_content {
+                        let file_name = attachment.attachment_url.as_deref().unwrap_or("未知文件");
+                        content_parts.push(ContentPart::from_text(&format!(
+                            "\n\n[文本附件: {}]\n{}", file_name, attachment_content
+                        )));
+                    }
+                },
+                crate::db::conversation_db::AttachmentType::PDF |
+                crate::db::conversation_db::AttachmentType::Word |
+                crate::db::conversation_db::AttachmentType::PowerPoint |
+                crate::db::conversation_db::AttachmentType::Excel => {
+                    // 其他文档类型，作为文本内容处理
+                    if let Some(attachment_content) = &attachment.attachment_content {
+                        let file_name = attachment.attachment_url.as_deref().unwrap_or("未知文档");
+                        let file_type = match attachment.attachment_type {
+                            crate::db::conversation_db::AttachmentType::PDF => "PDF文档",
+                            crate::db::conversation_db::AttachmentType::Word => "Word文档",
+                            crate::db::conversation_db::AttachmentType::PowerPoint => "PowerPoint文档",
+                            crate::db::conversation_db::AttachmentType::Excel => "Excel文档",
+                            _ => "文档",
+                        };
+                        content_parts.push(ContentPart::from_text(&format!(
+                            "\n\n[{}: {}]\n{}", file_type, file_name, attachment_content
+                        )));
+                    }
+                },
+            }
+        }
+
+        // 创建包含多个内容部分的消息
+        match role.as_str() {
+            "system" => {
+                // 系统消息通常不支持多媒体内容，将所有内容合并为文本
+                let combined_text = content_parts.iter()
+                    .map(|part| {
+                        // 注意：这里假设 ContentPart 有某种方式提取文本，
+                        // 实际情况可能需要根据 genai 库的具体实现调整
+                        match part {
+                            // 这里需要根据实际的 ContentPart API 来实现
+                            _ => content.clone(), // 临时处理
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("");
+                chat_messages.push(ChatMessage::system(&combined_text));
+            },
+            "user" => {
+                chat_messages.push(ChatMessage::user(content_parts));
+            },
+            "assistant" => {
+                // 助手消息也通常是纯文本，将内容合并
+                let combined_text = content_parts.iter()
+                    .map(|_| content.clone()) // 临时处理
+                    .collect::<Vec<_>>()
+                    .join("");
+                chat_messages.push(ChatMessage::assistant(&combined_text));
+            },
+            _ => {}
+        }
+    }
+    println!("================================ Chat Messages ===============================================");
+    println!("{:?}", chat_messages);
+    println!("================================ Chat Messages End ===============================================");
+    chat_messages
+}
+
+/// 根据URL推断图像的媒体类型
+fn infer_media_type_from_url(url: &str) -> String {
+    let url_lower = url.to_lowercase();
+    if url_lower.ends_with(".jpg") || url_lower.ends_with(".jpeg") {
+        "image/jpeg".to_string()
+    } else if url_lower.ends_with(".png") {
+        "image/png".to_string()
+    } else if url_lower.ends_with(".gif") {
+        "image/gif".to_string()
+    } else if url_lower.ends_with(".webp") {
+        "image/webp".to_string()
+    } else if url_lower.ends_with(".bmp") {
+        "image/bmp".to_string()
+    } else {
+        "image/jpeg".to_string() // 默认值
+    }
+}
+
+/// 解析 data URL 格式的内容，提取 MIME type 和纯 base64 内容
+/// 支持格式：data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...
+fn parse_data_url(data_url: &str) -> Option<(String, String)> {
+    if !data_url.starts_with("data:") {
+        return None;
+    }
+    
+    let parts: Vec<&str> = data_url.splitn(2, ',').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+    
+    let header = parts[0];
+    let content = parts[1];
+    
+    // 提取 MIME type
+    let header_without_data = header.strip_prefix("data:")?;
+    let mime_type = if let Some(semicolon_pos) = header_without_data.find(';') {
+        &header_without_data[..semicolon_pos]
+    } else {
+        header_without_data
+    };
+    
+    // 检查是否包含 base64 标识
+    if !header.contains("base64") {
+        return None;
+    }
+    
+    Some((mime_type.to_string(), content.to_string()))
+}
+
+/// 清理消息令牌
+async fn cleanup_token(
+    tokens: &Arc<tokio::sync::Mutex<HashMap<i64, CancellationToken>>>,
+    message_id: i64,
+) {
+    let mut map = tokens.lock().await;
+    map.remove(&message_id);
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AiRequest {
@@ -42,6 +321,231 @@ pub struct AiResponse {
     add_message_id: i64,
     request_prompt_result_with_context: String,
 }
+
+/// 处理流式聊天
+async fn handle_stream_chat(
+    client: &Client,
+    model_name: &str,
+    chat_request: ChatRequest,
+    chat_options: &ChatOptions,
+    message_id: i64,
+    tx: &mpsc::Sender<(i64, String, bool)>,
+    cancel_token: &CancellationToken,
+    conversation_db: &ConversationDatabase,
+    tokens: &Arc<tokio::sync::Mutex<HashMap<i64, CancellationToken>>>,
+) -> Result<(), anyhow::Error> {
+    match client
+        .exec_chat_stream(model_name, chat_request, Some(chat_options))
+        .await
+    {
+        Ok(chat_stream_response) => {
+            let mut chat_stream = chat_stream_response.stream;
+            let mut full_content = String::new();
+
+            loop {
+                tokio::select! {
+                    stream_result = chat_stream.next() => {
+                        match stream_result {
+                            Some(Ok(stream_event)) => {
+                                use genai::chat::ChatStreamEvent;
+                                match stream_event {
+                                    ChatStreamEvent::Start => {
+                                        conversation_db
+                                            .message_repo()
+                                            .unwrap()
+                                            .update_start_time(message_id)
+                                            .unwrap();
+                                    }
+                                    ChatStreamEvent::Chunk(chunk) => {
+                                        full_content.push_str(&chunk.content);
+                                                                            if let Err(e) = tx.send((message_id, full_content.clone(), false)).await {
+                                        eprintln!("Failed to send chunk: {}", e);
+                                        return Ok(());
+                                    }
+                                    }
+                                    ChatStreamEvent::ReasoningChunk(reasoning_chunk) => {
+                                        full_content.push_str(&reasoning_chunk.content);
+                                                                            if let Err(e) = tx.send((message_id, full_content.clone(), false)).await {
+                                        eprintln!("Failed to send reasoning chunk: {}", e);
+                                        return Ok(());
+                                    }
+                                    }
+                                    ChatStreamEvent::ToolCallChunk(_tool_chunk) => {
+                                        // 工具调用块，暂时忽略
+                                    }
+                                    ChatStreamEvent::End(stream_end) => {
+                                        if let Some(captured_text) = stream_end.captured_first_text() {
+                                            full_content = captured_text.to_string();
+                                        }
+
+                                        conversation_db
+                                            .message_repo()
+                                            .unwrap()
+                                            .update_finish_time(message_id)
+                                            .unwrap();
+
+                                        tx.send((message_id, full_content.clone(), true)).await.unwrap();
+                                        return Ok(());
+                                    }
+                                }
+                            },
+                            Some(Err(e)) => {
+                                eprintln!("Stream error: {}", e);
+                                cleanup_token(tokens, message_id).await;
+                                let err_msg = format!("Chat stream error: {}", e);
+                                tx.send((message_id, err_msg, true)).await.unwrap();
+                                return Err(anyhow::anyhow!("Stream error: {}", e));
+                            },
+                            None => {
+                                conversation_db
+                                    .message_repo()
+                                    .unwrap()
+                                    .update_finish_time(message_id)
+                                    .unwrap();
+                                tx.send((message_id, full_content.clone(), true)).await.unwrap();
+                                return Ok(());
+                            }
+                        }
+                    }
+                    _ = cancel_token.cancelled() => {
+                        println!("Chat stream cancelled");
+                        return Ok(());
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            cleanup_token(tokens, message_id).await;
+            let err_msg = format!("Chat stream error: {}", e);
+            tx.send((message_id, err_msg, true)).await.unwrap();
+            eprintln!("Chat stream error: {}", e);
+            return Err(anyhow::anyhow!("Chat stream error: {}", e));
+        }
+    }
+}
+
+/// 处理非流式聊天
+async fn handle_non_stream_chat(
+    client: &Client,
+    model_name: &str,
+    chat_request: ChatRequest,
+    chat_options: &ChatOptions,
+    message_id: i64,
+    tx: &mpsc::Sender<(i64, String, bool)>,
+    cancel_token: &CancellationToken,
+    conversation_db: &ConversationDatabase,
+    tokens: &Arc<tokio::sync::Mutex<HashMap<i64, CancellationToken>>>,
+) -> Result<(), anyhow::Error> {
+    conversation_db
+        .message_repo()
+        .unwrap()
+        .update_start_time(message_id)
+        .unwrap();
+
+    let chat_result = tokio::select! {
+        result = client.exec_chat(model_name, chat_request, Some(chat_options)) => result,
+        _ = cancel_token.cancelled() => {
+            cleanup_token(tokens, message_id).await;
+            return Err(anyhow::anyhow!("Request cancelled"));
+        }
+    };
+
+    match chat_result {
+        Ok(chat_response) => {
+            let content = chat_response.first_text().unwrap_or("").to_string();
+            println!("Chat content: {}", content.clone());
+
+            conversation_db
+                .message_repo()
+                .unwrap()
+                .update_finish_time(message_id)
+                .unwrap();
+            tx.send((message_id, content.clone(), true)).await.unwrap();
+            Ok(())
+        }
+        Err(e) => {
+            cleanup_token(tokens, message_id).await;
+            let err_msg = format!("Chat error: {}", e);
+            tx.send((message_id, err_msg, true)).await.unwrap();
+            eprintln!("Chat error: {}", e);
+            Err(anyhow::anyhow!("Chat error: {}", e))
+        }
+    }
+}
+
+/// 处理聊天响应消息
+async fn handle_chat_response(
+    app_handle: tauri::AppHandle,
+    window: tauri::Window,
+    chat_context: ChatContext,
+    config_feature_map: HashMap<String, HashMap<String, FeatureConfig>>,
+    tokens: Arc<tokio::sync::Mutex<HashMap<i64, CancellationToken>>>,
+    mut rx: mpsc::Receiver<(i64, String, bool)>,
+) {
+    loop {
+        match timeout(Duration::from_secs(600), rx.recv()).await {
+            Ok(Some((id, content, done))) => {
+                println!("Received data: id={}, content={}", id, content);
+                window
+                    .emit(format!("message_{}", id).as_str(), content.clone())
+                    .map_err(|e| e.to_string())
+                    .unwrap();
+
+                if done {
+                    let conversation_db = ConversationDatabase::new(&app_handle)
+                        .map_err(|e: rusqlite::Error| e.to_string())
+                        .unwrap();
+
+                    let mut message = conversation_db
+                        .message_repo()
+                        .unwrap()
+                        .read(chat_context.message_id)
+                        .unwrap()
+                        .unwrap();
+                    message.content = content.clone().to_string();
+                    conversation_db
+                        .message_repo()
+                        .unwrap()
+                        .update(&message)
+                        .unwrap();
+
+                    println!("Message finish: id={}", id);
+                    window
+                        .emit(format!("message_{}", id).as_str(), MESSAGE_FINISH_EVENT)
+                        .map_err(|e| e.to_string())
+                        .unwrap();
+
+                    if chat_context.need_generate_title {
+                        generate_title(
+                            &app_handle,
+                            chat_context.conversation_id,
+                            chat_context.request_prompt_result.clone(),
+                            content.clone().to_string(),
+                            config_feature_map.clone(),
+                            window.clone(),
+                        )
+                        .await
+                        .map_err(|e| e.to_string())
+                        .unwrap();
+                    }
+                    cleanup_token(&tokens, chat_context.message_id).await;
+                    break;
+                }
+            }
+            Ok(None) => {
+                cleanup_token(&tokens, chat_context.message_id).await;
+                println!("Channel closed");
+                break;
+            }
+            Err(err) => {
+                cleanup_token(&tokens, chat_context.message_id).await;
+                println!("Timeout waiting for data from channel: {:?}", err);
+                break;
+            }
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn ask_ai(
     app_handle: tauri::AppHandle,
@@ -53,13 +557,14 @@ pub async fn ask_ai(
     override_model_config: Option<HashMap<String, serde_json::Value>>,
     override_prompt: Option<String>,
 ) -> Result<AiResponse, AppError> {
+    println!("================================ Ask AI Start ===============================================");
     println!(
         "ask_ai: {:?}, override_model_config: {:?}, override_prompt: {:?}",
         request, override_model_config, override_prompt
     );
     let template_engine = TemplateEngine::new();
     let mut template_context = HashMap::new();
-    let (tx, mut rx) = mpsc::channel(100);
+    let (tx, rx) = mpsc::channel(100);
 
     let selected_text = state.inner().selected_text.lock().await.clone();
     template_context.insert("selected_text".to_string(), selected_text);
@@ -95,8 +600,8 @@ pub async fn ask_ai(
 
     if new_message_id.is_some() {
         let config_feature_map = feature_config_state.config_feature_map.lock().await.clone();
+        let request_prompt_result_with_context_clone = request_prompt_result_with_context.clone();
 
-        let request_prompt_result_clone = request_prompt_result.clone();
         let app_handle_clone = app_handle.clone();
 
         let cancel_token = CancellationToken::new();
@@ -105,65 +610,33 @@ pub async fn ask_ai(
             .store_token(new_message_id.unwrap(), cancel_token.clone())
             .await;
 
+        // 在异步任务外获取模型详情（避免线程安全问题）
+        let llm_db = LLMDatabase::new(&app_handle).map_err(AppError::from)?;
+        let provider_id = &assistant_detail.model[0].provider_id;
+        let model_code = &assistant_detail.model[0].model_code;
+        let model_detail = llm_db
+            .get_llm_model_detail(provider_id, model_code)
+            .context("Failed to get LLM model detail")?;
+
         let tokens = message_token_manager.get_tokens();
         tokio::spawn(async move {
-            let db = LLMDatabase::new(&app_handle_clone)
-                .map_err(Error::from)
-                .context("Failed to create LLMDatabase")?;
+            // 直接创建数据库连接（避免线程安全问题）
             let conversation_db = ConversationDatabase::new(&app_handle_clone).unwrap();
-            let provider_id = &assistant_detail.model[0].provider_id;
-            let model_code = &assistant_detail.model[0].model_code;
-            let model_detail = db
-                .get_llm_model_detail(provider_id, model_code)
-                .context("Failed to get LLM model detail")?;
-            println!("model detail : {:#?}", model_detail);
 
-            let provider = get_provider(model_detail.provider, model_detail.configs);
+            // 构建聊天配置
+            let client = genai_client::create_client_with_config(
+                &model_detail.configs,
+                &model_detail.model.code,
+                &model_detail.provider.api_type,
+            )?;
 
-            let mut model_config_clone = assistant_detail.model_configs.clone();
-            model_config_clone.push(AssistantModelConfig {
-                id: 0,
-                assistant_id: assistant_detail.assistant.id,
-                assistant_model_id: model_detail.model.id,
-                name: "model".to_string(),
-                value: Some(model_detail.model.code),
-                value_type: "string".to_string(),
-            });
+            let model_config_clone = ConfigBuilder::merge_model_configs(
+                assistant_detail.model_configs.clone(),
+                &model_detail,
+                override_model_config,
+            );
 
-            if let Some(override_configs) = override_model_config {
-                for (key, value) in override_configs {
-                    let value_type = match &value {
-                        serde_json::Value::String(_) => "string",
-                        serde_json::Value::Number(_) => "number",
-                        serde_json::Value::Bool(_) => "boolean",
-                        serde_json::Value::Array(_) => "array",
-                        serde_json::Value::Object(_) => "object",
-                        serde_json::Value::Null => "null",
-                    }
-                    .to_string();
-
-                    let value_str = value.to_string();
-
-                    if let Some(existing_config) =
-                        model_config_clone.iter_mut().find(|c| c.name == key)
-                    {
-                        existing_config.value = Some(value_str);
-                        existing_config.value_type = value_type;
-                    } else {
-                        model_config_clone.push(AssistantModelConfig {
-                            id: 0,
-                            assistant_id: assistant_detail.assistant.id,
-                            assistant_model_id: model_detail.model.id,
-                            name: key,
-                            value: Some(value_str),
-                            value_type,
-                        });
-                    }
-                }
-            }
-
-            let config_map = assistant_detail
-                .model_configs
+            let config_map = model_config_clone
                 .iter()
                 .filter_map(|config| {
                     config
@@ -178,53 +651,57 @@ pub async fn ask_ai(
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(false);
 
-            println!("prompt: {}", request_prompt_result_clone);
+            let model_name = config_map
+                .get("model")
+                .cloned()
+                .unwrap_or_else(|| model_detail.model.code.clone());
 
-            if stream {
-                let tx_clone = tx.clone();
-                if let Err(e) = provider
-                    .chat_stream(
-                        message_id,
-                        init_message_list,
-                        model_config_clone,
-                        tx,
-                        cancel_token,
-                    )
-                    .await
-                {
-                    let mut map = tokens.lock().await;
-                    map.remove(&message_id);
-                    let err_msg = format!("Chat stream error: {}", e);
-                    tx_clone.send((message_id, err_msg, true)).await.unwrap();
-                    eprintln!("Chat stream error: {}", e);
-                }
+            let chat_options = ConfigBuilder::build_chat_options(&config_map);
+
+            let chat_config = ChatConfig {
+                model_name,
+                stream,
+                chat_options,
+                client,
+            };
+
+            println!(
+                "Using model: {}, stream: {}",
+                chat_config.model_name, chat_config.stream
+            );
+
+            // Convert messages to ChatMessage format
+            let chat_messages = build_chat_messages(&init_message_list);
+            let chat_request = ChatRequest::new(chat_messages);
+
+            if chat_config.stream {
+                // 使用 genai 流式处理
+                handle_stream_chat(
+                    &chat_config.client,
+                    &chat_config.model_name,
+                    chat_request,
+                    &chat_config.chat_options,
+                    message_id,
+                    &tx,
+                    &cancel_token,
+                    &conversation_db,
+                    &tokens,
+                )
+                .await?;
             } else {
-                conversation_db
-                    .message_repo()
-                    .unwrap()
-                    .update_start_time(message_id)
-                    .unwrap();
-                let content = provider
-                    .chat(
-                        message_id,
-                        init_message_list,
-                        model_config_clone,
-                        cancel_token,
-                    )
-                    .await
-                    .map_err(Error::from)
-                    .context("Failed to chat")?;
-
-                println!("Chat content: {}", content.clone());
-
-                conversation_db
-                    .message_repo()
-                    .unwrap()
-                    .update_finish_time(message_id)
-                    .unwrap();
-                tx.send((message_id, content.clone(), true)).await.unwrap();
-                // Ensure tx is closed after sending the message
-                drop(tx);
+                // Use genai non-streaming
+                handle_non_stream_chat(
+                    &chat_config.client,
+                    &chat_config.model_name,
+                    chat_request,
+                    &chat_config.chat_options,
+                    message_id,
+                    &tx,
+                    &cancel_token,
+                    &conversation_db,
+                    &tokens,
+                )
+                .await?;
             }
 
             Ok::<(), Error>(())
@@ -233,75 +710,29 @@ pub async fn ask_ai(
         let app_handle_clone = app_handle.clone();
         let tokens = message_token_manager.get_tokens();
         let window_clone = window.clone();
+
+        // 创建 ChatContext
+        let chat_context = ChatContext {
+            conversation_id,
+            message_id: new_message_id.unwrap(),
+            need_generate_title,
+            request_prompt_result: request_prompt_result_with_context_clone,
+        };
+
         tokio::spawn(async move {
-            loop {
-                match timeout(Duration::from_secs(600), rx.recv()).await {
-                    Ok(Some((id, content, done))) => {
-                        println!("Received data: id={}, content={}", id, content);
-                        window_clone
-                            .emit(format!("message_{}", id).as_str(), content.clone())
-                            .map_err(|e| e.to_string())
-                            .unwrap();
-
-                        if done {
-                            let conversation_db = ConversationDatabase::new(&app_handle_clone)
-                                .map_err(|e: rusqlite::Error| e.to_string())
-                                .unwrap();
-
-                            let mut message = conversation_db
-                                .message_repo()
-                                .unwrap()
-                                .read(new_message_id.unwrap())
-                                .unwrap()
-                                .unwrap();
-                            message.content = content.clone().to_string();
-                            conversation_db
-                                .message_repo()
-                                .unwrap()
-                                .update(&message)
-                                .unwrap();
-
-                            println!("Message finish: id={}", id);
-                            window_clone
-                                .emit(
-                                    format!("message_{}", id).as_str(),
-                                    "Tea::Event::MessageFinish",
-                                )
-                                .map_err(|e| e.to_string())
-                                .unwrap();
-                            if need_generate_title {
-                                generate_title(
-                                    &app_handle_clone,
-                                    conversation_id,
-                                    request_prompt_result.clone(),
-                                    content.clone().to_string(),
-                                    config_feature_map.clone(),
-                                    window_clone.clone(),
-                                )
-                                .await
-                                .map_err(|e| e.to_string())
-                                .unwrap();
-                            }
-                            let mut map = tokens.lock().await;
-                            map.remove(&message_id);
-                        }
-                    }
-                    Ok(None) => {
-                        let mut map = tokens.lock().await;
-                        map.remove(&message_id);
-                        println!("Channel closed");
-                        break;
-                    }
-                    Err(err) => {
-                        let mut map = tokens.lock().await;
-                        map.remove(&message_id);
-                        println!("Timeout waiting for data from channel: {:?}", err);
-                        break;
-                    }
-                }
-            }
+            handle_chat_response(
+                app_handle_clone,
+                window_clone,
+                chat_context,
+                config_feature_map.clone(),
+                tokens,
+                rx,
+            )
+            .await;
         });
     }
+
+    println!("================================ Ask AI End ===============================================");
 
     Ok(AiResponse {
         conversation_id,
@@ -381,6 +812,7 @@ pub async fn regenerate_ai(
     window: tauri::Window,
     message_id: i64,
 ) -> Result<AiResponse, AppError> {
+    println!("================================ Regenerate AI Start ===============================================");
     let db = ConversationDatabase::new(&app_handle).map_err(AppError::from)?;
     let message = db
         .message_repo()
@@ -399,33 +831,61 @@ pub async fn regenerate_ai(
         .unwrap()
         .list_by_conversation_id(conversation_id)?;
 
-    let parent_ids: HashSet<i64> = messages.iter().filter_map(|m| m.0.parent_id).collect();
-    println!("parent_ids: {:?}", parent_ids);
+    // 1. 仅保留在待重新生成消息之前的历史消息
+    let filtered_messages: Vec<(Message, Option<MessageAttachment>)> =
+        messages.into_iter().filter(|m| m.0.id < message_id).collect();
 
-    let parent_max_child: HashMap<i64, i64> = messages
-        .iter()
-        .filter(|m| {
-            if let Some(pid) = m.0.parent_id {
-                parent_ids.contains(&pid)
-            } else {
-                false
-            }
-        })
-        .fold(HashMap::new(), |mut acc, m| {
-            if let Some(parent_id) = m.0.parent_id {
-                let msg_id = m.0.id;
-                let entry = acc.entry(parent_id).or_insert(msg_id);
-                if msg_id > *entry {
-                    *entry = msg_id;
-                }
-            }
-            acc
-        });
-    println!("parent_max_child: {:?}", parent_max_child);
+    // 2. 计算每个父消息最新的子消息（parent_id -> latest child）
+    let mut latest_children: HashMap<i64, (Message, Option<MessageAttachment>)> = HashMap::new();
+    let mut child_ids: HashSet<i64> = HashSet::new();
 
-    let max_child_ids: HashSet<i64> = parent_max_child.values().cloned().collect();
-    println!("max_child_ids: {:?}", max_child_ids);
+    for (msg, attach) in filtered_messages.iter() {
+        if let Some(parent_id) = msg.parent_id {
+            child_ids.insert(msg.id);
+            latest_children
+                .entry(parent_id)
+                .and_modify(|e| {
+                    if msg.id > e.0.id {
+                        *e = (msg.clone(), attach.clone());
+                    }
+                })
+                .or_insert((msg.clone(), attach.clone()));
+        }
+    }
 
+    // 3. 构建最终的消息列表：
+    //    - 对于没有子消息的根消息(包括 system / user / assistant)，直接保留
+    //    - 对于有子消息的根消息，仅保留最新的子消息
+    let mut init_message_list: Vec<(String, String, Vec<MessageAttachment>)> = Vec::new();
+
+    for (msg, attach) in filtered_messages.into_iter() {
+        if child_ids.contains(&msg.id) {
+            // 根消息，有子消息，后续处理
+            continue;
+        }
+
+        // 使用最新的子消息（如果存在）替换当前消息
+        let (final_msg, final_attach_opt) = latest_children
+            .get(&msg.id)
+            .cloned()
+            .unwrap_or((msg, attach));
+
+        let attachments_vec = final_attach_opt
+            .map(|a| vec![a])
+            .unwrap_or_else(Vec::new);
+
+        init_message_list.push((
+            final_msg.message_type,
+            final_msg.content,
+            attachments_vec,
+        ));
+    }
+
+    println!("init_message_list (regenerate): {:?}", init_message_list);
+
+    // ----------------------------------------------------------------
+    // 4. 获取助手信息（在构建消息列表之后，以确保对话已确定）
+    // ----------------------------------------------------------------
     let assistant_id = conversation.assistant_id.unwrap();
     let assistant_detail = get_assistant(app_handle.clone(), assistant_id).unwrap();
 
@@ -433,28 +893,7 @@ pub async fn regenerate_ai(
         return Err(AppError::NoModelFound);
     }
 
-    let init_message_list = messages
-        .into_iter()
-        .filter_map(|m: (Message, Option<MessageAttachment>)| {
-            if m.0.id >= message_id {
-                return None;
-            }
-
-            if parent_ids.contains(&m.0.id) {
-                // 这是一个父消息，保留它
-                Some((m.0.message_type, m.0.content, vec![]))
-            } else if max_child_ids.contains(&m.0.id) {
-                // 这是一个子消息，并且是最大 id 的子消息，保留它
-                Some((m.0.message_type, m.0.content, vec![]))
-            } else {
-                // 其他情况，过滤掉
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    println!("init_message_list: {:?}", init_message_list);
-
-    let (tx, mut rx) = mpsc::channel(100);
+    let (tx, rx) = mpsc::channel(100);
 
     let app_handle_clone = app_handle.clone();
     let new_message = add_message(
@@ -476,32 +915,33 @@ pub async fn regenerate_ai(
         .store_token(new_message_id, cancel_token.clone())
         .await;
 
+    // 在异步任务外获取模型详情（避免线程安全问题）
+    let llm_db = LLMDatabase::new(&app_handle).map_err(AppError::from)?;
+    let provider_id = &assistant_detail.model[0].provider_id;
+    let model_code = &assistant_detail.model[0].model_code;
+    let model_detail = llm_db
+        .get_llm_model_detail(provider_id, model_code)
+        .context("Failed to get LLM model detail")?;
+
     let tokens = message_token_manager.get_tokens();
     tokio::spawn(async move {
-        let db = LLMDatabase::new(&app_handle_clone)
-            .map_err(Error::from)
-            .context("Failed to create LLMDatabase")?;
+        // 直接创建数据库连接（避免线程安全问题）
         let conversation_db = ConversationDatabase::new(&app_handle_clone).unwrap();
-        let provider_id = &assistant_detail.model[0].provider_id;
-        let model_code = &assistant_detail.model[0].model_code;
-        let model_detail = db
-            .get_llm_model_detail(provider_id, model_code)
-            .context("Failed to get LLM model detail")?;
 
-        let provider = get_provider(model_detail.provider, model_detail.configs);
+                    // 构建聊天配置
+            let client = genai_client::create_client_with_config(
+                &model_detail.configs,
+                &model_detail.model.code,
+                &model_detail.provider.api_type,
+            )?;
 
-        let mut model_config_clone = assistant_detail.model_configs.clone();
-        model_config_clone.push(AssistantModelConfig {
-            id: 0,
-            assistant_id: assistant_detail.assistant.id,
-            assistant_model_id: model_detail.model.id,
-            name: "model".to_string(),
-            value: Some(model_detail.model.code),
-            value_type: "string".to_string(),
-        });
+        let model_config_clone = ConfigBuilder::merge_model_configs(
+            assistant_detail.model_configs.clone(),
+            &model_detail,
+            None, // regenerate 不使用覆盖配置
+        );
 
-        let config_map = assistant_detail
-            .model_configs
+        let config_map = model_config_clone
             .iter()
             .filter_map(|config| {
                 config
@@ -516,54 +956,52 @@ pub async fn regenerate_ai(
             .and_then(|v| v.parse().ok())
             .unwrap_or(false);
 
-        if stream {
-            let tx_clone = tx.clone();
-            if let Err(e) = provider
-                .chat_stream(
-                    new_message_id,
-                    init_message_list,
-                    model_config_clone,
-                    tx,
-                    cancel_token,
-                )
-                .await
-            {
-                let mut map = tokens.lock().await;
-                map.remove(&new_message_id);
-                let err_msg = format!("Chat stream error: {}", e);
-                tx_clone
-                    .send((new_message_id, err_msg, true))
-                    .await
-                    .unwrap();
-                eprintln!("Chat stream error: {}", e);
-            }
-        } else {
-            conversation_db
-                .message_repo()
-                .unwrap()
-                .update_start_time(new_message_id)
-                .unwrap();
-            let content = provider
-                .chat(
-                    new_message_id,
-                    init_message_list,
-                    model_config_clone,
-                    cancel_token,
-                )
-                .await
-                .map_err(Error::from)
-                .context("Failed to chat")?;
+        let model_name = config_map
+            .get("model")
+            .cloned()
+            .unwrap_or_else(|| model_detail.model.code.clone());
 
-            conversation_db
-                .message_repo()
-                .unwrap()
-                .update_finish_time(new_message_id)
-                .unwrap();
-            tx.send((new_message_id, content.clone(), true))
-                .await
-                .unwrap();
-            // Ensure tx is closed after sending the message
-            drop(tx);
+        let chat_options = ConfigBuilder::build_chat_options(&config_map);
+
+        let chat_config = ChatConfig {
+            model_name,
+            stream,
+            chat_options,
+            client,
+        };
+
+        // Convert messages to ChatMessage format
+        let chat_messages = build_chat_messages(&init_message_list);
+        let chat_request = ChatRequest::new(chat_messages);
+
+        if chat_config.stream {
+            // 使用 genai 流式处理
+            handle_stream_chat(
+                &chat_config.client,
+                &chat_config.model_name,
+                chat_request,
+                &chat_config.chat_options,
+                new_message_id,
+                &tx,
+                &cancel_token,
+                &conversation_db,
+                &tokens,
+            )
+            .await?;
+        } else {
+            // Use genai non-streaming
+            handle_non_stream_chat(
+                &chat_config.client,
+                &chat_config.model_name,
+                chat_request,
+                &chat_config.chat_options,
+                new_message_id,
+                &tx,
+                &cancel_token,
+                &conversation_db,
+                &tokens,
+            )
+            .await?;
         }
 
         Ok::<(), Error>(())
@@ -572,63 +1010,27 @@ pub async fn regenerate_ai(
     let app_handle_clone = app_handle.clone();
     let tokens = message_token_manager.get_tokens();
     let window_clone = window.clone();
+
+    // 创建 ChatContext
+    let chat_context = ChatContext {
+        conversation_id,
+        message_id: new_message_id,
+        need_generate_title: false,
+        request_prompt_result: String::new(),
+    };
+
     tokio::spawn(async move {
-        loop {
-            match timeout(Duration::from_secs(600), rx.recv()).await {
-                Ok(Some((id, content, done))) => {
-                    println!("Received data: id={}, content={}", id, content);
-                    window_clone
-                        .emit(format!("message_{}", id).as_str(), content.clone())
-                        .map_err(|e| e.to_string())
-                        .unwrap();
-
-                    if done {
-                        let conversation_db = ConversationDatabase::new(&app_handle_clone)
-                            .map_err(|e: rusqlite::Error| e.to_string())
-                            .unwrap();
-
-                        let mut message = conversation_db
-                            .message_repo()
-                            .unwrap()
-                            .read(new_message_id)
-                            .unwrap()
-                            .unwrap();
-                        message.content = content.clone().to_string();
-                        conversation_db
-                            .message_repo()
-                            .unwrap()
-                            .update(&message)
-                            .unwrap();
-
-                        println!("Message finish: id={}", id);
-                        window_clone
-                            .emit(
-                                format!("message_{}", id).as_str(),
-                                "Tea::Event::MessageFinish",
-                            )
-                            .map_err(|e| e.to_string())
-                            .unwrap();
-
-                        let mut map = tokens.lock().await;
-                        map.remove(&new_message_id);
-                        break;
-                    }
-                }
-                Ok(None) => {
-                    let mut map = tokens.lock().await;
-                    map.remove(&new_message_id);
-                    println!("Channel closed");
-                    break;
-                }
-                Err(err) => {
-                    let mut map = tokens.lock().await;
-                    map.remove(&new_message_id);
-                    println!("Timeout waiting for data from channel: {:?}", err);
-                    break;
-                }
-            }
-        }
+        handle_chat_response(
+            app_handle_clone,
+            window_clone,
+            chat_context,
+            HashMap::new(),
+            tokens,
+            rx,
+        )
+        .await;
     });
+    println!("================================ Regenerate AI End ===============================================");
 
     Ok(AiResponse {
         conversation_id,
@@ -686,7 +1088,7 @@ async fn initialize_conversation(
     ),
     AppError,
 > {
-    let db = get_conversation_db(app_handle)?;
+    let db = ConversationDatabase::new(app_handle).map_err(AppError::from)?;
 
     let (conversation_id, add_message_id, request_prompt_result_with_context, init_message_list) =
         if request.conversation_id.is_empty() {
@@ -925,41 +1327,41 @@ async fn generate_title(
             }
         }
 
-        let db = get_llm_db(app_handle)?;
-        let model_detail = db.get_llm_model_detail(&provider_id, &model_code).unwrap();
+        // 直接创建数据库连接
+        let llm_db = LLMDatabase::new(app_handle).map_err(AppError::from)?;
+        let model_detail = llm_db
+            .get_llm_model_detail(&provider_id, &model_code)
+            .unwrap();
 
-        let provider = get_provider(model_detail.provider, model_detail.configs);
-        let response = provider
-            .chat(
-                -1,
-                vec![
-                    ("system".to_string(), prompt, vec![]),
-                    ("user".to_string(), context, vec![]),
-                ],
-                vec![AssistantModelConfig {
-                    id: 0,
-                    assistant_id: 0,
-                    assistant_model_id: 0,
-                    name: "model".to_string(),
-                    value: Some(model_detail.model.code),
-                    value_type: "string".to_string(),
-                }],
-                CancellationToken::new(),
-            )
+        // Create genai client with custom config
+        let client = genai_client::create_client_with_config(
+            &model_detail.configs,
+            &model_detail.model.code,
+            &model_detail.provider.api_type,
+        )?;
+
+        // Convert messages to ChatMessage format
+        let chat_messages = vec![ChatMessage::system(&prompt), ChatMessage::user(&context)];
+        let chat_request = ChatRequest::new(chat_messages);
+
+        // Use model code as model name
+        let model_name = &model_detail.model.code;
+
+        let response = client
+            .exec_chat(model_name, chat_request, None)
             .await
+            .map(|chat_response| chat_response.first_text().unwrap_or("").to_string())
             .map_err(|e| e.to_string());
         match response {
             Err(e) => {
                 println!("Chat error: {}", e);
-                let _ = window.emit(
-                    "conversation-window-error-notification",
-                    "生成对话标题失败，请检查配置",
-                );
+                let _ = window.emit(ERROR_NOTIFICATION_EVENT, "生成对话标题失败，请检查配置");
             }
             Ok(response_text) => {
                 println!("Chat content: {}", response_text.clone());
 
-                let conversation_db = get_conversation_db(app_handle)?;
+                let conversation_db =
+                    ConversationDatabase::new(app_handle).map_err(AppError::from)?;
                 let _ = conversation_db
                     .conversation_repo()
                     .unwrap()
@@ -970,7 +1372,7 @@ async fn generate_title(
                         created_time: chrono::Utc::now(),
                     });
                 window
-                    .emit("title_change", (conversation_id, response_text.clone()))
+                    .emit(TITLE_CHANGE_EVENT, (conversation_id, response_text.clone()))
                     .map_err(|e| e.to_string())
                     .unwrap();
             }
@@ -978,12 +1380,4 @@ async fn generate_title(
     }
 
     Ok(())
-}
-
-fn get_conversation_db(app_handle: &tauri::AppHandle) -> Result<ConversationDatabase, AppError> {
-    ConversationDatabase::new(app_handle).map_err(AppError::from)
-}
-
-fn get_llm_db(app_handle: &tauri::AppHandle) -> Result<LLMDatabase, AppError> {
-    LLMDatabase::new(app_handle).map_err(AppError::from)
 }

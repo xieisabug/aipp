@@ -16,7 +16,7 @@ import MessageFileAttachment from "./MessageFileAttachment";
 import MessageWebContent from "./conversation/MessageWebContent";
 
 interface CustomComponents extends Components {
-    thinking: React.ElementType;
+    think: React.ElementType;
     fileattachment: React.ElementType;
     bangwebtomarkdown: React.ElementType;
     bangweb: React.ElementType;
@@ -201,7 +201,7 @@ const MessageItem = React.memo(
                                     </code>
                                 );
                             },
-                            thinking: ({ children }) => {
+                            think: ({ children }) => {
                                 return (
                                     <div>
                                         <div

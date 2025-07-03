@@ -1,6 +1,7 @@
 // FormDialog.tsx
 import React from 'react';
-import '../styles/FormDialog.css';
+import { X } from 'lucide-react';
+import { Button } from './ui/button';
 
 interface FormDialogProps {
     title: string;
@@ -14,15 +15,46 @@ const FormDialog: React.FC<FormDialogProps> = ({ title, onSubmit, onClose, isOpe
     if (!isOpen) return null;
 
     return (
-        <div className="form-dialog-overlay">
-            <div className="form-dialog">
-                <h2 className="form-dialog-title" title={title}>{title}</h2>
-                <div className="form-dialog-content">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* 背景遮罩 */}
+            <div
+                className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+                onClick={onClose}
+            />
+
+            {/* 模态框内容 */}
+            <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-md transform transition-all duration-200 scale-100">
+                {/* 标题栏 */}
+                <div className="flex items-center justify-between p-6 border-b border-gray-200">
+                    <h2 className="text-xl font-semibold text-gray-900 truncate pr-4">{title}</h2>
+                    <button
+                        onClick={onClose}
+                        className="p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200 flex-shrink-0"
+                    >
+                        <X className="h-5 w-5 text-gray-500" />
+                    </button>
+                </div>
+
+                {/* 内容区域 */}
+                <div className="p-6">
                     {children}
                 </div>
-                <div className="form-dialog-actions">
-                    <button onClick={onClose} className="form-dialog-button cancel">关闭</button>
-                    <button onClick={onSubmit} className="form-dialog-button submit">提交</button>
+
+                {/* 按钮区域 */}
+                <div className="flex justify-end gap-3 p-6 pt-0">
+                    <Button
+                        variant="outline"
+                        onClick={onClose}
+                        className="px-6"
+                    >
+                        取消
+                    </Button>
+                    <Button
+                        onClick={onSubmit}
+                        className="px-6 bg-gray-800 hover:bg-gray-900 text-white shadow-md hover:shadow-lg transition-all"
+                    >
+                        确认
+                    </Button>
                 </div>
             </div>
         </div>

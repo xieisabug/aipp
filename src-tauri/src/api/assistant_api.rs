@@ -38,7 +38,7 @@ pub fn get_assistant(
     let assistant = assistant_db
         .get_assistant(assistant_id)
         .map_err(|e| e.to_string())?;
-    println!("assistant: {:?}", assistant);
+    println!("Assistant name: {:?} (id: {})", assistant.name, assistant.id);
 
     // 获取相关的 prompt
     let prompts = assistant_db
