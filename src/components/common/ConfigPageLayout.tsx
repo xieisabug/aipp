@@ -1,14 +1,5 @@
 import React, { useState, useEffect, cloneElement } from 'react';
-import StatsCard from './StatsCard';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-
-export interface StatItem {
-    title: string;
-    value: string | number;
-    description: string;
-    icon: React.ReactNode;
-    isText?: boolean;
-}
 
 export interface SelectOption {
     id: string;
@@ -17,7 +8,6 @@ export interface SelectOption {
 }
 
 interface ConfigPageLayoutProps {
-    stats: StatItem[] | null;
     sidebar: React.ReactNode;
     content: React.ReactNode;
     emptyState?: React.ReactNode;
@@ -32,7 +22,6 @@ interface ConfigPageLayoutProps {
 }
 
 const ConfigPageLayout: React.FC<ConfigPageLayoutProps> = ({
-    stats,
     sidebar,
     content,
     emptyState,
@@ -44,12 +33,10 @@ const ConfigPageLayout: React.FC<ConfigPageLayoutProps> = ({
     addButton,
     sidebarTitle
 }) => {
-    const [windowHeight, setWindowHeight] = useState(window.innerHeight);
     const [windowWidth, setWindowWidth] = useState(window.innerWidth);
 
     useEffect(() => {
         const handleResize = () => {
-            setWindowHeight(window.innerHeight);
             setWindowWidth(window.innerWidth);
         };
 
@@ -61,9 +48,6 @@ const ConfigPageLayout: React.FC<ConfigPageLayoutProps> = ({
         };
     }, []);
 
-    // 只有当窗口高度大于等于800px且stats存在时才显示统计卡片
-    const shouldShowStats = stats && windowHeight >= 800;
-    
     // 小屏幕时使用下拉菜单（宽度小于1200px）
     const isSmallScreen = windowWidth < 1200;
     const shouldShowDropdown = isSmallScreen && selectOptions && selectOptions.length > 0;
@@ -119,21 +103,6 @@ const ConfigPageLayout: React.FC<ConfigPageLayoutProps> = ({
 
     return (
         <div className="max-w-7xl mx-auto px-4 py-6 space-y-8">
-            {/* 统计卡片 - 根据窗口高度条件性显示 */}
-            {shouldShowStats && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {stats.map((stat, index) => (
-                        <StatsCard
-                            key={index}
-                            title={stat.title}
-                            value={stat.value}
-                            description={stat.description}
-                            icon={stat.icon}
-                        />
-                    ))}
-                </div>
-            )}
-
             {/* 响应式下拉菜单 - 小屏幕时显示 */}
             {renderDropdownHeader()}
 

@@ -16,7 +16,6 @@ import {
     ListItemButton,
     InfoCard,
     EmptyState,
-    StatItem,
     SelectOption
 } from "../common";
 
@@ -139,33 +138,6 @@ const LLMProviderConfig: React.FC = () => {
         setSelectedProvider(provider);
     }, []);
 
-    // 统计信息
-    const stats: StatItem[] = useMemo(() => {
-        const enabled = LLMProviders.filter(p => p.is_enabled).length;
-        const total = LLMProviders.length;
-        const official = LLMProviders.filter(p => p.is_official).length;
-        return [
-            {
-                title: "总提供商",
-                value: total,
-                description: "已配置的提供商数量",
-                icon: <Settings className="h-4 w-4 text-gray-600" />
-            },
-            {
-                title: "已启用",
-                value: enabled,
-                description: "当前可用的提供商",
-                icon: <Zap className="h-4 w-4 text-gray-600" />
-            },
-            {
-                title: "官方支持",
-                value: official,
-                description: "官方认证的提供商",
-                icon: <AlertCircle className="h-4 w-4 text-gray-600" />
-            }
-        ];
-    }, [LLMProviders]);
-
     // 下拉菜单选项
     const selectOptions: SelectOption[] = useMemo(() =>
         LLMProviders.map(provider => ({
@@ -197,7 +169,6 @@ const LLMProviderConfig: React.FC = () => {
     if (LLMProviders.length === 0) {
         return (
             <ConfigPageLayout
-                stats={stats}
                 sidebar={null}
                 content={
                     <EmptyState
@@ -306,7 +277,6 @@ const LLMProviderConfig: React.FC = () => {
     return (
         <>
             <ConfigPageLayout
-                stats={stats}
                 sidebar={sidebar}
                 content={content}
                 selectOptions={selectOptions}

@@ -18,7 +18,6 @@ import {
     ListItemButton,
     InfoCard,
     EmptyState,
-    StatItem,
     SelectOption
 } from "../common";
 
@@ -687,39 +686,6 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
         setCurrentAssistant(assistantDetail);
     };
 
-    // 统计信息
-    const stats: StatItem[] = useMemo(() => {
-        const total = assistants.length;
-        const typeStats = assistants.reduce((acc) => {
-            // 这里可以根据实际的助手类型进行统计
-            const typeName = assistantTypeNameMap.get(0) ?? "普通对话助手"; // 简化处理
-            acc[typeName] = (acc[typeName] || 0) + 1;
-            return acc;
-        }, {} as Record<string, number>);
-
-        return [
-            {
-                title: "总助手数",
-                value: total,
-                description: "已配置的助手数量",
-                icon: <Bot className="h-4 w-4 text-gray-600" />
-            },
-            {
-                title: "助手类型",
-                value: Object.keys(typeStats).length,
-                description: "不同类型的助手",
-                icon: <Settings className="h-4 w-4 text-gray-600" />
-            },
-            {
-                title: "主要类型",
-                value: Object.entries(typeStats).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "普通对话助手",
-                description: "使用最多的助手类型",
-                icon: <AlertCircle className="h-4 w-4 text-gray-600" />,
-                isText: true
-            }
-        ];
-    }, [assistants, assistantTypeNameMap]);
-
     // 下拉菜单选项
     const selectOptions: SelectOption[] = useMemo(() => 
         assistants.map(assistant => ({
@@ -751,7 +717,6 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
     if (assistants.length === 0) {
         return (
             <ConfigPageLayout
-                stats={stats}
                 sidebar={null}
                 content={
                     <EmptyState
@@ -854,7 +819,6 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
     return (
         <>
             <ConfigPageLayout
-                stats={stats}
                 sidebar={sidebar}
                 content={content}
                 selectOptions={selectOptions}
