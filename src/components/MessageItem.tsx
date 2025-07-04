@@ -5,6 +5,7 @@ import remarkMath from "remark-math";
 import remarkBreaks from "remark-breaks";
 import rehypeRaw from "rehype-raw";
 import rehypeKatex from "rehype-katex";
+import rehypeHighlight from "rehype-highlight";
 import remarkCustomCompenent from "@/react-markdown/remarkCustomComponent";
 import TipsComponent from "@/react-markdown/components/TipsComponent";
 import IconButton from "./IconButton";
@@ -122,7 +123,7 @@ const MessageItem = React.memo(
                         remarkBreaks,
                         remarkCustomCompenent,
                     ]}
-                    rehypePlugins={[rehypeRaw, rehypeKatex]}
+                    rehypePlugins={[rehypeRaw, rehypeKatex, rehypeHighlight]}
                     components={{
                         code: ({ className, children }) => {
                             const match = /language-(\w+)/.exec(
@@ -133,7 +134,7 @@ const MessageItem = React.memo(
                                     language={match[1]}
                                     onCodeRun={onCodeRun}
                                 >
-                                    {String(children).replace(/\n$/, "")}
+                                    {children}
                                 </CodeBlock>
                             ) : (
                                 <code
