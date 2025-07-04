@@ -848,7 +848,7 @@ function ConversationUI({
     );
 
     return (
-        <div ref={dropRef} className="conversation-ui">
+        <div ref={dropRef} className="h-full relative flex flex-col bg-white rounded-xl">
             {conversationId ? (
                 <ConversationTitle
                     onEdit={openFormDialog}
@@ -857,7 +857,7 @@ function ConversationUI({
                 />
             ) : null}
 
-            <div className="messages">
+            <div className="h-full flex-1 overflow-y-auto flex flex-col p-6 box-border gap-4">
                 {conversationId ? (
                     filteredMessages
                 ) : (
@@ -868,7 +868,7 @@ function ConversationUI({
                         setSelectedAssistant={setSelectedAssistant}
                     />
                 )}
-                <div className="message-anchor"></div>
+                <div className="flex-none h-[120px]"></div>
                 <div ref={messagesEndRef} />
             </div>
             {isDragging ? (
@@ -928,9 +928,9 @@ function ConversationUI({
             </FormDialog>
 
             {isLoadingShow ? (
-                <div className="loading">
+                <div className="bg-white/95 w-full h-full absolute flex items-center justify-center backdrop-blur rounded-xl">
                     <div className="loading-icon"></div>
-                    <div className="loading-text">加载中...</div>
+                    <div className="text-indigo-500 text-base font-medium">加载中...</div>
                 </div>
             ) : null}
         </div>

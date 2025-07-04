@@ -134,16 +134,16 @@ const MessageItem = React.memo(
         return (
             <div
                 className={
-                    "message-item " +
+                    "group relative py-4 px-5 rounded-2xl inline-block max-w-[65%] leading-6 transition-all duration-200 " +
                     (message.message_type === "user"
-                        ? "user-message"
-                        : "bot-message")
+                        ? "self-end bg-secondary text-primary"
+                        : "self-start bg-background text-foreground border border-border")
                 }
             >
                 {message.regenerate?.length > 0 ? (
-                    <div className="message-regenerate-bar">
+                    <div className="mb-2 flex flex-row justify-end items-center text-gray-500 font-medium text-xs">
                         <span
-                            className="message-regenerate-bar-button"
+                            className="cursor-pointer mx-2 py-1.5 px-3 rounded-lg transition-all duration-200 hover:bg-gray-100"
                             onClick={() =>
                                 handleMessageIndexChange(
                                     currentMessageIndex - 1,
@@ -157,7 +157,7 @@ const MessageItem = React.memo(
                             {message.regenerate?.length + 1}
                         </span>
                         <span
-                            className="message-regenerate-bar-button"
+                            className="cursor-pointer mx-2 py-1.5 px-3 rounded-lg transition-all duration-200 hover:bg-gray-100"
                             onClick={() =>
                                 handleMessageIndexChange(
                                     currentMessageIndex + 1,
@@ -169,68 +169,65 @@ const MessageItem = React.memo(
                     </div>
                 ) : null}
 
-                <ReactMarkdown
-                    children={customParser(currentMessageContent, customTags)}
-                    remarkPlugins={[
-                        remarkMath,
-                        remarkBreaks,
-                        remarkCustomCompenent,
-                    ]}
-                    rehypePlugins={[rehypeRaw, rehypeKatex]}
-                    components={
-                        {
-                            code: ({ className, children }) => {
-                                const match = /language-(\w+)/.exec(
-                                    className || "",
-                                );
-                                return match ? (
-                                    <CodeBlock
-                                        language={match[1]}
-                                        onCodeRun={onCodeRun}
-                                    >
-                                        {String(children).replace(/\n$/, "")}
-                                    </CodeBlock>
-                                ) : (
-                                    <code
-                                        className={className}
-                                        style={{
-                                            overflow: "auto",
-                                        }}
-                                    >
-                                        {children}
-                                    </code>
-                                );
-                            },
-                            think: ({ children }) => {
-                                return (
-                                    <div>
-                                        <div
-                                            className="llm-thinking-badge"
-                                            title={children}
-                                            data-thinking={children}
+                <div className="prose prose-sm max-w-none [&>p]:m-0 [&>p]:text-sm">
+                    <ReactMarkdown
+                        children={customParser(currentMessageContent, customTags)}
+                        remarkPlugins={[
+                            remarkMath,
+                            remarkBreaks,
+                            remarkCustomCompenent,
+                        ]}
+                        rehypePlugins={[rehypeRaw, rehypeKatex]}
+                        components={
+                            {
+                                code: ({ className, children }) => {
+                                    const match = /language-(\w+)/.exec(
+                                        className || "",
+                                    );
+                                    return match ? (
+                                        <CodeBlock
+                                            language={match[1]}
+                                            onCodeRun={onCodeRun}
                                         >
-                                            思考...
+                                            {String(children).replace(/\n$/, "")}
+                                        </CodeBlock>
+                                    ) : (
+                                        <code
+                                            className={className}
+                                            style={{
+                                                overflow: "auto",
+                                            }}
+                                        >
+                                            {children}
+                                        </code>
+                                    );
+                                },
+                                think: ({ children }) => {
+                                    return (
+                                        <div>
+                                            <div
+                                                className="py-2 px-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl inline-block cursor-pointer text-xs font-medium transition-all duration-200 shadow-md hover:-translate-y-0.5 hover:shadow-lg"
+                                                title={children}
+                                                data-thinking={children}
+                                            >
+                                                思考...
+                                            </div>
                                         </div>
-                                    </div>
-                                );
-                            },
-                            fileattachment: MessageFileAttachment,
-                            bangwebtomarkdown: MessageWebContent,
-                            bangweb: MessageWebContent,
-                            tipscomponent: TipsComponent,
-                        } as CustomComponents
-                    }
-                />
+                                    );
+                                },
+                                fileattachment: MessageFileAttachment,
+                                bangwebtomarkdown: MessageWebContent,
+                                bangweb: MessageWebContent,
+                                tipscomponent: TipsComponent,
+                            } as CustomComponents
+                        }
+                    />
+                </div>
                 {message.attachment_list.filter(
                     (a: any) => a.attachment_type === "Image",
                 ).length ? (
                     <div
-                        className="message-image"
-                        style={{
-                            width: "300px",
-                            display: "flex",
-                            flexDirection: "column",
-                        }}
+                        className="w-[300px] flex flex-col"
                     >
                         {message.attachment_list
                             .filter((a: any) => a.attachment_type === "Image")
@@ -241,14 +238,14 @@ const MessageItem = React.memo(
                             .map((attachment: any) => (
                                 <img
                                     key={attachment.attachment_url}
-                                    style={{ flex: 1 }}
+                                    className="flex-1"
                                     src={attachment.attachment_content}
                                 />
                             ))}
                     </div>
                 ) : null}
 
-                <div className="message-item-button-container">
+                <div className={`hidden group-hover:flex items-center absolute -bottom-9 py-3 px-4 box-border h-10 rounded-[21px] border border-border bg-background ${message.message_type === "user" ? "right-0" : "left-0"}`}>
                     {message.message_type === "assistant" ? (
                         <IconButton
                             icon={<Refresh fill="black" />}

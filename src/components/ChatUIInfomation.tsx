@@ -13,9 +13,9 @@ function ChatUIInfomation() {
     }
 
     return (
-        <div className="chat-ui-information">
+        <div className="flex justify-between py-4 px-5 border-b border-gray-200 bg-white rounded-t-xl">
             <h1 className="text-primary text-3xl">Aipp</h1>
-            <div className="chat-ui-information-button-group">
+            <div className="flex items-center gap-2">
                 <IconButton icon={<Setting fill="black" />} onClick={openConfig} border />
                 <IconButton icon={<Experiment fill="black" />} onClick={openPlugin} border />
             </div>

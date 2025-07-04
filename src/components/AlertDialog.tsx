@@ -1,5 +1,4 @@
 import React from 'react';
-import '../styles/AlertDialog.css';
 
 interface AlertDialogProps {
     alertText: string;
@@ -29,13 +28,31 @@ const AlertDialog: React.FC<AlertDialogProps> = ({ alertText, alertType, isOpen,
         }
     };
 
+    const getBorderColorClass = () => {
+        switch (alertType) {
+            case 'success':
+                return 'border-t-green-500';
+            case 'warning':
+                return 'border-t-yellow-500';
+            case 'error':
+                return 'border-t-red-500';
+            default:
+                return 'border-t-blue-500';
+        }
+    };
+
     return (
-        <div className="alert-dialog-overlay">
-            <div className={`alert-dialog ${alertType}`}>
-                <h2 className="alert-dialog-title">{getAlertTitle()}</h2>
-                <p className="alert-dialog-text">{alertText}</p>
-                <div className="alert-dialog-actions">
-                    <button onClick={onClose} className="alert-dialog-button cancel">确定</button>
+        <div className="fixed top-0 left-0 w-full h-full bg-black/50 flex justify-center items-center z-[100]">
+            <div className={`bg-white p-5 rounded-lg shadow-lg w-[300px] text-center border-t-4 ${getBorderColorClass()}`}>
+                <h2 className="m-0 mb-2.5 text-xl">{getAlertTitle()}</h2>
+                <p className="m-0 mb-5 text-gray-800">{alertText}</p>
+                <div className="flex justify-center">
+                    <button 
+                        onClick={onClose} 
+                        className="py-2.5 px-5 border-0 rounded cursor-pointer text-base bg-gray-300 text-gray-800 hover:bg-gray-400"
+                    >
+                        确定
+                    </button>
                 </div>
             </div>
         </div>

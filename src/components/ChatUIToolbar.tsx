@@ -12,7 +12,7 @@ function ChatUIToolbar({ onNewConversation }: ChatUIToolbarProps) {
     }
 
     return (
-        <div className="chat-ui-toolbar">
+        <div className="flex flex-none h-12 mb-6 items-center justify-center pt-3">
             <Button className="w-24" onClick={onSearch}>搜索</Button>
             <Button className="w-24 ml-4" onClick={onNewConversation}>新对话</Button>
         </div>

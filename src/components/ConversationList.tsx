@@ -136,20 +136,20 @@ function ConversationList({
     }, [menuShowConversationId, formConversationTitle]);
 
     return (
-        <div className="conversation-list">
-            <ul>
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-3">
+            <ul className="list-none p-0 m-0">
                 {conversations.map((conversation) => (
                     <li
-                        className={`conversation-item ${conversationId == conversation.id.toString() ? "selected" : ""}`}
+                        className={`group h-16 w-full mx-0 mb-2 text-sm border-0 rounded-xl cursor-pointer flex flex-col justify-center p-3 box-border relative transition-all duration-200 ${conversationId == conversation.id.toString() ? "font-bold text-primary bg-primary-foreground" : "bg-transparent hover:bg-slate-50 hover:translate-x-0.5"}`}
                         key={conversation.id}
                         onClick={() => {
                             onSelectConversation(conversation.id.toString());
                         }}
                     >
-                        <div className="conversation-list-item-name">
+                        <div className="overflow-hidden text-ellipsis whitespace-nowrap font-medium">
                             {conversation.name}
                         </div>
-                        <div className="conversation-list-item-assistant-name">
+                        <div className="text-xs overflow-hidden text-ellipsis whitespace-nowrap text-gray-500">
                             {conversation.assistant_name}
                         </div>
 
@@ -157,7 +157,7 @@ function ConversationList({
                             <DropdownMenuTrigger asChild>
                                 <Button
                                     variant="link"
-                                    className="conversation-menu-icon"
+                                    className="invisible absolute right-2 top-4 group-hover:visible transition-opacity duration-200"
                                 >
                                     <MenuIcon fill={"black"} />
                                 </Button>
@@ -195,11 +195,11 @@ function ConversationList({
                 onClose={closeFormDialog}
                 isOpen={formDialogIsOpen}
             >
-                <form className="form-group-container">
-                    <div className="form-group">
-                        <label>标题:</label>
+                <form className="space-y-4">
+                    <div className="space-y-2">
+                        <label className="block text-sm font-medium text-gray-700">标题:</label>
                         <input
-                            className="form-input"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             type="text"
                             name="name"
                             value={formConversationTitle}

@@ -20,8 +20,8 @@ const NewChatComponent: React.FC<NewChatComponentProps> = ({
     assistants,
 }: NewChatComponentProps) => {
     return (
-        <div className="new-chat" data-tauri-drag-region>
-            <div className="new-chat-hint" data-tauri-drag-region>
+        <div className="flex flex-col items-center justify-center h-full select-none p-10" data-tauri-drag-region>
+            <div className="text-sm text-gray-500 text-center mb-4" data-tauri-drag-region>
                 <AskWindowPrepare selectedText={selectedText} />
                 <p className="mt-4" data-tauri-drag-region>
                     请选择一个对话，或者选择一个助手开始新聊天

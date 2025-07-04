@@ -4,7 +4,6 @@ import ConversationList from "./components/ConversationList";
 import ChatUIInfomation from "./components/ChatUIInfomation";
 import ConversationUI from "./components/ConversationUI";
 
-import "./styles/ChatUIWindow.css";
 import { appDataDir } from "@tauri-apps/api/path";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
@@ -55,14 +54,14 @@ function ChatUIWindow() {
     }, []);
 
     return (
-        <div className="chat-ui-window">
-            <div className="left-side">
+        <div className="flex h-screen bg-gray-100">
+            <div className="flex-none w-[280px] flex flex-col bg-white shadow-lg box-border rounded-r-xl my-2 mr-2">
                 <ChatUIInfomation />
                 <ChatUIToolbar onNewConversation={() => setSelectedConversation("")} />
                 <ConversationList conversationId={selectedConversation} onSelectConversation={setSelectedConversation} />
             </div>
 
-            <div className="center-content">
+            <div className="flex-1 bg-white overflow-auto rounded-xl m-2 ml-0 shadow-lg">
                 <ConversationUI pluginList={pluginList} conversationId={selectedConversation} onChangeConversationId={setSelectedConversation} />
             </div>
         </div>
