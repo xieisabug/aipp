@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from "@tauri-apps/api/event";
-import "./styles/AskWindow.css";
 import ReactMarkdown, { Components } from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeRaw from "rehype-raw";
@@ -169,8 +168,8 @@ function AskWindow() {
         useFileManagement();
 
     return (
-        <div className="ask-window">
-            <div className="chat-container" data-tauri-drag-region>
+        <div className="flex justify-center items-center h-screen">
+            <div className="bg-white shadow-lg w-full h-screen" data-tauri-drag-region>
                 <InputArea
                     inputText={query}
                     setInputText={setQuery}
@@ -182,7 +181,7 @@ function AskWindow() {
                     aiIsResponsing={aiIsResponsing}
                     placement="top"
                 />
-                <div className="response">
+                <div className="prose prose-sm p-5 pb-16 max-w-none bg-white">
                     {messageId !== -1 ? (
                         response == "" ? (
                             <AskAIHint />
@@ -227,7 +226,7 @@ function AskWindow() {
                                             return (
                                                 <div>
                                                     <div
-                                                        className="llm-thinking-badge"
+                                                        className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm font-medium inline-block"
                                                         title={children}
                                                         data-thinking={children}
                                                     >
@@ -244,7 +243,7 @@ function AskWindow() {
                         <AskWindowPrepare selectedText={selectedText} />
                     )}
                 </div>
-                <div className="tools" data-tauri-drag-region>
+                <div className="w-full h-8 fixed bottom-0 left-0 flex items-center justify-end pr-2.5 bg-gray-100" data-tauri-drag-region>
                     {messageId !== -1 && !aiIsResponsing && (
                         <IconButton
                             icon={<Add fill="black" />}
