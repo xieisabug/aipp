@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import ReactMarkdown, { Components } from "react-markdown";
 import remarkMath from "remark-math";
@@ -27,20 +27,24 @@ const MessageItem = React.memo(
         const [copyIconState, setCopyIconState] = useState<"copy" | "ok">(
             "copy",
         );
-        const [currentMessageContent, setCurrentMessageContent] =
-            useState<string>(
-                message.regenerate?.length > 0
-                    ? message.regenerate[message.regenerate.length - 1].content
-                    : message.content,
-            );
         const [currentMessageIndex, setCurrentMessageIndex] = useState<number>(
             message.regenerate?.length > 0 ? message.regenerate.length + 1 : -1,
         );
+        // 仅记录当前查看的版本索引，真实内容按需计算，避免在流式更新时重复 setState
+        const displayedContent = useMemo(() => {
+            if (message.regenerate?.length > 0) {
+                // currentMessageIndex 为 1 表示原始回复
+                if (currentMessageIndex === 1) return message.content;
+                // 其它值指向 regenerate 数组（index 从 0 开始）
+                return message.regenerate[currentMessageIndex - 2]?.content ?? message.content;
+            }
+            return message.content;
+        }, [message.content, message.regenerate, currentMessageIndex]);
 
         const handleCopy = useCallback(() => {
-            writeText(currentMessageContent);
+            writeText(displayedContent);
             setCopyIconState("ok");
-        }, [currentMessageContent]);
+        }, [displayedContent]);
 
         useEffect(() => {
             if (copyIconState === "ok") {
@@ -52,33 +56,13 @@ const MessageItem = React.memo(
             }
         }, [copyIconState]);
 
-        // 处理message content变化
+        // 当 messageRegenerateLength 变化时更新选中的 index 为最新
         useEffect(() => {
-            let index =
-                message.regenerate?.length > 0
-                    ? message.regenerate.length + 1
-                    : -1;
-            setCurrentMessageIndex(index);
-            if (message.regenerate?.length > 0) {
-                if (index === 1) {
-                    setCurrentMessageContent(message.content);
-                } else {
-                    setCurrentMessageContent(
-                        message.regenerate[index - 2].content,
-                    );
-                }
-            } else {
-                setCurrentMessageContent(message.content);
-            }
-        }, [message]);
-
-        // 处理regenerate的时候，自动选中最新的message
-        const messageRegenerateLength = message.regenerate?.length ?? 0;
-        useEffect(() => {
-            if (messageRegenerateLength !== 0) {
+            if (message.regenerate?.length) {
                 handleMessageIndexChange(message.regenerate.length + 1);
             }
-        }, [messageRegenerateLength]);
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [message.regenerate?.length]);
 
         const handleMessageIndexChange = useCallback(
             (newMessageIndex: number) => {
@@ -89,13 +73,6 @@ const MessageItem = React.memo(
                     newMessageIndex = message.regenerate.length + 1;
                 }
                 setCurrentMessageIndex(newMessageIndex);
-                if (newMessageIndex === 1) {
-                    setCurrentMessageContent(message.content);
-                } else {
-                    setCurrentMessageContent(
-                        message.regenerate[newMessageIndex - 2].content,
-                    );
-                }
             },
             [currentMessageIndex, message.regenerate],
         );
@@ -130,6 +107,65 @@ const MessageItem = React.memo(
             bangweb: (match: RegExpExecArray) =>
                 `\n<bangweb ${match[1]}></bangweb>\n`,
         };
+
+        const markdownContent = useMemo(
+            () => customParser(displayedContent, customTags),
+            [displayedContent],
+        );
+
+        const markdownElement = useMemo(
+            () => (
+                <ReactMarkdown
+                    children={markdownContent}
+                    remarkPlugins={[
+                        remarkMath,
+                        remarkBreaks,
+                        remarkCustomCompenent,
+                    ]}
+                    rehypePlugins={[rehypeRaw, rehypeKatex]}
+                    components={{
+                        code: ({ className, children }) => {
+                            const match = /language-(\w+)/.exec(
+                                className || "",
+                            );
+                            return match ? (
+                                <CodeBlock
+                                    language={match[1]}
+                                    onCodeRun={onCodeRun}
+                                >
+                                    {String(children).replace(/\n$/, "")}
+                                </CodeBlock>
+                            ) : (
+                                <code
+                                    className={className}
+                                    style={{
+                                        overflow: "auto",
+                                    }}
+                                >
+                                    {children}
+                                </code>
+                            );
+                        },
+                        think: ({ children }) => (
+                            <div>
+                                <div
+                                    className="py-2 px-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl inline-block cursor-pointer text-xs font-medium transition-all duration-200 shadow-md hover:-translate-y-0.5 hover:shadow-lg"
+                                    title={children}
+                                    data-thinking={children}
+                                >
+                                    思考...
+                                </div>
+                            </div>
+                        ),
+                        fileattachment: MessageFileAttachment,
+                        bangwebtomarkdown: MessageWebContent,
+                        bangweb: MessageWebContent,
+                        tipscomponent: TipsComponent,
+                    } as CustomComponents}
+                />
+            ),
+            [markdownContent, onCodeRun],
+        );
 
         return (
             <div
@@ -169,60 +205,7 @@ const MessageItem = React.memo(
                     </div>
                 ) : null}
 
-                <div className="prose prose-sm max-w-none">
-                    <ReactMarkdown
-                        children={customParser(currentMessageContent, customTags)}
-                        remarkPlugins={[
-                            remarkMath,
-                            remarkBreaks,
-                            remarkCustomCompenent,
-                        ]}
-                        rehypePlugins={[rehypeRaw, rehypeKatex]}
-                        components={
-                            {
-                                code: ({ className, children }) => {
-                                    const match = /language-(\w+)/.exec(
-                                        className || "",
-                                    );
-                                    return match ? (
-                                        <CodeBlock
-                                            language={match[1]}
-                                            onCodeRun={onCodeRun}
-                                        >
-                                            {String(children).replace(/\n$/, "")}
-                                        </CodeBlock>
-                                    ) : (
-                                        <code
-                                            className={className}
-                                            style={{
-                                                overflow: "auto",
-                                            }}
-                                        >
-                                            {children}
-                                        </code>
-                                    );
-                                },
-                                think: ({ children }) => {
-                                    return (
-                                        <div>
-                                            <div
-                                                className="py-2 px-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl inline-block cursor-pointer text-xs font-medium transition-all duration-200 shadow-md hover:-translate-y-0.5 hover:shadow-lg"
-                                                title={children}
-                                                data-thinking={children}
-                                            >
-                                                思考...
-                                            </div>
-                                        </div>
-                                    );
-                                },
-                                fileattachment: MessageFileAttachment,
-                                bangwebtomarkdown: MessageWebContent,
-                                bangweb: MessageWebContent,
-                                tipscomponent: TipsComponent,
-                            } as CustomComponents
-                        }
-                    />
-                </div>
+                <div className="prose prose-sm max-w-none">{markdownElement}</div>
                 {message.attachment_list.filter(
                     (a: any) => a.attachment_type === "Image",
                 ).length ? (

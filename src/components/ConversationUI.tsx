@@ -226,6 +226,24 @@ function ConversationUI({
                         `message_${res.add_message_id}`,
                     );
 
+                    // 使用节流函数降低 setMessages 调用频率
+                    const updateAssistantContent = throttle((content: string) => {
+                        setMessages((prevMessages) => {
+                            const newMessages = [...prevMessages];
+                            const index = newMessages.findIndex(
+                                (msg) => msg.id === res.add_message_id,
+                            );
+                            if (index !== -1) {
+                                newMessages[index] = {
+                                    ...newMessages[index],
+                                    content,
+                                };
+                                scroll();
+                            }
+                            return newMessages;
+                        });
+                    }, 50);
+
                     unsubscribeRef.current = listen(
                         `message_${res.add_message_id}`,
                         (event) => {
@@ -241,24 +259,10 @@ function ConversationUI({
                             } else {
                                 const payload = event.payload as string;
                                 if (payload !== "Tea::Event::MessageFinish") {
-                                    // 更新messages的最后一个对象
-                                    setMessages((prevMessages) => {
-                                        const newMessages = [...prevMessages];
-                                        const index = newMessages.findIndex(
-                                            (msg) =>
-                                                msg.id === res.add_message_id,
-                                        );
-                                        if (index !== -1) {
-                                            newMessages[index] = {
-                                                ...newMessages[index],
-                                                content:
-                                                    event.payload as string,
-                                            };
-                                            scroll();
-                                        }
-                                        return newMessages;
-                                    });
+                                    updateAssistantContent(payload);
                                 } else {
+                                    // 确保最后一帧内容被渲染
+                                    (updateAssistantContent as any).flush?.();
                                     setAiIsResponsing(false);
                                 }
                             }
@@ -799,45 +803,46 @@ function ConversationUI({
                     `message_${res.add_message_id}`,
                 );
 
+                // 再生场景下也使用节流，防止高频 setState
+                const updateRegenerateContent = throttle((content: string) => {
+                    setMessages((prevMessages) => {
+                        const newMessages = [...prevMessages];
+                        const index = newMessages.findIndex(
+                            (msg) => msg.id === regenerateMessageId,
+                        );
+
+                        if (index !== -1) {
+                            const regenerateIndex =
+                                newMessages[index].regenerate?.findIndex(
+                                    (msg) => msg.id === res.add_message_id,
+                                ) ?? -1;
+
+                            if (regenerateIndex !== -1) {
+                                const newRegenerate = [
+                                    ...(newMessages[index].regenerate ?? []),
+                                ];
+                                newRegenerate[regenerateIndex] = {
+                                    ...newRegenerate[regenerateIndex],
+                                    content,
+                                };
+                                newMessages[index] = {
+                                    ...newMessages[index],
+                                    regenerate: newRegenerate,
+                                };
+                            }
+                        }
+                        return newMessages;
+                    });
+                }, 50);
+
                 unsubscribeRef.current = listen(
                     `message_${res.add_message_id}`,
                     (event) => {
                         const payload = event.payload as string;
                         if (payload !== "Tea::Event::MessageFinish") {
-                            // 更新messages的最后一个对象
-                            setMessages((prevMessages) => {
-                                const newMessages = [...prevMessages];
-                                const index = newMessages.findIndex(
-                                    (msg) => msg.id === regenerateMessageId,
-                                );
-
-                                if (index !== -1) {
-                                    const regenerateIndex =
-                                        newMessages[
-                                            index
-                                        ].regenerate?.findIndex(
-                                            (msg) =>
-                                                msg.id === res.add_message_id,
-                                        ) ?? -1;
-
-                                    if (regenerateIndex !== -1) {
-                                        const newRegenerate = [
-                                            ...(newMessages[index].regenerate ??
-                                                []),
-                                        ];
-                                        newRegenerate[regenerateIndex] = {
-                                            ...newRegenerate[regenerateIndex],
-                                            content: payload,
-                                        };
-                                        newMessages[index] = {
-                                            ...newMessages[index],
-                                            regenerate: newRegenerate,
-                                        };
-                                    }
-                                }
-                                return newMessages;
-                            });
+                            updateRegenerateContent(payload);
                         } else {
+                            (updateRegenerateContent as any).flush?.();
                             setAiIsResponsing(false);
                         }
                     },
