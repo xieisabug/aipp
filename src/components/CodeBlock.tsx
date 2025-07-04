@@ -32,7 +32,7 @@ const CodeBlock = React.memo(({ language, children, onCodeRun }: { language: str
     // 不再在客户端动态高亮，直接渲染 rehype-highlight 生成的元素
 
     return (
-        <div className="relative rounded-lg overflow-hidden group/codeblock">
+        <div className="relative rounded-lg overflow-hidden group/codeblock prose-code:text-sm">
             <div className="absolute right-2 top-2 flex bg-white/90 opacity-0 group-hover/codeblock:opacity-100 hover:opacity-100 transition-opacity duration-200 rounded-md p-1 backdrop-blur-sm">
                 <IconButton
                     icon={copyIconState === 'copy' ? <Copy fill="black" /> : <Ok fill="black" />}
