@@ -7,6 +7,15 @@ import ConfigForm from "../ConfigForm";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 
+interface LLMProviderConfig {
+    name: string;
+    value: string;
+}
+
+interface LLMModel {
+    name: string;
+}
+
 interface LLMProviderConfigFormProps {
     index: number;
     id: string;
@@ -80,6 +89,13 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
         [id],
     );
 
+    // 当 id 变化时，取消之前的 debounce 操作
+    useEffect(() => {
+        return () => {
+            updateField.cancel();
+        };
+    }, [id, updateField]);
+
     // 监听字段更新后自动保存
     useEffect(() => {
         // 创建一个订阅
@@ -92,10 +108,17 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
 
         // 清理订阅
         return () => subscription.unsubscribe();
-    }, [form.watch()]);
+    }, [form, updateField]);
 
     // 获取基础数据
     useEffect(() => {
+        // 立即重置状态，避免显示旧的数据
+        form.reset({
+            endpoint: "",
+            api_key: "",
+        });
+        setTags([]);
+
         invoke<Array<LLMProviderConfig>>("get_llm_provider_config", {
             id,
         }).then((configArray) => {
