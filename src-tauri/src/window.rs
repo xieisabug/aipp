@@ -5,6 +5,9 @@ use tauri::Listener;
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri::{LogicalPosition, LogicalSize};
 
+/// 当按照显示器大小调整窗口尺寸时保留的屏幕占比（90%）
+const SCREEN_MARGIN_RATIO: f64 = 0.9;
+
 // 获取合适的窗口大小和位置
 fn get_window_size_and_position(
     app: &AppHandle,
@@ -12,73 +15,94 @@ fn get_window_size_and_position(
     default_height: f64,
     reference_window_labels: &[&str],
 ) -> (LogicalSize<f64>, Option<LogicalPosition<f64>>) {
+    // 预设窗口尺寸
     let mut window_size = LogicalSize::new(default_width, default_height);
-    let mut window_position: Option<LogicalPosition<f64>> = None;
 
-    // 按优先级尝试获取参考窗口信息
-    for ref_label in reference_window_labels {
-        if let Some(ref_window) = app.get_webview_window(ref_label) {
-            // 检查窗口是否可见
-            if let Ok(is_visible) = ref_window.is_visible() {
-                if is_visible {
-                    // 获取参考窗口所在的屏幕
-                    if let Ok(current_monitor) = ref_window.current_monitor() {
-                        if let Some(monitor) = current_monitor {
-                            let monitor_size = monitor.size();
-                            let monitor_position = monitor.position();
+    // 优先寻找参考窗口所在的显示器
+    let mut target_monitor = None;
 
-                            // 调整窗口大小以适应屏幕
-                            let screen_width = monitor_size.width as f64;
-                            let screen_height = monitor_size.height as f64;
+    // 为提升效率，提前获取一次显示器列表（若失败留空）
+    let monitors_cache = app.available_monitors().unwrap_or_default();
 
-                            // 留出一些边距（10%）
-                            let max_width = screen_width * 0.9;
-                            let max_height = screen_height * 0.9;
+    // 先收集窗口并按“可见优先”排序
+    let mut visible_windows = Vec::new();
+    let mut hidden_windows = Vec::new();
 
-                            window_size.width = window_size.width.min(max_width);
-                            window_size.height = window_size.height.min(max_height);
+    for label in reference_window_labels {
+        if let Some(w) = app.get_webview_window(label) {
+            if w.is_visible().unwrap_or(false) {
+                visible_windows.push(w);
+            } else {
+                hidden_windows.push(w);
+            }
+        }
+    }
 
-                            // 计算窗口位置（居中到参考窗口所在屏幕）
-                            let center_x = monitor_position.x as f64
-                                + (screen_width - window_size.width) / 2.0;
-                            let center_y = monitor_position.y as f64
-                                + (screen_height - window_size.height) / 2.0;
+    // 可见窗口 → 隐藏窗口 两轮查找
+    let search_lists = [visible_windows, hidden_windows];
 
-                            window_position = Some(LogicalPosition::new(center_x, center_y));
-                            break; // 找到可见的参考窗口后停止搜索
-                        }
+    'search: for list in &search_lists {
+        for w in list {
+            // 1. 尝试使用 current_monitor()
+            if let Ok(Some(m)) = w.current_monitor() {
+                target_monitor = Some(m.clone());
+                break 'search;
+            }
+
+            // 2. 如果失败，再根据窗口坐标匹配显示器
+            if let Ok(pos) = w.outer_position() {
+                for m in &monitors_cache {
+                    let mp = m.position();
+                    let ms = m.size();
+                    // 判断窗口左上角是否位于该显示器范围内
+                    if pos.x >= mp.x
+                        && pos.x < mp.x + ms.width as i32
+                        && pos.y >= mp.y
+                        && pos.y < mp.y + ms.height as i32
+                    {
+                        target_monitor = Some(m.clone());
+                        break 'search;
                     }
                 }
             }
         }
     }
 
-    // 如果没有参考窗口，使用主屏幕
-    if window_position.is_none() {
-        if let Ok(Some(primary_monitor)) = app.primary_monitor() {
-            let monitor_size = primary_monitor.size();
-            let monitor_position = primary_monitor.position();
-
-            // 调整窗口大小以适应屏幕
-            let screen_width = monitor_size.width as f64;
-            let screen_height = monitor_size.height as f64;
-
-            // 留出一些边距（10%）
-            let max_width = screen_width * 0.9;
-            let max_height = screen_height * 0.9;
-
-            window_size.width = window_size.width.min(max_width);
-            window_size.height = window_size.height.min(max_height);
-
-            // 计算窗口位置（居中到主屏幕）
-            let center_x = monitor_position.x as f64 + (screen_width - window_size.width) / 2.0;
-            let center_y = monitor_position.y as f64 + (screen_height - window_size.height) / 2.0;
-
-            window_position = Some(LogicalPosition::new(center_x, center_y));
+    // 如果仍未找到，则采用 primary_monitor() 兜底
+    if target_monitor.is_none() {
+        if let Ok(Some(m)) = app.primary_monitor() {
+            target_monitor = Some(m.clone());
         }
     }
 
-    (window_size, window_position)
+    // 计算合适的窗口位置
+    if let Some(monitor) = target_monitor {
+        // 将物理尺寸转换为逻辑尺寸，避免 HiDPI 误差
+        let scale = monitor.scale_factor() as f64;
+
+        let screen_width = monitor.size().width as f64 / scale;
+        let screen_height = monitor.size().height as f64 / scale;
+
+        // 留出边距
+        let max_width = screen_width * SCREEN_MARGIN_RATIO;
+        let max_height = screen_height * SCREEN_MARGIN_RATIO;
+
+        window_size.width = window_size.width.min(max_width);
+        window_size.height = window_size.height.min(max_height);
+
+        // 居中到目标显示器（逻辑坐标）
+        let monitor_pos_x = monitor.position().x as f64 / scale;
+        let monitor_pos_y = monitor.position().y as f64 / scale;
+
+        // 取整避免亚像素导致系统自动纠偏
+        let center_x = (monitor_pos_x + (screen_width - window_size.width) / 2.0).round();
+        let center_y = (monitor_pos_y + (screen_height - window_size.height) / 2.0).round();
+
+        return (window_size, Some(LogicalPosition::new(center_x, center_y)));
+    }
+
+    // 若所有方案均失败，交给窗口构建器自行居中
+    (window_size, None)
 }
 
 pub fn create_ask_window(app: &AppHandle) {
@@ -119,6 +143,8 @@ pub fn create_config_window(app: &AppHandle) {
             .resizable(true)
             .decorations(true);
 
+    // macOS 若仍有偏差可考虑额外使用 parent(&window) 方案
+
     if let Some(position) = window_position {
         window_builder = window_builder.position(position.x, position.y);
     } else {
@@ -152,6 +178,8 @@ pub fn create_chat_ui_window(app: &AppHandle) {
             .resizable(true)
             .decorations(true)
             .disable_drag_drop_handler();
+
+    // macOS 若仍有偏差可考虑额外使用 parent(&window) 方案
 
     if let Some(position) = window_position {
         window_builder = window_builder.position(position.x, position.y);
