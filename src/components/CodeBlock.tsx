@@ -1,8 +1,9 @@
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import SyntaxHighlighter from "react-syntax-highlighter";
-// srcery   railscasts   nnfx-dark    atelier-estuary-dark
-import { srcery } from "react-syntax-highlighter/dist/esm/styles/hljs";
+// 使用 PrismLight 以便按需注册语言
+import { PrismLight as SyntaxHighlighter } from "react-syntax-highlighter";
+// 选用一款 Prism 主题
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import IconButton from "./IconButton";
 import Ok from "../assets/ok.svg?react";
 import Copy from "../assets/copy.svg?react";
@@ -26,6 +27,40 @@ const CodeBlock = React.memo(({ language, children, onCodeRun }: { language: str
             return () => clearTimeout(timer);
         }
     }, [copyIconState]);
+
+    //================ 动态按需加载语言 ==================
+    const loadedLangsRef = useRef<Set<string>>(new Set());
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const loadLanguage = async (lang: string) => {
+            if (!lang) return;
+            // 已经注册过则跳过
+            if (loadedLangsRef.current.has(lang)) return;
+
+            try {
+                // vite 动态 import 需要忽略预构建
+                const mod = await import(/* @vite-ignore */ `react-syntax-highlighter/dist/esm/languages/prism/${lang}`);
+                // 默认导出即为语法定义函数
+                SyntaxHighlighter.registerLanguage(lang, mod.default);
+                loadedLangsRef.current.add(lang);
+                if (!cancelled) {
+                    // 触发一次重渲染以应用高亮
+                    setHighlightedCode((c) => c);
+                }
+            } catch (error) {
+                // 语言模块不存在时静默失败，代码依旧以纯文本方式呈现
+                console.warn(`Prism language load failed: ${lang}`, error);
+            }
+        };
+
+        loadLanguage(language);
+
+        return () => {
+            cancelled = true;
+        };
+    }, [language]);
 
     //================ 300ms 节流 + 增量高亮 ==================
     const [highlightedCode, setHighlightedCode] = useState<string>(String(children));
@@ -58,7 +93,7 @@ const CodeBlock = React.memo(({ language, children, onCodeRun }: { language: str
         <div className="relative rounded-lg overflow-hidden group/codeblock">
             <div className="absolute right-2 top-2 flex bg-white/90 opacity-0 group-hover/codeblock:opacity-100 hover:opacity-100 transition-opacity duration-200 rounded-md p-1 backdrop-blur-sm">
                 <IconButton
-                    icon={copyIconState === 'copy' ? <Copy fill="black"/> : <Ok fill="black" />}
+                    icon={copyIconState === 'copy' ? <Copy fill="black" /> : <Ok fill="black" />}
                     onClick={handleCopy}
                 />
                 <IconButton icon={<Run fill="black" />} onClick={() => onCodeRun(language, String(children).replace(/\n$/, ''))} />
@@ -68,7 +103,7 @@ const CodeBlock = React.memo(({ language, children, onCodeRun }: { language: str
                 PreTag="div"
                 children={highlightedCode.replace(/\n$/, '')}
                 language={language}
-                style={srcery}
+                style={oneDark}
             />
             {/* 如果仍有未高亮的追加内容（用户正在流式输出），附加普通文本 */}
             {highlightedCode !== String(children) && (
