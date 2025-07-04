@@ -25,6 +25,7 @@
     "@radix-ui/react-switch": "^1.1.1",
     "@radix-ui/react-toast": "^1.2.2",
     "@radix-ui/react-tooltip": "^1.1.6",
+    "@tailwindcss/typography": "^0.5.16",
     "@tauri-apps/api": "^2.1.1",
     "@tauri-apps/plugin-clipboard-manager": "^2.0.1",
     "@tauri-apps/plugin-dialog": "^2.0.1",

@@ -134,7 +134,7 @@ const MessageItem = React.memo(
         return (
             <div
                 className={
-                    "group relative py-4 px-5 rounded-2xl inline-block max-w-[65%] leading-6 transition-all duration-200 " +
+                    "group relative py-4 px-5 rounded-2xl inline-block max-w-[65%] transition-all duration-200 " +
                     (message.message_type === "user"
                         ? "self-end bg-secondary text-primary"
                         : "self-start bg-background text-foreground border border-border")
@@ -169,7 +169,7 @@ const MessageItem = React.memo(
                     </div>
                 ) : null}
 
-                <div className="prose prose-sm max-w-none [&>p]:m-0 [&>p]:text-sm">
+                <div className="prose prose-sm max-w-none">
                     <ReactMarkdown
                         children={customParser(currentMessageContent, customTags)}
                         remarkPlugins={[
