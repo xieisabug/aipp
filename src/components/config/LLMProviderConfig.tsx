@@ -193,7 +193,7 @@ const LLMProviderConfig: React.FC = () => {
     // 侧边栏内容
     const sidebar = (
         <SidebarList
-            title="提供商列表"
+            title="提供商"
             description="选择提供商进行配置"
             icon={<Settings className="h-5 w-5" />}
         >
@@ -284,7 +284,6 @@ const LLMProviderConfig: React.FC = () => {
                 onSelectOption={handleSelectFromDropdown}
                 selectPlaceholder="选择提供商"
                 addButton={addButton}
-                sidebarTitle="提供商列表"
             />
 
             {/* 新增提供商对话框 */}

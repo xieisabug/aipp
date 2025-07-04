@@ -18,7 +18,6 @@ interface ConfigPageLayoutProps {
     onSelectOption?: (optionId: string) => void;
     selectPlaceholder?: string;
     addButton?: React.ReactNode;
-    sidebarTitle?: string;
 }
 
 const ConfigPageLayout: React.FC<ConfigPageLayoutProps> = ({
@@ -31,7 +30,6 @@ const ConfigPageLayout: React.FC<ConfigPageLayoutProps> = ({
     onSelectOption,
     selectPlaceholder = "选择项目",
     addButton,
-    sidebarTitle
 }) => {
     const [windowWidth, setWindowWidth] = useState(window.innerWidth);
 

@@ -826,7 +826,6 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                 onSelectOption={handleSelectFromDropdown}
                 selectPlaceholder="选择助手"
                 addButton={addButton}
-                sidebarTitle="助手列表"
             />
 
             {/* 对话框 */}
