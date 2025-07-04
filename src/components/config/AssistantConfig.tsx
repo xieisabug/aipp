@@ -9,7 +9,7 @@ import AddAssistantDialog from "./AddAssistantDialog";
 import EditAssistantDialog from "./EditAssistantDialog";
 import { AssistantType } from "../../types/assistant";
 import { validateConfig } from "../../utils/validate";
-import { Bot, Settings, AlertCircle, User, Copy, Edit3, Trash2 } from "lucide-react";
+import { Bot, Settings, User, Copy, Edit3, Trash2 } from "lucide-react";
 
 // 导入公共组件
 import {

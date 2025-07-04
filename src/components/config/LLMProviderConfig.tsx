@@ -5,7 +5,7 @@ import FormDialog from "../FormDialog";
 import CustomSelect from "../CustomSelect";
 import ConfirmDialog from "../ConfirmDialog";
 import { Button } from "../ui/button";
-import { PlusCircle, Zap, Settings, AlertCircle, Trash2 } from "lucide-react";
+import { PlusCircle, Zap, Settings, Trash2 } from "lucide-react";
 import { toast } from 'sonner';
 import { Switch } from "../ui/switch";
 
