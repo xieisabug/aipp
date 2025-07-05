@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import MenuIcon from "../assets/menu.svg?react";
@@ -31,18 +31,30 @@ function ConversationList({
         });
     }, []);
 
+    // 当 conversationId 不在当前列表中时，自动重新拉取列表。
+    const fetchRetryingRef = useRef(false);
     useEffect(() => {
-        // Fetch conversations from the server
-        if (
-            conversations.findIndex(
-                (conversation) => conversation.id.toString() === conversationId,
-            ) === -1
-        ) {
+        if (!conversationId) {
+            return;
+        }
+
+        const exists = conversations.some(
+            (conversation) => conversation.id.toString() === conversationId,
+        );
+
+        if (!exists && !fetchRetryingRef.current) {
+            console.log(
+                "ConversationList: 选中的 conversationId 不在列表中，重新获取列表...",
+                conversationId,
+            );
+            fetchRetryingRef.current = true;
             listConversations().then((c) => {
                 setConversations(c);
+                // 获取完毕后重置标记，防止死循环
+                fetchRetryingRef.current = false;
             });
         }
-    }, [conversationId]);
+    }, [conversationId, conversations]);
 
     useEffect(() => {
         const unsubscribe = listen("title_change", (event) => {

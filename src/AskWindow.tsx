@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { listen, emit, once, emitTo } from "@tauri-apps/api/event";
+import { listen, once, emitTo } from "@tauri-apps/api/event";
 import ReactMarkdown, { Components } from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeRaw from "rehype-raw";
