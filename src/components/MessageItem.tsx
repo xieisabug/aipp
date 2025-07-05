@@ -6,6 +6,7 @@ import remarkBreaks from "remark-breaks";
 import rehypeRaw from "rehype-raw";
 import rehypeKatex from "rehype-katex";
 import rehypeHighlight from "rehype-highlight";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkCustomCompenent from "@/react-markdown/remarkCustomComponent";
 import TipsComponent from "@/react-markdown/components/TipsComponent";
 import IconButton from "./IconButton";
@@ -114,6 +115,33 @@ const MessageItem = React.memo(
             [displayedContent],
         );
 
+        // 定义允许的自定义标签及其属性，结合默认 schema
+        const sanitizeSchema = {
+            ...defaultSchema,
+            tagNames: [
+                ...(defaultSchema.tagNames || []),
+                "fileattachment",
+                "bangwebtomarkdown",
+                "bangweb",
+            ],
+            attributes: {
+                ...(defaultSchema.attributes || {}),
+                fileattachment: [
+                    ...(defaultSchema.attributes?.fileattachment || []),
+                    "attachment_id",
+                    "attachment_url",
+                    "attachment_type",
+                    "attachment_content",
+                ],
+                bangwebtomarkdown: [
+                    ...(defaultSchema.attributes?.bangwebtomarkdown || []),
+                ],
+                bangweb: [
+                    ...(defaultSchema.attributes?.bangweb || []),
+                ],
+            },
+        };
+
         const markdownElement = useMemo(
             () => (
                 <ReactMarkdown
@@ -123,7 +151,12 @@ const MessageItem = React.memo(
                         remarkBreaks,
                         remarkCustomCompenent,
                     ]}
-                    rehypePlugins={[rehypeRaw, rehypeKatex, rehypeHighlight]}
+                    rehypePlugins={[
+                        rehypeRaw,
+                        [rehypeSanitize, sanitizeSchema],
+                        rehypeKatex,
+                        rehypeHighlight,
+                    ]}
                     components={{
                         code: ({ className, children }) => {
                             const match = /language-(\w+)/.exec(
