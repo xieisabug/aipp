@@ -32,8 +32,6 @@ const MESSAGE_FINISH_EVENT: &str = "Tea::Event::MessageFinish";
 const TITLE_CHANGE_EVENT: &str = "title_change";
 const ERROR_NOTIFICATION_EVENT: &str = "conversation-window-error-notification";
 
-
-
 /// AI聊天配置
 #[derive(Debug, Clone)]
 struct ChatConfig {
@@ -56,9 +54,6 @@ struct ChatContext {
 struct ConfigBuilder;
 
 impl ConfigBuilder {
-
-
-
     /// 构建聊天选项
     fn build_chat_options(config_map: &HashMap<String, String>) -> ChatOptions {
         let mut chat_options = ChatOptions::default();
@@ -144,7 +139,7 @@ fn build_chat_messages(
     init_message_list: &[(String, String, Vec<MessageAttachment>)],
 ) -> Vec<ChatMessage> {
     let mut chat_messages = Vec::new();
-    
+
     for (role, content, attachments) in init_message_list {
         // 如果没有附件，使用简单的文本消息
         if attachments.is_empty() {
@@ -159,7 +154,7 @@ fn build_chat_messages(
 
         // 如果有附件，使用 ContentPart 来构建消息
         let mut content_parts = vec![ContentPart::from_text(content)];
-        
+
         // 处理各种类型的附件
         for attachment in attachments {
             match attachment.attachment_type {
@@ -168,42 +163,49 @@ fn build_chat_messages(
                     if let Some(content) = &attachment.attachment_content {
                         // 解析 data URL 格式的内容，提取 MIME type 和纯 base64 内容
                         if let Some((content_type, base64_content)) = parse_data_url(content) {
-                            content_parts.push(ContentPart::from_image_base64(&content_type, &*base64_content));
+                            content_parts.push(ContentPart::from_image_base64(
+                                &content_type,
+                                &*base64_content,
+                            ));
                         }
                     } else if let Some(url) = &attachment.attachment_url {
                         // 推断图像的媒体类型
                         let media_type = infer_media_type_from_url(url);
                         content_parts.push(ContentPart::from_image_url(&media_type, url.as_str()));
                     }
-                },
+                }
                 crate::db::conversation_db::AttachmentType::Text => {
                     // 文本附件
                     if let Some(attachment_content) = &attachment.attachment_content {
                         let file_name = attachment.attachment_url.as_deref().unwrap_or("未知文件");
                         content_parts.push(ContentPart::from_text(&format!(
-                            "\n\n[文本附件: {}]\n{}", file_name, attachment_content
+                            "\n\n[文本附件: {}]\n{}",
+                            file_name, attachment_content
                         )));
                     }
-                },
-                crate::db::conversation_db::AttachmentType::PDF |
-                crate::db::conversation_db::AttachmentType::Word |
-                crate::db::conversation_db::AttachmentType::PowerPoint |
-                crate::db::conversation_db::AttachmentType::Excel => {
+                }
+                crate::db::conversation_db::AttachmentType::PDF
+                | crate::db::conversation_db::AttachmentType::Word
+                | crate::db::conversation_db::AttachmentType::PowerPoint
+                | crate::db::conversation_db::AttachmentType::Excel => {
                     // 其他文档类型，作为文本内容处理
                     if let Some(attachment_content) = &attachment.attachment_content {
                         let file_name = attachment.attachment_url.as_deref().unwrap_or("未知文档");
                         let file_type = match attachment.attachment_type {
                             crate::db::conversation_db::AttachmentType::PDF => "PDF文档",
                             crate::db::conversation_db::AttachmentType::Word => "Word文档",
-                            crate::db::conversation_db::AttachmentType::PowerPoint => "PowerPoint文档",
+                            crate::db::conversation_db::AttachmentType::PowerPoint => {
+                                "PowerPoint文档"
+                            }
                             crate::db::conversation_db::AttachmentType::Excel => "Excel文档",
                             _ => "文档",
                         };
                         content_parts.push(ContentPart::from_text(&format!(
-                            "\n\n[{}: {}]\n{}", file_type, file_name, attachment_content
+                            "\n\n[{}: {}]\n{}",
+                            file_type, file_name, attachment_content
                         )));
                     }
-                },
+                }
             }
         }
 
@@ -211,7 +213,8 @@ fn build_chat_messages(
         match role.as_str() {
             "system" => {
                 // 系统消息通常不支持多媒体内容，将所有内容合并为文本
-                let combined_text = content_parts.iter()
+                let combined_text = content_parts
+                    .iter()
                     .map(|part| {
                         // 注意：这里假设 ContentPart 有某种方式提取文本，
                         // 实际情况可能需要根据 genai 库的具体实现调整
@@ -223,18 +226,19 @@ fn build_chat_messages(
                     .collect::<Vec<_>>()
                     .join("");
                 chat_messages.push(ChatMessage::system(&combined_text));
-            },
+            }
             "user" => {
                 chat_messages.push(ChatMessage::user(content_parts));
-            },
+            }
             "assistant" => {
                 // 助手消息也通常是纯文本，将内容合并
-                let combined_text = content_parts.iter()
+                let combined_text = content_parts
+                    .iter()
                     .map(|_| content.clone()) // 临时处理
                     .collect::<Vec<_>>()
                     .join("");
                 chat_messages.push(ChatMessage::assistant(&combined_text));
-            },
+            }
             _ => {}
         }
     }
@@ -268,15 +272,15 @@ fn parse_data_url(data_url: &str) -> Option<(String, String)> {
     if !data_url.starts_with("data:") {
         return None;
     }
-    
+
     let parts: Vec<&str> = data_url.splitn(2, ',').collect();
     if parts.len() != 2 {
         return None;
     }
-    
+
     let header = parts[0];
     let content = parts[1];
-    
+
     // 提取 MIME type
     let header_without_data = header.strip_prefix("data:")?;
     let mime_type = if let Some(semicolon_pos) = header_without_data.find(';') {
@@ -284,12 +288,12 @@ fn parse_data_url(data_url: &str) -> Option<(String, String)> {
     } else {
         header_without_data
     };
-    
+
     // 检查是否包含 base64 标识
     if !header.contains("base64") {
         return None;
     }
-    
+
     Some((mime_type.to_string(), content.to_string()))
 }
 
@@ -832,8 +836,10 @@ pub async fn regenerate_ai(
         .list_by_conversation_id(conversation_id)?;
 
     // 1. 仅保留在待重新生成消息之前的历史消息
-    let filtered_messages: Vec<(Message, Option<MessageAttachment>)> =
-        messages.into_iter().filter(|m| m.0.id < message_id).collect();
+    let filtered_messages: Vec<(Message, Option<MessageAttachment>)> = messages
+        .into_iter()
+        .filter(|m| m.0.id < message_id)
+        .collect();
 
     // 2. 计算每个父消息最新的子消息（parent_id -> latest child）
     let mut latest_children: HashMap<i64, (Message, Option<MessageAttachment>)> = HashMap::new();
@@ -870,15 +876,9 @@ pub async fn regenerate_ai(
             .cloned()
             .unwrap_or((msg, attach));
 
-        let attachments_vec = final_attach_opt
-            .map(|a| vec![a])
-            .unwrap_or_else(Vec::new);
+        let attachments_vec = final_attach_opt.map(|a| vec![a]).unwrap_or_else(Vec::new);
 
-        init_message_list.push((
-            final_msg.message_type,
-            final_msg.content,
-            attachments_vec,
-        ));
+        init_message_list.push((final_msg.message_type, final_msg.content, attachments_vec));
     }
 
     println!("init_message_list (regenerate): {:?}", init_message_list);
@@ -928,12 +928,12 @@ pub async fn regenerate_ai(
         // 直接创建数据库连接（避免线程安全问题）
         let conversation_db = ConversationDatabase::new(&app_handle_clone).unwrap();
 
-                    // 构建聊天配置
-            let client = genai_client::create_client_with_config(
-                &model_detail.configs,
-                &model_detail.model.code,
-                &model_detail.provider.api_type,
-            )?;
+        // 构建聊天配置
+        let client = genai_client::create_client_with_config(
+            &model_detail.configs,
+            &model_detail.model.code,
+            &model_detail.provider.api_type,
+        )?;
 
         let model_config_clone = ConfigBuilder::merge_model_configs(
             assistant_detail.model_configs.clone(),
@@ -1378,6 +1378,55 @@ async fn generate_title(
             }
         }
     }
+
+    Ok(())
+}
+
+/// 重新生成对话标题
+#[tauri::command]
+pub async fn regenerate_conversation_title(
+    app_handle: tauri::AppHandle,
+    window: tauri::Window,
+    feature_config_state: State<'_, FeatureConfigState>,
+    conversation_id: i64,
+) -> Result<(), AppError> {
+    let conversation_db = ConversationDatabase::new(&app_handle).map_err(AppError::from)?;
+
+    // 获取对话的前两条消息（通常是用户提问和AI回答）
+    let messages = conversation_db
+        .message_repo()
+        .unwrap()
+        .list_by_conversation_id(conversation_id)?;
+
+    if messages.len() < 2 {
+        return Err(AppError::InsufficientMessages);
+    }
+
+    // 获取第一条用户消息和第一条AI回答
+    let user_message = messages
+        .iter()
+        .find(|(msg, _)| msg.message_type == "user")
+        .map(|(msg, _)| msg)
+        .ok_or_else(|| AppError::InsufficientMessages)?;
+    let assistant_message = messages
+        .iter()
+        .find(|(msg, _)| msg.message_type == "assistant")
+        .map(|(msg, _)| msg)
+        .ok_or_else(|| AppError::InsufficientMessages)?;
+
+    // 获取特性配置
+    let config_feature_map = feature_config_state.config_feature_map.lock().await;
+
+    // 调用内部的 generate_title 函数
+    generate_title(
+        &app_handle,
+        conversation_id,
+        user_message.content.clone(),
+        assistant_message.content.clone(),
+        config_feature_map.clone(),
+        window,
+    )
+    .await?;
 
     Ok(())
 }

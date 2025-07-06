@@ -38,7 +38,10 @@ pub fn get_assistant(
     let assistant = assistant_db
         .get_assistant(assistant_id)
         .map_err(|e| e.to_string())?;
-    println!("Assistant name: {:?} (id: {})", assistant.name, assistant.id);
+    println!(
+        "Assistant name: {:?} (id: {})",
+        assistant.name, assistant.id
+    );
 
     // 获取相关的 prompt
     let prompts = assistant_db
@@ -440,6 +443,11 @@ pub fn copy_assistant(
 #[tauri::command]
 pub fn delete_assistant(app_handle: tauri::AppHandle, assistant_id: i64) -> Result<(), String> {
     let assistant_db = AssistantDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+    // 需要检查一下是不是快速使用助手，如果是，就不能够删除
+    if assistant_id == 1 {
+        return Err("快速使用助手不能删除".to_string());
+    }
+
     let _ = assistant_db
         .delete_assistant_model_config_by_assistant_id(assistant_id)
         .map_err(|e| e.to_string());

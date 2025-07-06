@@ -1,5 +1,4 @@
 import { ReactNode, MouseEventHandler } from 'react';
-import '../styles/IconButton.css';
 
 interface IconButtonProps {
     icon: ReactNode;
@@ -9,7 +8,10 @@ interface IconButtonProps {
 }
 
 const IconButton: React.FC<IconButtonProps> = ({icon, onClick, className, border}) => {
-    return <button onClick={onClick} className={'icon-button ' + (className? className: '') + (border ? " border-icon-button": "")}>
+    return <button 
+        onClick={onClick} 
+        className={`h-8 w-8 rounded-2xl border-0 flex items-center justify-center cursor-pointer ${border ? "border border-secondary bg-primary-foreground hover:border-primary" : ""} ${className || ""}`}
+    >
         {icon}
     </button>
 }

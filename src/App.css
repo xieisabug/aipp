@@ -12,7 +12,6 @@
 body {
     padding: 0;
     margin: 0;
-    font-size: 14px;
     font-family: "Siyuanrouhei", Arial, sans-serif;
 }
 
@@ -21,10 +20,6 @@ body {
     justify-content: center;
     align-items: center;
     height: 100vh;
-}
-
-h2 {
-    margin-top: 0;
 }
 
 .form-group-container {
@@ -149,4 +144,41 @@ h2 {
     body {
         @apply bg-background text-foreground;
     }
+}
+
+/* 为 ReactMarkdown 中的标题标签提供正确的样式 */
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+    font-weight: 600;
+    line-height: 1.25;
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+}
+
+.prose h1 {
+    font-size: 2.25em;
+}
+
+.prose h2 {
+    font-size: 1.875em;
+}
+
+.prose h3 {
+    font-size: 1.5em;
+}
+
+.prose h4 {
+    font-size: 1.25em;
+}
+
+.prose h5 {
+    font-size: 1.125em;
+}
+
+.prose h6 {
+    font-size: 1em;
 }

@@ -5,18 +5,15 @@ import FormDialog from "../FormDialog";
 import CustomSelect from "../CustomSelect";
 import ConfirmDialog from "../ConfirmDialog";
 import { Button } from "../ui/button";
-import { PlusCircle, Zap, Settings, AlertCircle, Trash2 } from "lucide-react";
+import { PlusCircle, Zap, Settings } from "lucide-react";
 import { toast } from 'sonner';
-import { Switch } from "../ui/switch";
 
 // 导入公共组件
 import {
     ConfigPageLayout,
     SidebarList,
     ListItemButton,
-    InfoCard,
     EmptyState,
-    StatItem,
     SelectOption
 } from "../common";
 
@@ -139,33 +136,6 @@ const LLMProviderConfig: React.FC = () => {
         setSelectedProvider(provider);
     }, []);
 
-    // 统计信息
-    const stats: StatItem[] = useMemo(() => {
-        const enabled = LLMProviders.filter(p => p.is_enabled).length;
-        const total = LLMProviders.length;
-        const official = LLMProviders.filter(p => p.is_official).length;
-        return [
-            {
-                title: "总提供商",
-                value: total,
-                description: "已配置的提供商数量",
-                icon: <Settings className="h-4 w-4 text-gray-600" />
-            },
-            {
-                title: "已启用",
-                value: enabled,
-                description: "当前可用的提供商",
-                icon: <Zap className="h-4 w-4 text-gray-600" />
-            },
-            {
-                title: "官方支持",
-                value: official,
-                description: "官方认证的提供商",
-                icon: <AlertCircle className="h-4 w-4 text-gray-600" />
-            }
-        ];
-    }, [LLMProviders]);
-
     // 下拉菜单选项
     const selectOptions: SelectOption[] = useMemo(() =>
         LLMProviders.map(provider => ({
@@ -197,7 +167,6 @@ const LLMProviderConfig: React.FC = () => {
     if (LLMProviders.length === 0) {
         return (
             <ConfigPageLayout
-                stats={stats}
                 sidebar={null}
                 content={
                     <EmptyState
@@ -222,7 +191,7 @@ const LLMProviderConfig: React.FC = () => {
     // 侧边栏内容
     const sidebar = (
         <SidebarList
-            title="提供商列表"
+            title="提供商"
             description="选择提供商进行配置"
             icon={<Settings className="h-5 w-5" />}
         >
@@ -252,47 +221,16 @@ const LLMProviderConfig: React.FC = () => {
     // 右侧内容
     const content = selectedProvider ? (
         <div className="space-y-6">
-            <InfoCard
-                icon={<Settings className="h-6 w-6 text-gray-600" />}
-                title={selectedProvider.name}
-                description={selectedProvider.description || `${selectedProviderApiType} 提供商配置`}
-                badges={[
-                    ...(selectedProvider.is_enabled ? [{ text: "已启用", variant: "green" as const }] : [{ text: "已禁用", variant: "gray" as const }])
-                ]}
-                actions={
-                    <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-2">
-                            <span className="text-sm text-gray-600">
-                                {selectedProvider.is_enabled ? "已启用" : "已禁用"}
-                            </span>
-                            <Switch
-                                checked={selectedProvider.is_enabled}
-                                onCheckedChange={() => handleToggle(LLMProviders.findIndex(p => p.id === selectedProvider.id))}
-                            />
-                        </div>
-                        {!selectedProvider.is_official && (
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openConfirmDialog(selectedProvider.id)}
-                                className="hover:bg-red-50 hover:border-red-300 hover:text-red-700"
-                            >
-                                <Trash2 className="h-4 w-4 mr-1" />
-                                删除
-                            </Button>
-                        )}
-                    </div>
-                }
-            />
             <LLMProviderConfigForm
                 id={selectedProvider.id}
                 index={LLMProviders.findIndex(p => p.id === selectedProvider.id)}
                 apiType={selectedProviderApiType}
                 name={selectedProvider.name}
+                description={selectedProvider.description || `${selectedProviderApiType} 提供商配置`}
                 isOffical={selectedProvider.is_official}
                 enabled={selectedProvider.is_enabled}
                 onToggleEnabled={handleToggle}
-                onDelete={undefined}
+                onDelete={() => openConfirmDialog(selectedProvider.id)}
             />
         </div>
     ) : (
@@ -306,7 +244,6 @@ const LLMProviderConfig: React.FC = () => {
     return (
         <>
             <ConfigPageLayout
-                stats={stats}
                 sidebar={sidebar}
                 content={content}
                 selectOptions={selectOptions}
@@ -314,7 +251,6 @@ const LLMProviderConfig: React.FC = () => {
                 onSelectOption={handleSelectFromDropdown}
                 selectPlaceholder="选择提供商"
                 addButton={addButton}
-                sidebarTitle="提供商列表"
             />
 
             {/* 新增提供商对话框 */}

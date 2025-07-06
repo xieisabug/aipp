@@ -34,6 +34,12 @@ pub enum AppError {
 
     #[error("Anyhow错误: {0}")]
     Anyhow(String),
+
+    #[error("对话不存在: {0}")]
+    ConversationNotFound(i64),
+
+    #[error("消息数量不足以生成标题")]
+    InsufficientMessages,
 }
 
 impl From<rusqlite::Error> for AppError {

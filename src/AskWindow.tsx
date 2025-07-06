@@ -1,8 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { listen } from "@tauri-apps/api/event";
-import "./styles/AskWindow.css";
+import { listen, once, emitTo } from "@tauri-apps/api/event";
 import ReactMarkdown, { Components } from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeRaw from "rehype-raw";
@@ -47,6 +46,8 @@ function AskWindow() {
     const [aiIsResponsing, setAiIsResponsing] = useState<boolean>(false);
     const [copySuccess, setCopySuccess] = useState<boolean>(false);
     const [selectedText, setSelectedText] = useState<string>("");
+    // 当前对话 id，用于在 ChatUIWindow 中自动选中
+    const [conversationId, setConversationId] = useState<string>("");
 
     let unsubscribe: Promise<() => void> | null = null;
 
@@ -72,12 +73,17 @@ function AskWindow() {
             invoke<AiResponse>("ask_ai", {
                 request: {
                     prompt: query,
-                    conversation_id: "",
+                    conversation_id: conversationId,
                     assistant_id: 1,
                     attachment_list: fileInfoList?.map((i) => i.id),
                 },
             }).then((res) => {
                 setMessageId(res.add_message_id);
+                // 记录新的 conversationId，便于后续在 ChatUIWindow 中定位
+                if (res.conversation_id !== undefined && res.conversation_id !== null) {
+                    setConversationId(res.conversation_id.toString());
+                    console.log("AskWindow 获取到 conversation_id", res.conversation_id);
+                }
 
                 console.log("ask ai response", res);
                 if (unsubscribe) {
@@ -149,6 +155,23 @@ function AskWindow() {
     };
 
     const openChatUI = async () => {
+        const sendSelect = () => {
+            if (!conversationId) {
+                console.warn("AskWindow：当前 conversationId 为空，无法自动选中对话");
+                return;
+            }
+            emitTo("chat_ui", "select_conversation", conversationId);
+        };
+
+        // 注册一次性监听，防止窗口尚未加载完成时事件丢失
+        once("chat-ui-window-load", () => {
+            sendSelect();
+        });
+
+        // 尝试立即发送一次，以覆盖已打开窗口的场景
+        sendSelect();
+
+        // 打开 / 显示 Chat UI 窗口
         await invoke("open_chat_ui_window");
     };
 
@@ -163,14 +186,15 @@ function AskWindow() {
         setResponse("");
         setMessageId(-1);
         setAiIsResponsing(false);
+        setConversationId("");
     };
 
     const { fileInfoList, handleChooseFile, handleDeleteFile, handlePaste } =
         useFileManagement();
 
     return (
-        <div className="ask-window">
-            <div className="chat-container" data-tauri-drag-region>
+        <div className="flex justify-center items-center h-screen">
+            <div className="bg-white shadow-lg w-full h-screen" data-tauri-drag-region>
                 <InputArea
                     inputText={query}
                     setInputText={setQuery}
@@ -182,7 +206,7 @@ function AskWindow() {
                     aiIsResponsing={aiIsResponsing}
                     placement="top"
                 />
-                <div className="response">
+                <div className="prose prose-sm p-5 pb-16 max-w-none bg-white">
                     {messageId !== -1 ? (
                         response == "" ? (
                             <AskAIHint />
@@ -227,7 +251,7 @@ function AskWindow() {
                                             return (
                                                 <div>
                                                     <div
-                                                        className="llm-thinking-badge"
+                                                        className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm font-medium inline-block"
                                                         title={children}
                                                         data-thinking={children}
                                                     >
@@ -244,7 +268,7 @@ function AskWindow() {
                         <AskWindowPrepare selectedText={selectedText} />
                     )}
                 </div>
-                <div className="tools" data-tauri-drag-region>
+                <div className="w-full h-8 fixed bottom-0 left-0 flex items-center justify-end pr-2.5 bg-gray-100" data-tauri-drag-region>
                     {messageId !== -1 && !aiIsResponsing && (
                         <IconButton
                             icon={<Add fill="black" />}

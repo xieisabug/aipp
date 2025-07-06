@@ -12,7 +12,7 @@ mod state;
 mod template_engine;
 mod window;
 
-use crate::api::ai_api::{ask_ai, cancel_ai, regenerate_ai};
+use crate::api::ai_api::{ask_ai, cancel_ai, regenerate_ai, regenerate_conversation_title};
 use crate::api::artifacts_api::run_artifacts;
 use crate::api::assistant_api::{
     add_assistant, copy_assistant, delete_assistant, get_assistant, get_assistant_field_value,
@@ -249,6 +249,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .invoke_handler(tauri::generate_handler![
             ask_ai,
             regenerate_ai,
+            regenerate_conversation_title,
             cancel_ai,
             get_selected,
             open_config_window,

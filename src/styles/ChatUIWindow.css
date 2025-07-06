@@ -193,13 +193,14 @@
     border-radius: 16px;
     display: inline-block;
     max-width: 65%;
-    font-size: 14px;
     line-height: 1.5;
     transition: all 0.2s ease;
 }
 
 .message-item p {
     margin: 0;
+    font-size: 14px;
+
 }
 
 .user-message {

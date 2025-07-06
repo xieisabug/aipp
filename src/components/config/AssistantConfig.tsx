@@ -2,23 +2,20 @@ import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { toast } from "sonner";
 import { invoke } from "@tauri-apps/api/core";
 import { AssistantDetail, AssistantListItem } from "../../data/Assistant";
-import { Button } from "../ui/button";
 import ConfigForm from "../ConfigForm";
 import ConfirmDialog from "../ConfirmDialog";
 import AddAssistantDialog from "./AddAssistantDialog";
 import EditAssistantDialog from "./EditAssistantDialog";
 import { AssistantType } from "../../types/assistant";
 import { validateConfig } from "../../utils/validate";
-import { Bot, Settings, AlertCircle, User, Copy, Edit3, Trash2 } from "lucide-react";
+import { Bot, Settings, User } from "lucide-react";
 
 // 导入公共组件
 import {
     ConfigPageLayout,
     SidebarList,
     ListItemButton,
-    InfoCard,
     EmptyState,
-    StatItem,
     SelectOption
 } from "../common";
 
@@ -655,7 +652,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                 config: {
                     type: "textarea" as const,
                     label: assistantTypeCustomLabel.get("prompt") ?? "Prompt",
-                    className: "h-48",
+                    className: "h-64",
                     value: currentAssistant?.prompts[0].prompt ?? "",
                     onChange: (value: string | boolean) =>
                         handlePromptChange(value as string),
@@ -687,41 +684,8 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
         setCurrentAssistant(assistantDetail);
     };
 
-    // 统计信息
-    const stats: StatItem[] = useMemo(() => {
-        const total = assistants.length;
-        const typeStats = assistants.reduce((acc) => {
-            // 这里可以根据实际的助手类型进行统计
-            const typeName = assistantTypeNameMap.get(0) ?? "普通对话助手"; // 简化处理
-            acc[typeName] = (acc[typeName] || 0) + 1;
-            return acc;
-        }, {} as Record<string, number>);
-
-        return [
-            {
-                title: "总助手数",
-                value: total,
-                description: "已配置的助手数量",
-                icon: <Bot className="h-4 w-4 text-gray-600" />
-            },
-            {
-                title: "助手类型",
-                value: Object.keys(typeStats).length,
-                description: "不同类型的助手",
-                icon: <Settings className="h-4 w-4 text-gray-600" />
-            },
-            {
-                title: "主要类型",
-                value: Object.entries(typeStats).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "普通对话助手",
-                description: "使用最多的助手类型",
-                icon: <AlertCircle className="h-4 w-4 text-gray-600" />,
-                isText: true
-            }
-        ];
-    }, [assistants, assistantTypeNameMap]);
-
     // 下拉菜单选项
-    const selectOptions: SelectOption[] = useMemo(() => 
+    const selectOptions: SelectOption[] = useMemo(() =>
         assistants.map(assistant => ({
             id: assistant.id.toString(),
             label: assistant.name,
@@ -751,7 +715,6 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
     if (assistants.length === 0) {
         return (
             <ConfigPageLayout
-                stats={stats}
                 sidebar={null}
                 content={
                     <EmptyState
@@ -792,57 +755,19 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
 
     // 右侧内容
     const content = currentAssistant ? (
-        <div className="space-y-6">
-            <InfoCard
-                icon={<Bot className="h-6 w-6 text-gray-600" />}
-                title={currentAssistant.assistant.name}
-                description={currentAssistant.assistant.description || "配置你的智能助手"}
-                actions={
-                    <div className="flex items-center gap-2">
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={onCopy}
-                            className="hover:bg-gray-50 hover:border-gray-400 hover:text-gray-700"
-                        >
-                            <Copy className="h-4 w-4 mr-1" />
-                            复制
-                        </Button>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={openUpdateFormDialog}
-                            className="hover:bg-gray-50 hover:border-gray-400 hover:text-gray-700"
-                        >
-                            <Edit3 className="h-4 w-4 mr-1" />
-                            编辑
-                        </Button>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={openConfirmDeleteDialog}
-                            className="hover:bg-red-50 hover:border-red-300 hover:text-red-700"
-                        >
-                            <Trash2 className="h-4 w-4 mr-1" />
-                            删除
-                        </Button>
-                    </div>
-                }
-            />
-            <ConfigForm
-                assistantConfigApi={assistantConfigApi}
-                title="助手配置"
-                description="配置你的智能助手参数"
-                config={assistantFormConfig}
-                layout="prompt"
-                classNames="bottom-space"
-                onSave={handleAssistantFormSave}
-                onCopy={onCopy}
-                onDelete={openConfirmDeleteDialog}
-                onEdit={openUpdateFormDialog}
-                useFormReturn={form}
-            />
-        </div>
+        <ConfigForm
+            assistantConfigApi={assistantConfigApi}
+            title={currentAssistant.assistant.name}
+            description={currentAssistant.assistant.description || "配置你的智能助手"}
+            config={assistantFormConfig}
+            layout="prompt"
+            classNames="bottom-space"
+            onSave={handleAssistantFormSave}
+            onCopy={currentAssistant.assistant.id === 1 ? undefined : onCopy}
+            onDelete={currentAssistant.assistant.id === 1 ? undefined : openConfirmDeleteDialog}
+            onEdit={openUpdateFormDialog}
+            useFormReturn={form}
+        />
     ) : (
         <EmptyState
             icon={<Settings className="h-8 w-8 text-gray-500" />}
@@ -854,7 +779,6 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
     return (
         <>
             <ConfigPageLayout
-                stats={stats}
                 sidebar={sidebar}
                 content={content}
                 selectOptions={selectOptions}
@@ -862,7 +786,6 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                 onSelectOption={handleSelectFromDropdown}
                 selectPlaceholder="选择助手"
                 addButton={addButton}
-                sidebarTitle="助手列表"
             />
 
             {/* 对话框 */}

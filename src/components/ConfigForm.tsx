@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { Controller, SubmitHandler, UseFormReturn } from "react-hook-form";
+import { Controller, FieldValues, SubmitHandler, UseFormReturn } from "react-hook-form";
 import {
     Select,
     SelectContent,
@@ -7,8 +7,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "./ui/select";
-import IconButton from "./IconButton";
-import { Copy, Trash2, Edit, CircleHelp, ChevronDown, ChevronRight } from "lucide-react";
+import { Copy, Trash2, CircleHelp, ChevronDown, ChevronRight, Edit3 } from "lucide-react";
 import {
     Card,
     CardContent,
@@ -58,7 +57,7 @@ interface ConfigFormProps {
     classNames?: string;
     enableExpand?: boolean;
     defaultExpanded?: boolean;
-    useFormReturn: UseFormReturn<any, any, undefined>;
+    useFormReturn: UseFormReturn<any, any, any>;
     assistantConfigApi?: AssistantConfigApi;
     layout?: "default" | "prompt" | "provider";
     onSave?: SubmitHandler<any>;
@@ -395,6 +394,39 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                     </div>
                 </div>
                 <div className="flex items-center gap-2 ml-4">
+                    {onCopy && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={onCopy}
+                            className="hover:bg-gray-50 hover:border-gray-400 hover:text-gray-700"
+                        >
+                            <Copy className="h-4 w-4 mr-1" />
+                            复制
+                        </Button>
+                    )}
+                    {onEdit && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={onEdit}
+                            className="hover:bg-gray-50 hover:border-gray-400 hover:text-gray-700"
+                        >
+                            <Edit3 className="h-4 w-4 mr-1" />
+                            编辑
+                        </Button>
+                    )}
+                    {onDelete && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={onDelete}
+                            className="hover:bg-red-50 hover:border-red-300 hover:text-red-700"
+                        >
+                            <Trash2 className="h-4 w-4 mr-1" />
+                            删除
+                        </Button>
+                    )}
                     {extraButtons}
                 </div>
             </CardHeader>

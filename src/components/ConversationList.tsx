@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import MenuIcon from "../assets/menu.svg?react";
@@ -31,18 +31,30 @@ function ConversationList({
         });
     }, []);
 
+    // 当 conversationId 不在当前列表中时，自动重新拉取列表。
+    const fetchRetryingRef = useRef(false);
     useEffect(() => {
-        // Fetch conversations from the server
-        if (
-            conversations.findIndex(
-                (conversation) => conversation.id.toString() === conversationId,
-            ) === -1
-        ) {
+        if (!conversationId) {
+            return;
+        }
+
+        const exists = conversations.some(
+            (conversation) => conversation.id.toString() === conversationId,
+        );
+
+        if (!exists && !fetchRetryingRef.current) {
+            console.log(
+                "ConversationList: 选中的 conversationId 不在列表中，重新获取列表...",
+                conversationId,
+            );
+            fetchRetryingRef.current = true;
             listConversations().then((c) => {
                 setConversations(c);
+                // 获取完毕后重置标记，防止死循环
+                fetchRetryingRef.current = false;
             });
         }
-    }, [conversationId]);
+    }, [conversationId, conversations]);
 
     useEffect(() => {
         const unsubscribe = listen("title_change", (event) => {
@@ -136,20 +148,20 @@ function ConversationList({
     }, [menuShowConversationId, formConversationTitle]);
 
     return (
-        <div className="conversation-list">
-            <ul>
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-3">
+            <ul className="list-none p-0 m-0">
                 {conversations.map((conversation) => (
                     <li
-                        className={`conversation-item ${conversationId == conversation.id.toString() ? "selected" : ""}`}
+                        className={`group h-16 w-full mx-0 mb-2 text-sm border-0 rounded-xl cursor-pointer flex flex-col justify-center p-3 box-border relative transition-all duration-200 ${conversationId == conversation.id.toString() ? "font-bold text-primary bg-primary-foreground" : "bg-transparent hover:bg-slate-50 hover:translate-x-0.5"}`}
                         key={conversation.id}
                         onClick={() => {
                             onSelectConversation(conversation.id.toString());
                         }}
                     >
-                        <div className="conversation-list-item-name">
+                        <div className="overflow-hidden text-ellipsis whitespace-nowrap font-medium">
                             {conversation.name}
                         </div>
-                        <div className="conversation-list-item-assistant-name">
+                        <div className="text-xs overflow-hidden text-ellipsis whitespace-nowrap text-gray-500">
                             {conversation.assistant_name}
                         </div>
 
@@ -157,7 +169,7 @@ function ConversationList({
                             <DropdownMenuTrigger asChild>
                                 <Button
                                     variant="link"
-                                    className="conversation-menu-icon"
+                                    className="invisible absolute right-2 top-4 group-hover:visible transition-opacity duration-200"
                                 >
                                     <MenuIcon fill={"black"} />
                                 </Button>
@@ -195,11 +207,11 @@ function ConversationList({
                 onClose={closeFormDialog}
                 isOpen={formDialogIsOpen}
             >
-                <form className="form-group-container">
-                    <div className="form-group">
-                        <label>标题:</label>
+                <form className="space-y-4">
+                    <div className="space-y-2">
+                        <label className="block text-sm font-medium text-gray-700">标题:</label>
                         <input
-                            className="form-input"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             type="text"
                             name="name"
                             value={formConversationTitle}
