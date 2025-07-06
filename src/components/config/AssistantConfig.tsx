@@ -652,7 +652,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                 config: {
                     type: "textarea" as const,
                     label: assistantTypeCustomLabel.get("prompt") ?? "Prompt",
-                    className: "h-48",
+                    className: "h-64",
                     value: currentAssistant?.prompts[0].prompt ?? "",
                     onChange: (value: string | boolean) =>
                         handlePromptChange(value as string),

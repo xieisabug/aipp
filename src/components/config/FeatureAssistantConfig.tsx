@@ -162,6 +162,7 @@ const FeatureAssistantConfig: React.FC = () => {
             key: "prompt",
             config: {
                 type: "textarea" as const,
+                className: "h-64",
                 label: "Prompt",
             }
         }
