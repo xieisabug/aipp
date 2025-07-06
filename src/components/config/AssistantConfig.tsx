@@ -763,8 +763,8 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
             layout="prompt"
             classNames="bottom-space"
             onSave={handleAssistantFormSave}
-            onCopy={onCopy}
-            onDelete={openConfirmDeleteDialog}
+            onCopy={currentAssistant.assistant.id === 1 ? undefined : onCopy}
+            onDelete={currentAssistant.assistant.id === 1 ? undefined : openConfirmDeleteDialog}
             onEdit={openUpdateFormDialog}
             useFormReturn={form}
         />
