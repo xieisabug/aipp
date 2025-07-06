@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import ConfigForm from "../ConfigForm";
 import { MessageSquare, Eye, FolderOpen, Settings } from "lucide-react";
 import { toast } from 'sonner';
@@ -180,7 +181,11 @@ const FeatureAssistantConfig: React.FC = () => {
         },
     });
 
+    // 预览相关表单
     const [bunVersion, setBunVersion] = useState<string>("");
+    const [isInstallingBun, setIsInstallingBun] = useState(false);
+    const [bunInstallLog, setBunInstallLog] = useState("");
+
     const checkBunVersion = useCallback(() => {
         invoke("check_bun_version").then((version) => {
             setBunVersion(version as string);
@@ -188,6 +193,9 @@ const FeatureAssistantConfig: React.FC = () => {
     }, []);
 
     const [uvVersion, setUvVersion] = useState<string>("");
+    const [isInstallingUv, setIsInstallingUv] = useState(false);
+    const [uvInstallLog, setUvInstallLog] = useState("");
+
     const checkUvVersion = useCallback(() => {
         invoke("check_uv_version").then((version) => {
             setUvVersion(version as string);
@@ -197,6 +205,45 @@ const FeatureAssistantConfig: React.FC = () => {
     useEffect(() => {
         checkBunVersion();
         checkUvVersion();
+
+        const unlistenBunLog = listen('bun-install-log', (event) => {
+            setBunInstallLog(prev => prev + "\n" + event.payload);
+        });
+
+        const unlistenBunFinished = listen('bun-install-finished', (event) => {
+            setTimeout(() => {
+                setIsInstallingBun(false);
+            }, 1000);
+            if (event.payload) {
+                toast.success("Bun 安装成功");
+                checkBunVersion();
+            } else {
+                toast.error("Bun 安装失败");
+            }
+        });
+
+        const unlistenUvLog = listen('uv-install-log', (event) => {
+            setUvInstallLog(prev => prev + "\n" + event.payload);
+        });
+
+        const unlistenUvFinished = listen('uv-install-finished', (event) => {
+            setTimeout(() => {
+                setIsInstallingUv(false);
+            }, 1000);
+            if (event.payload) {
+                toast.success("uv 安装成功");
+                checkUvVersion();
+            } else {
+                toast.error("uv 安装失败");
+            }
+        });
+
+        return () => {
+            unlistenBunLog.then(f => f());
+            unlistenBunFinished.then(f => f());
+            unlistenUvLog.then(f => f());
+            unlistenUvFinished.then(f => f());
+        };
     }, [checkBunVersion, checkUvVersion]);
 
     const PREVIEW_FORM_CONFIG = useMemo(() => [
@@ -206,10 +253,13 @@ const FeatureAssistantConfig: React.FC = () => {
                 config: {
                     type: "button" as const,
                     label: "安装 Bun",
-                    value: "安装",
+                    value: isInstallingBun ? "安装中..." : "安装",
                     onClick: () => {
+                        setIsInstallingBun(true);
+                        setBunInstallLog("开始进行 Bun 安装...");
                         invoke("install_bun");
                     },
+                    disabled: isInstallingBun,
                 }
             } :
             {
@@ -220,16 +270,28 @@ const FeatureAssistantConfig: React.FC = () => {
                     value: bunVersion,
                 }
             },
+        {
+            key: "bun_log",
+            config: {
+                type: "static" as const,
+                label: "Bun 安装日志",
+                value: bunInstallLog || "",
+                hidden: !isInstallingBun,
+            }
+        },
         uvVersion === "Not Installed" ?
             {
                 key: "uv_install",
                 config: {
                     type: "button" as const,
                     label: "安装 UV",
-                    value: "安装",
+                    value: isInstallingUv ? "安装中..." : "安装",
                     onClick: () => {
+                        setIsInstallingUv(true);
+                        setUvInstallLog("Starting uv installation...");
                         invoke("install_uv");
-                    }
+                    },
+                    disabled: isInstallingUv,
                 }
             } :
             {
@@ -239,8 +301,17 @@ const FeatureAssistantConfig: React.FC = () => {
                     label: "UV 版本",
                     value: uvVersion,
                 }
+            },
+        {
+            key: "uv_log",
+            config: {
+                type: "static" as const,
+                label: "UV 安装日志",
+                value: uvInstallLog || "",
+                hidden: !isInstallingUv,
             }
-    ], [bunVersion, uvVersion]);
+        }
+    ], [bunVersion, uvVersion, isInstallingBun, isInstallingUv, bunInstallLog, uvInstallLog]);
 
     const previewFormReturnData = useForm<{
         preview_type: string;
@@ -334,7 +405,6 @@ const FeatureAssistantConfig: React.FC = () => {
                         config={SUMMARY_FORM_CONFIG}
                         layout="prompt"
                         classNames="bottom-space"
-                        onSave={handleSaveSummary}
                         useFormReturn={summaryFormReturnData}
                     />
                 );

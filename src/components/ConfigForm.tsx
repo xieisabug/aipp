@@ -48,6 +48,8 @@ interface ConfigField {
     onBlur?: (value: string | boolean) => void;
     customRender?: (fieldRenderData: any) => React.ReactNode;
     onClick?: (assistantConfigApi?: AssistantConfigApi) => void;
+    disabled?: boolean;
+    hidden?: boolean;
 }
 
 interface ConfigFormProps {
@@ -140,6 +142,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                     case "select":
                         return (
                             <Select
+                                disabled={field.disabled}
                                 value={fieldRenderData.value}
                                 onValueChange={fieldRenderData.onChange}
                             >
@@ -162,6 +165,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                         return (
                             <Textarea
                                 className={`focus:ring-gray-500 focus:border-gray-500 ${field.className || ''}`}
+                                disabled={field.disabled}
                                 {...fieldRenderData}
                             />
                         );
@@ -175,6 +179,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                                         ? "password"
                                         : "text"
                                 }
+                                disabled={field.disabled}
                                 {...fieldRenderData}
                             />
                         );
@@ -182,6 +187,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                         return (
                             <Checkbox
                                 className={`focus:ring-gray-500 ${field.className || ''}`}
+                                disabled={field.disabled}
                                 checked={fieldRenderData.value}
                                 onCheckedChange={fieldRenderData.onChange}
                             />
@@ -192,6 +198,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                                 className={field.className}
                                 value={fieldRenderData.value}
                                 onValueChange={fieldRenderData.onChange}
+                                disabled={field.disabled}
                             >
                                 {field.options?.map((option) => (
                                     <FormItem
@@ -230,7 +237,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                         );
                     case "static":
                         return (
-                            <div className={`text-sm text-gray-600 px-3 py-2 bg-gray-50 rounded-md ${field.className || ''}`}>
+                            <div className={`text-sm text-gray-600 px-3 py-2 bg-gray-50 rounded-md break-words ${field.className || ''}`}>
                                 {field.value}
                             </div>
                         );
@@ -247,6 +254,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                                 type="button"
                                 variant="outline"
                                 className={`hover:bg-gray-50 hover:border-gray-400 ${field.className || ''}`}
+                                disabled={field.disabled}
                                 onClick={() => {
                                     field.onClick &&
                                         field.onClick(assistantConfigApi);
@@ -265,7 +273,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                     control={useFormReturn.control}
                     name={name}
                     render={({ field: fieldRenderData }: { field: any }) => (
-                        <FormItem className="space-y-3 mb-6">
+                        <FormItem className={`space-y-3 mb-6 ${field.hidden ? 'hidden' : ''}`}>
                             <FormLabel className="flex items-center font-semibold text-sm text-gray-700">
                                 {field.label}
                                 {field.tooltip && (
