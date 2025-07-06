@@ -3,9 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import debounce from "lodash/debounce";
 import TagInputContainer from "./TagInputContainer";
 import ConfigForm from "../ConfigForm";
-
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
+import { Switch } from "../ui/switch";
+import { Button } from "../ui/button";
+import { Trash2 } from "lucide-react";
 
 interface LLMProviderConfig {
     name: string;
@@ -21,6 +23,7 @@ interface LLMProviderConfigFormProps {
     id: string;
     apiType: string;
     name: string;
+    description: string;
     isOffical: boolean;
     enabled: boolean;
     onToggleEnabled: any;
@@ -32,6 +35,7 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
     index,
     apiType,
     name,
+    description,
     isOffical,
     enabled,
     onDelete,
@@ -219,13 +223,38 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
         [fetchModelList, tagInputRender],
     );
 
-    const extraButtons = undefined;
+    const extraButtons = useMemo(() => (
+        <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600">
+                    {enabled ? "已启用" : "已禁用"}
+                </span>
+                <Switch
+                    checked={enabled}
+                    onCheckedChange={() => onToggleEnabled(index)}
+                />
+            </div>
+            {!isOffical && (
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={onDelete}
+                    className="hover:bg-red-50 hover:border-red-300 hover:text-red-700"
+                >
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    删除
+                </Button>
+            )}
+        </div>
+    ), [enabled, onToggleEnabled, index, isOffical, onDelete]);
+
 
     // 表单部分结束  
     return (
         <ConfigForm
             key={id}
             title={name}
+            description={description}
             config={configFields}
             classNames="bottom-space"
             extraButtons={extraButtons}

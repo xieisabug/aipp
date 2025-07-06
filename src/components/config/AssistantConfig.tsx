@@ -2,21 +2,19 @@ import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { toast } from "sonner";
 import { invoke } from "@tauri-apps/api/core";
 import { AssistantDetail, AssistantListItem } from "../../data/Assistant";
-import { Button } from "../ui/button";
 import ConfigForm from "../ConfigForm";
 import ConfirmDialog from "../ConfirmDialog";
 import AddAssistantDialog from "./AddAssistantDialog";
 import EditAssistantDialog from "./EditAssistantDialog";
 import { AssistantType } from "../../types/assistant";
 import { validateConfig } from "../../utils/validate";
-import { Bot, Settings, User, Copy, Edit3, Trash2 } from "lucide-react";
+import { Bot, Settings, User } from "lucide-react";
 
 // 导入公共组件
 import {
     ConfigPageLayout,
     SidebarList,
     ListItemButton,
-    InfoCard,
     EmptyState,
     SelectOption
 } from "../common";
@@ -687,7 +685,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
     };
 
     // 下拉菜单选项
-    const selectOptions: SelectOption[] = useMemo(() => 
+    const selectOptions: SelectOption[] = useMemo(() =>
         assistants.map(assistant => ({
             id: assistant.id.toString(),
             label: assistant.name,
@@ -757,57 +755,19 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
 
     // 右侧内容
     const content = currentAssistant ? (
-        <div className="space-y-6">
-            <InfoCard
-                icon={<Bot className="h-6 w-6 text-gray-600" />}
-                title={currentAssistant.assistant.name}
-                description={currentAssistant.assistant.description || "配置你的智能助手"}
-                actions={
-                    <div className="flex items-center gap-2">
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={onCopy}
-                            className="hover:bg-gray-50 hover:border-gray-400 hover:text-gray-700"
-                        >
-                            <Copy className="h-4 w-4 mr-1" />
-                            复制
-                        </Button>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={openUpdateFormDialog}
-                            className="hover:bg-gray-50 hover:border-gray-400 hover:text-gray-700"
-                        >
-                            <Edit3 className="h-4 w-4 mr-1" />
-                            编辑
-                        </Button>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={openConfirmDeleteDialog}
-                            className="hover:bg-red-50 hover:border-red-300 hover:text-red-700"
-                        >
-                            <Trash2 className="h-4 w-4 mr-1" />
-                            删除
-                        </Button>
-                    </div>
-                }
-            />
-            <ConfigForm
-                assistantConfigApi={assistantConfigApi}
-                title="助手配置"
-                description="配置你的智能助手参数"
-                config={assistantFormConfig}
-                layout="prompt"
-                classNames="bottom-space"
-                onSave={handleAssistantFormSave}
-                onCopy={onCopy}
-                onDelete={openConfirmDeleteDialog}
-                onEdit={openUpdateFormDialog}
-                useFormReturn={form}
-            />
-        </div>
+        <ConfigForm
+            assistantConfigApi={assistantConfigApi}
+            title={currentAssistant.assistant.name}
+            description={currentAssistant.assistant.description || "配置你的智能助手"}
+            config={assistantFormConfig}
+            layout="prompt"
+            classNames="bottom-space"
+            onSave={handleAssistantFormSave}
+            onCopy={onCopy}
+            onDelete={openConfirmDeleteDialog}
+            onEdit={openUpdateFormDialog}
+            useFormReturn={form}
+        />
     ) : (
         <EmptyState
             icon={<Settings className="h-8 w-8 text-gray-500" />}

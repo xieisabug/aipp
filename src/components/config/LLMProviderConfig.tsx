@@ -5,16 +5,14 @@ import FormDialog from "../FormDialog";
 import CustomSelect from "../CustomSelect";
 import ConfirmDialog from "../ConfirmDialog";
 import { Button } from "../ui/button";
-import { PlusCircle, Zap, Settings, Trash2 } from "lucide-react";
+import { PlusCircle, Zap, Settings } from "lucide-react";
 import { toast } from 'sonner';
-import { Switch } from "../ui/switch";
 
 // 导入公共组件
 import {
     ConfigPageLayout,
     SidebarList,
     ListItemButton,
-    InfoCard,
     EmptyState,
     SelectOption
 } from "../common";
@@ -223,47 +221,16 @@ const LLMProviderConfig: React.FC = () => {
     // 右侧内容
     const content = selectedProvider ? (
         <div className="space-y-6">
-            <InfoCard
-                icon={<Settings className="h-6 w-6 text-gray-600" />}
-                title={selectedProvider.name}
-                description={selectedProvider.description || `${selectedProviderApiType} 提供商配置`}
-                badges={[
-                    ...(selectedProvider.is_enabled ? [{ text: "已启用", variant: "green" as const }] : [{ text: "已禁用", variant: "gray" as const }])
-                ]}
-                actions={
-                    <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-2">
-                            <span className="text-sm text-gray-600">
-                                {selectedProvider.is_enabled ? "已启用" : "已禁用"}
-                            </span>
-                            <Switch
-                                checked={selectedProvider.is_enabled}
-                                onCheckedChange={() => handleToggle(LLMProviders.findIndex(p => p.id === selectedProvider.id))}
-                            />
-                        </div>
-                        {!selectedProvider.is_official && (
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openConfirmDialog(selectedProvider.id)}
-                                className="hover:bg-red-50 hover:border-red-300 hover:text-red-700"
-                            >
-                                <Trash2 className="h-4 w-4 mr-1" />
-                                删除
-                            </Button>
-                        )}
-                    </div>
-                }
-            />
             <LLMProviderConfigForm
                 id={selectedProvider.id}
                 index={LLMProviders.findIndex(p => p.id === selectedProvider.id)}
                 apiType={selectedProviderApiType}
                 name={selectedProvider.name}
+                description={selectedProvider.description || `${selectedProviderApiType} 提供商配置`}
                 isOffical={selectedProvider.is_official}
                 enabled={selectedProvider.is_enabled}
                 onToggleEnabled={handleToggle}
-                onDelete={undefined}
+                onDelete={() => openConfirmDialog(selectedProvider.id)}
             />
         </div>
     ) : (

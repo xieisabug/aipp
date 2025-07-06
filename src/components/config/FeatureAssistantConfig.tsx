@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import ConfigForm from "../ConfigForm";
-import { MessageSquare, Eye, FolderOpen, Settings, AlertCircle, Zap } from "lucide-react";
+import { MessageSquare, Eye, FolderOpen, Settings } from "lucide-react";
 import { toast } from 'sonner';
 import { useForm } from "react-hook-form";
 
@@ -10,8 +10,6 @@ import {
     ConfigPageLayout,
     SidebarList,
     ListItemButton,
-    InfoCard,
-    StatItem,
     SelectOption
 } from "../common";
 
@@ -169,7 +167,11 @@ const FeatureAssistantConfig: React.FC = () => {
         }
     ], [modelOptions, summaryLengthOptions]);
 
-    const summaryFormReturnData = useForm({
+    const summaryFormReturnData = useForm<{
+        model: string;
+        summary_length: string;
+        prompt: string;
+    }>({
         defaultValues: {
             model: `${featureConfig.get("conversation_summary")?.get("provider_id") || ''}%%${featureConfig.get("conversation_summary")?.get("model_code") || ''}`,
             summary_length: featureConfig.get("conversation_summary")?.get("summary_length") || "100",
@@ -232,7 +234,12 @@ const FeatureAssistantConfig: React.FC = () => {
         }
     ], []);
 
-    const previewFormReturnData = useForm({
+    const previewFormReturnData = useForm<{
+        preview_type: string;
+        nextjs_port: string;
+        nuxtjs_port: string;
+        auth_token: string;
+    }>({
         defaultValues: {
             preview_type: featureConfig.get("preview")?.get("preview_type") || "service",
             nextjs_port: featureConfig.get("preview")?.get("nextjs_port") || "3001",
@@ -293,7 +300,7 @@ const FeatureAssistantConfig: React.FC = () => {
     }, [featureConfig, summaryFormReturnData, previewFormReturnData]);
 
     // 下拉菜单选项
-    const selectOptions: SelectOption[] = useMemo(() => 
+    const selectOptions: SelectOption[] = useMemo(() =>
         featureList.map(feature => ({
             id: feature.id,
             label: feature.name,
@@ -314,8 +321,8 @@ const FeatureAssistantConfig: React.FC = () => {
             case 'conversation_summary':
                 return (
                     <ConfigForm
-                        title="对话总结配置"
-                        description="配置对话总结的相关参数"
+                        title={selectedFeature.name}
+                        description={selectedFeature.description}
                         config={SUMMARY_FORM_CONFIG}
                         layout="prompt"
                         classNames="bottom-space"
@@ -326,8 +333,8 @@ const FeatureAssistantConfig: React.FC = () => {
             case 'preview':
                 return (
                     <ConfigForm
-                        title="预览配置"
-                        description="配置组件预览的相关参数"
+                        title={selectedFeature.name}
+                        description={selectedFeature.description}
                         config={PREVIEW_FORM_CONFIG}
                         layout="default"
                         classNames="bottom-space"
@@ -338,8 +345,8 @@ const FeatureAssistantConfig: React.FC = () => {
             case 'data_folder':
                 return (
                     <ConfigForm
-                        title="数据目录管理"
-                        description="管理和同步数据文件夹"
+                        title={selectedFeature.name}
+                        description={selectedFeature.description}
                         config={DATA_FOLDER_CONFIG}
                         layout="default"
                         classNames="bottom-space"
@@ -382,25 +389,18 @@ const FeatureAssistantConfig: React.FC = () => {
     // 右侧内容
     const content = (
         <div className="space-y-6">
-            <InfoCard
-                icon={selectedFeature.icon}
-                title={selectedFeature.name}
-                description={selectedFeature.description}
-            />
             {renderConfigForm()}
         </div>
     );
 
     return (
         <ConfigPageLayout
-            stats={null}
             sidebar={sidebar}
             content={content}
             selectOptions={selectOptions}
             selectedOptionId={selectedFeature.id}
             onSelectOption={handleSelectFromDropdown}
             selectPlaceholder="选择功能"
-            sidebarTitle="功能列表"
         />
     );
 };
