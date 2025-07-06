@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { Controller, FieldValues, SubmitHandler, UseFormReturn } from "react-hook-form";
+import { Controller, SubmitHandler, UseFormReturn } from "react-hook-form";
 import {
     Select,
     SelectContent,
@@ -237,7 +237,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                         );
                     case "static":
                         return (
-                            <div className={`text-sm text-gray-600 px-3 py-2 bg-gray-50 rounded-md break-words ${field.className || ''}`}>
+                            <div className={`text-sm text-gray-600 px-3 py-2 bg-gray-50 rounded-md break-words whitespace-pre-wrap ${field.className || ''}`}>
                                 {field.value}
                             </div>
                         );

@@ -406,6 +406,7 @@ const FeatureAssistantConfig: React.FC = () => {
                         layout="prompt"
                         classNames="bottom-space"
                         useFormReturn={summaryFormReturnData}
+                        onSave={handleSaveSummary}
                     />
                 );
             case 'preview':
