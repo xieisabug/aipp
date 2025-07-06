@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::process::Command;
 
 use crate::FeatureConfigState;
 
@@ -61,4 +62,35 @@ pub async fn run_artifacts(
         }
     }
     Ok("".to_string())
+}
+
+#[tauri::command]
+pub fn check_bun_version() -> Result<String, String> {
+    match Command::new("bun").arg("--version").output() {
+        Ok(output) => {
+            if output.status.success() {
+                Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+            } else {
+                Ok("Not Installed".to_string())
+            }
+        }
+        Err(_) => Ok("Not Installed".to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn check_uv_version() -> Result<String, String> {
+    match Command::new("uv").arg("--version").output() {
+        Ok(output) => {
+            if output.status.success() {
+                let version_info = String::from_utf8_lossy(&output.stdout).to_string();
+                // Example output: `uv 0.2.8`
+                let version = version_info.to_string();
+                Ok(version)
+            } else {
+                Ok("Not Installed".to_string())
+            }
+        }
+        Err(_) => Ok("Not Installed".to_string()),
+    }
 }

@@ -13,7 +13,7 @@ mod template_engine;
 mod window;
 
 use crate::api::ai_api::{ask_ai, cancel_ai, regenerate_ai, regenerate_conversation_title};
-use crate::api::artifacts_api::run_artifacts;
+use crate::api::artifacts_api::{check_bun_version, check_uv_version, run_artifacts};
 use crate::api::assistant_api::{
     add_assistant, copy_assistant, delete_assistant, get_assistant, get_assistant_field_value,
     get_assistants, save_assistant,
@@ -286,7 +286,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             update_conversation,
             run_artifacts,
             get_bang_list,
-            get_selected_text_api
+            get_selected_text_api,
+            check_bun_version,
+            check_uv_version
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application");

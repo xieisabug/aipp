@@ -180,60 +180,67 @@ const FeatureAssistantConfig: React.FC = () => {
         },
     });
 
-    // 预览相关表单
-    const handleSavePreview = useCallback(() => {
-        const values = previewFormReturnData.getValues();
-        if (!values.preview_type) {
-            toast.error("请选择一个部署方式");
-            return;
-        }
-
-        invoke("save_feature_config", {
-            featureCode: "preview",
-            config: values
-        }).then(() => {
-            toast.success('保存成功');
+    const [bunVersion, setBunVersion] = useState<string>("");
+    const checkBunVersion = useCallback(() => {
+        invoke("check_bun_version").then((version) => {
+            setBunVersion(version as string);
         });
     }, []);
 
+    const [uvVersion, setUvVersion] = useState<string>("");
+    const checkUvVersion = useCallback(() => {
+        invoke("check_uv_version").then((version) => {
+            setUvVersion(version as string);
+        });
+    }, []);
+
+    useEffect(() => {
+        checkBunVersion();
+        checkUvVersion();
+    }, [checkBunVersion, checkUvVersion]);
+
     const PREVIEW_FORM_CONFIG = useMemo(() => [
-        {
-            key: "preview_type",
-            config: {
-                type: "radio" as const,
-                label: "部署方式",
-                options: [
-                    { value: "local", label: "本地" },
-                    { value: "remote", label: "远程" },
-                    { value: "service", label: "使用服务" },
-                ],
+        bunVersion === "Not Installed" ?
+            {
+                key: "bun_install",
+                config: {
+                    type: "button" as const,
+                    label: "安装 Bun",
+                    value: "安装",
+                    onClick: () => {
+                        invoke("install_bun");
+                    },
+                }
+            } :
+            {
+                key: "bun_version",
+                config: {
+                    type: "static" as const,
+                    label: "Bun 版本",
+                    value: bunVersion,
+                }
+            },
+        uvVersion === "Not Installed" ?
+            {
+                key: "uv_install",
+                config: {
+                    type: "button" as const,
+                    label: "安装 UV",
+                    value: "安装",
+                    onClick: () => {
+                        invoke("install_uv");
+                    }
+                }
+            } :
+            {
+                key: "uv_version",
+                config: {
+                    type: "static" as const,
+                    label: "UV 版本",
+                    value: uvVersion,
+                }
             }
-        },
-        {
-            key: "nextjs_port",
-            config: {
-                type: "input" as const,
-                label: "Next.js端口",
-                value: "",
-            }
-        },
-        {
-            key: "nuxtjs_port",
-            config: {
-                type: "input" as const,
-                label: "Nuxt.js端口",
-                value: "",
-            }
-        },
-        {
-            key: "auth_token",
-            config: {
-                type: "input" as const,
-                label: "Auth token",
-                value: "",
-            }
-        }
-    ], []);
+    ], [bunVersion, uvVersion]);
 
     const previewFormReturnData = useForm<{
         preview_type: string;
@@ -339,7 +346,6 @@ const FeatureAssistantConfig: React.FC = () => {
                         config={PREVIEW_FORM_CONFIG}
                         layout="default"
                         classNames="bottom-space"
-                        onSave={handleSavePreview}
                         useFormReturn={previewFormReturnData}
                     />
                 );
