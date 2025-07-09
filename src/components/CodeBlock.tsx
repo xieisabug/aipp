@@ -8,7 +8,6 @@ import Run from "../assets/run.svg?react";
 
 const CodeBlock = React.memo(({ language, children, onCodeRun }: { language: string, children: React.ReactNode, onCodeRun: (lang: string, code: string) => void }) => {
     const [copyIconState, setCopyIconState] = useState<'copy' | 'ok'>('copy');
-    const [isHovered, setIsHovered] = useState(false);
     const [shouldShowFixed, setShouldShowFixed] = useState(false);
     const [fixedButtonPosition, setFixedButtonPosition] = useState({ top: 0, right: 0 });
     const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
@@ -34,31 +33,12 @@ const CodeBlock = React.memo(({ language, children, onCodeRun }: { language: str
         }
     }, [copyIconState]);
 
-    // 监听鼠标移动
+    // 监听滚动和鼠标移动事件
     useEffect(() => {
         const handleMouseMove = (e: MouseEvent) => {
             setMousePosition({ x: e.clientX, y: e.clientY });
         };
 
-        window.addEventListener('mousemove', handleMouseMove);
-        return () => window.removeEventListener('mousemove', handleMouseMove);
-    }, []);
-
-    // 检查鼠标是否在 CodeBlock 内
-    const isMouseInCodeBlock = useCallback(() => {
-        if (!containerRef.current) return false;
-        
-        const rect = containerRef.current.getBoundingClientRect();
-        return (
-            mousePosition.x >= rect.left &&
-            mousePosition.x <= rect.right &&
-            mousePosition.y >= rect.top &&
-            mousePosition.y <= rect.bottom
-        );
-    }, [mousePosition]);
-
-    // 监听滚动事件，判断是否需要显示固定按钮
-    useEffect(() => {
         const handleScroll = () => {
             if (!containerRef.current) return;
             
@@ -75,7 +55,12 @@ const CodeBlock = React.memo(({ language, children, onCodeRun }: { language: str
             const isOriginalButtonVisible = originalButtonTop >= 0 && originalButtonBottom <= viewportHeight;
             
             // 鼠标是否在 CodeBlock 内
-            const mouseInCodeBlock = isMouseInCodeBlock();
+            const mouseInCodeBlock = (
+                mousePosition.x >= rect.left &&
+                mousePosition.x <= rect.right &&
+                mousePosition.y >= rect.top &&
+                mousePosition.y <= rect.bottom
+            );
             
             // 只有在以下条件都满足时才显示固定按钮：
             // 1. 鼠标在代码块内
@@ -103,20 +88,7 @@ const CodeBlock = React.memo(({ language, children, onCodeRun }: { language: str
             window.addEventListener(event, handleScroll, { passive: true });
         });
         
-        // 使用 requestAnimationFrame 确保流畅更新
-        let animationFrameId: number;
-        const smoothHandleScroll = () => {
-            handleScroll();
-            animationFrameId = requestAnimationFrame(smoothHandleScroll);
-        };
-        
-        // 在鼠标移动时也触发检查
-        const handleMouseMoveScroll = () => {
-            cancelAnimationFrame(animationFrameId);
-            animationFrameId = requestAnimationFrame(smoothHandleScroll);
-        };
-        
-        window.addEventListener('mousemove', handleMouseMoveScroll, { passive: true });
+        window.addEventListener('mousemove', handleMouseMove, { passive: true });
         
         handleScroll(); // 初始检查
 
@@ -124,10 +96,9 @@ const CodeBlock = React.memo(({ language, children, onCodeRun }: { language: str
             events.forEach(event => {
                 window.removeEventListener(event, handleScroll);
             });
-            window.removeEventListener('mousemove', handleMouseMoveScroll);
-            cancelAnimationFrame(animationFrameId);
+            window.removeEventListener('mousemove', handleMouseMove);
         };
-    }, [isMouseInCodeBlock]);
+    }, [mousePosition]);
 
     // 不再在客户端动态高亮，直接渲染 rehype-highlight 生成的元素
     
@@ -145,8 +116,6 @@ const CodeBlock = React.memo(({ language, children, onCodeRun }: { language: str
         <div 
             ref={containerRef}
             className="relative rounded-lg overflow-hidden group/codeblock prose-code:text-sm"
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
         >
             {/* 普通状态下的按钮 */}
             <div className="absolute right-2 top-2 z-10">
