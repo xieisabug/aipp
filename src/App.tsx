@@ -3,7 +3,7 @@ import './App.css';
 import AskWindow from "./AskWindow.tsx";
 import ConfigWindow from "./ConfigWindow.tsx";
 import ChatUIWindow from './ChatUIWindow.tsx';
-import PreviewHTMLWindow from './PreviewHTMLWindow.tsx';
+import PreviewHTMLWindow from './artifacts/PreviewHTMLWindow.tsx';
 import PreviewReactWindow from './PreviewReactWindow.tsx';
 import PluginWindow from './PluginWindow.tsx';
 import { Toaster } from './components/ui/sonner.tsx';

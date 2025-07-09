@@ -1,11 +1,12 @@
-import { emit, listen } from "@tauri-apps/api/event";
+import { emit } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { useEffect, useState } from "react";
 
 
 function PreviewHTMLWindow() {
     const [html, setHtml] = useState<string>("");
     useEffect(() => {
-        listen<string>("preview_html", (e) => {
+        getCurrentWebviewWindow().listen<string>("preview_html", (e) => {
             console.log(e);
             setHtml(e.payload);
         });
