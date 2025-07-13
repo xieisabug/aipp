@@ -10,10 +10,13 @@ mod errors;
 mod plugin;
 mod state;
 mod template_engine;
+mod utils;
 mod window;
 
 use crate::api::ai_api::{ask_ai, cancel_ai, regenerate_ai, regenerate_conversation_title};
-use crate::api::artifacts_api::{check_bun_version, check_uv_version, install_bun, install_uv, run_artifacts};
+use crate::api::artifacts_api::{
+    check_bun_version, check_uv_version, install_bun, install_uv, run_artifacts, open_react_component_preview, preview_react_component,
+};
 use crate::api::assistant_api::{
     add_assistant, copy_assistant, delete_assistant, get_assistant, get_assistant_field_value,
     get_assistants, save_assistant,
@@ -31,11 +34,12 @@ use crate::api::system_api::{
     get_all_feature_config, get_bang_list, get_selected_text_api, open_data_folder,
     save_feature_config,
 };
+use crate::artifacts::react_preview::{create_react_preview, create_react_preview_for_artifact, close_react_preview};
 use crate::db::assistant_db::AssistantDatabase;
 use crate::db::llm_db::LLMDatabase;
 use crate::db::system_db::SystemDatabase;
 use crate::window::{
-    create_ask_window, open_chat_ui_window, open_config_window, open_plugin_window,
+    create_ask_window, open_chat_ui_window, open_config_window, open_plugin_window, open_preview_frontend_window, open_artifact_preview_window,
 };
 use chrono::Local;
 use db::conversation_db::ConversationDatabase;
@@ -47,6 +51,7 @@ use serde::{Deserialize, Serialize};
 use state::message_token::MessageTokenManager;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tauri::path::BaseDirectory;
 use tauri::Emitter;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
@@ -214,6 +219,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
+            let resource_path = app.path().resolve(
+                "artifacts/templates/react/PreviewReactWindow.tsx",
+                BaseDirectory::Resource,
+            )?;
+            println!("resource_path: {:?}", resource_path);
+
             let system_db = SystemDatabase::new(&app_handle)?;
             let llm_db = LLMDatabase::new(&app_handle)?;
             let assistant_db = AssistantDatabase::new(&app_handle)?;
@@ -255,6 +266,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             open_config_window,
             open_chat_ui_window,
             open_plugin_window,
+            open_preview_frontend_window,
+            open_artifact_preview_window,
             save_config,
             get_config,
             get_all_feature_config,
@@ -290,7 +303,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             check_bun_version,
             check_uv_version,
             install_bun,
-            install_uv
+            install_uv,
+            open_react_component_preview,
+            preview_react_component,
+            create_react_preview,
+            create_react_preview_for_artifact,
+            close_react_preview
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -230,6 +230,91 @@ pub fn create_plugin_window(app: &AppHandle) {
     }
 }
 
+pub fn create_artifact_preview_window(app: &AppHandle) {
+    let (window_size, window_position) =
+        get_window_size_and_position(app, 1000.0, 800.0, &["ask", "chat_ui"]);
+
+    let mut window_builder =
+        WebviewWindowBuilder::new(app, "artifact_preview", WebviewUrl::App("index.html".into()))
+            .title("Artifact Preview - Aipp")
+            .inner_size(window_size.width, window_size.height)
+            .fullscreen(false)
+            .resizable(true)
+            .decorations(true);
+
+    if let Some(position) = window_position {
+        window_builder = window_builder.position(position.x, position.y);
+    } else {
+        window_builder = window_builder.center();
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    let window_builder = window_builder.transparent(false);
+
+    match window_builder.build() {
+        Ok(window) => {
+            let window_clone = window.clone();
+            window.on_window_event(move |event| {
+                if let WindowEvent::CloseRequested { .. } = event {
+                    window_clone.hide().unwrap();
+                }
+            });
+        }
+        Err(e) => eprintln!("Failed to build window: {}", e),
+    }
+}
+
+#[tauri::command]
+pub async fn open_artifact_preview_window(app_handle: AppHandle) -> Result<(), String> {
+    if app_handle.get_webview_window("artifact_preview").is_none() {
+        println!("Creating artifact preview window");
+
+        create_artifact_preview_window(&app_handle);
+    } else if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+        println!("Showing artifact preview window");
+        if window.is_minimized().unwrap_or(false) {
+            window.unminimize().unwrap();
+        }
+        window.show().unwrap();
+        window.set_focus().unwrap();
+    }
+    Ok(())
+}
+
+pub fn create_preview_frontend_window(app: &AppHandle) {
+    let (window_size, window_position) =
+        get_window_size_and_position(app, 1200.0, 900.0, &["ask", "chat_ui"]);
+
+    let mut window_builder =
+        WebviewWindowBuilder::new(app, "preview_frontend", WebviewUrl::App("index.html".into()))
+            .title("Component Preview - Aipp")
+            .inner_size(window_size.width, window_size.height)
+            .fullscreen(false)
+            .resizable(true)
+            .decorations(true);
+
+    if let Some(position) = window_position {
+        window_builder = window_builder.position(position.x, position.y);
+    } else {
+        window_builder = window_builder.center();
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    let window_builder = window_builder.transparent(false);
+
+    match window_builder.build() {
+        Ok(window) => {
+            let window_clone = window.clone();
+            window.on_window_event(move |event| {
+                if let WindowEvent::CloseRequested { .. } = event {
+                    window_clone.hide().unwrap();
+                }
+            });
+        }
+        Err(e) => eprintln!("Failed to build window: {}", e),
+    }
+}
+
 #[tauri::command]
 pub async fn open_config_window(app_handle: AppHandle) -> Result<(), String> {
     if app_handle.get_webview_window("config").is_none() {
@@ -282,6 +367,23 @@ pub async fn open_plugin_window(app_handle: AppHandle) -> Result<(), String> {
         create_plugin_window(&app_handle);
     } else if let Some(window) = app_handle.get_webview_window("plugin") {
         println!("Showing window");
+        if window.is_minimized().unwrap_or(false) {
+            window.unminimize().unwrap();
+        }
+        window.show().unwrap();
+        window.set_focus().unwrap();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn open_preview_frontend_window(app_handle: AppHandle) -> Result<(), String> {
+    if app_handle.get_webview_window("preview_frontend").is_none() {
+        println!("Creating preview frontend window");
+
+        create_preview_frontend_window(&app_handle);
+    } else if let Some(window) = app_handle.get_webview_window("preview_frontend") {
+        println!("Showing preview frontend window");
         if window.is_minimized().unwrap_or(false) {
             window.unminimize().unwrap();
         }

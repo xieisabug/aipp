@@ -100,7 +100,7 @@ impl SystemDatabase {
         Ok(())
     }
 
-    fn update_feature_config(&self, config: &FeatureConfig) -> Result<()> {
+    pub fn update_feature_config(&self, config: &FeatureConfig) -> Result<()> {
         self.conn.execute(
             "UPDATE feature_config SET value = ?1, data_type = ?2, description = ?3
              WHERE feature_code = ?4 AND key = ?5",
@@ -123,7 +123,7 @@ impl SystemDatabase {
         Ok(())
     }
 
-    fn get_feature_config(&self, feature_code: &str, key: &str) -> Result<Option<FeatureConfig>> {
+    pub fn get_feature_config(&self, feature_code: &str, key: &str) -> Result<Option<FeatureConfig>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, feature_code, key, value, data_type, description
              FROM feature_config WHERE feature_code = ?1 AND key = ?2",

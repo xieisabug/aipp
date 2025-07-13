@@ -4,13 +4,67 @@ use std::process::{Command, Stdio};
 use tauri::Emitter;
 use tauri::Manager;
 
+use crate::utils::bun_utils::BunUtils;
 use crate::FeatureConfigState;
 
 use crate::{
-    artifacts::{applescript::run_applescript, powershell::run_powershell},
+    artifacts::{
+        applescript::run_applescript,
+        powershell::run_powershell,
+        react_preview::{create_react_preview, create_react_preview_for_artifact},
+    },
     errors::AppError,
     window::{open_preview_html_window, open_preview_react_window, open_preview_vue_window},
 };
+
+// 检查是否是完整的 React 组件代码
+fn is_react_component(code: &str) -> bool {
+    // 检查代码是否包含 React 组件的特征
+    let has_import = code.contains("import") && (code.contains("react") || code.contains("React"));
+    let has_function_component = code.contains("function ") && code.contains("return");
+    let has_arrow_component =
+        code.contains("const ") && code.contains("=>") && code.contains("return");
+    let has_export = code.contains("export");
+
+    // 检查是否包含 JSX 返回语句
+    let has_jsx_return = code.contains("return (") || code.contains("return <");
+
+    (has_import || has_export) && (has_function_component || has_arrow_component) && has_jsx_return
+}
+
+// 从代码中提取组件名称
+fn extract_component_name(code: &str) -> Option<String> {
+    use regex::Regex;
+
+    // 尝试匹配函数组件名称
+    if let Ok(re) = Regex::new(r"function\s+([A-Z][a-zA-Z0-9_]*)\s*\(") {
+        if let Some(caps) = re.captures(code) {
+            if let Some(name) = caps.get(1) {
+                return Some(name.as_str().to_string());
+            }
+        }
+    }
+
+    // 尝试匹配箭头函数组件名称
+    if let Ok(re) = Regex::new(r"const\s+([A-Z][a-zA-Z0-9_]*)\s*[=:]") {
+        if let Some(caps) = re.captures(code) {
+            if let Some(name) = caps.get(1) {
+                return Some(name.as_str().to_string());
+            }
+        }
+    }
+
+    // 尝试匹配 export 的组件名称
+    if let Ok(re) = Regex::new(r"export\s+(?:default\s+)?(?:function\s+)?([A-Z][a-zA-Z0-9_]*)") {
+        if let Some(caps) = re.captures(code) {
+            if let Some(name) = caps.get(1) {
+                return Some(name.as_str().to_string());
+            }
+        }
+    }
+
+    None
+}
 #[tauri::command]
 pub async fn run_artifacts(
     app_handle: tauri::AppHandle,
@@ -20,6 +74,17 @@ pub async fn run_artifacts(
 ) -> Result<String, AppError> {
     // Anthropic artifacts : code, markdown, html, svg, mermaid, react(引入了 lucid3-react, recharts, tailwind, shadcn/ui )
     // 加上 vue, nextjs 引入更多的前端库( echarts, antd, element-ui )
+
+    // 先打开 artifact preview 窗口以显示友好的界面和日志
+    let _ = crate::window::open_artifact_preview_window(app_handle.clone()).await;
+
+    // 等待窗口加载（延长到 1 秒，避免日志在窗口完成加载前发送导致丢失）
+    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+
+    // 发送日志事件
+    if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+        let _ = window.emit("artifact-log", format!("开始执行 {} 代码...", lang));
+    }
 
     let config_map = state.config_feature_map.lock().await;
     let preview_config = config_map
@@ -39,29 +104,137 @@ pub async fn run_artifacts(
 
     match lang {
         "powershell" => {
+            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                let _ = window.emit("artifact-log", "执行 PowerShell 脚本...");
+            }
             return Ok(run_powershell(input_str).map_err(|e| {
-                AppError::RunCodeError("PowerShell 脚本执行失败:".to_owned() + &e.to_string())
+                let error_msg = "PowerShell 脚本执行失败:".to_owned() + &e.to_string();
+                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                    let _ = window.emit("artifact-error", &error_msg);
+                }
+                AppError::RunCodeError(error_msg)
             })?);
         }
         "applescript" => {
+            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                let _ = window.emit("artifact-log", "执行 AppleScript 脚本...");
+            }
             return Ok(run_applescript(input_str).map_err(|e| {
-                AppError::RunCodeError("AppleScript 脚本执行失败:".to_owned() + &e.to_string())
+                let error_msg = "AppleScript 脚本执行失败:".to_owned() + &e.to_string();
+                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                    let _ = window.emit("artifact-error", &error_msg);
+                }
+                AppError::RunCodeError(error_msg)
             })?);
         }
         "xml" | "svg" | "html" => {
-            let _ = open_preview_html_window(app_handle, input_str.to_string()).await;
+            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                let _ = window.emit("artifact-log", format!("准备预览 {} 内容...", lang));
+            }
+            let _ = open_preview_html_window(app_handle.clone(), input_str.to_string()).await;
+            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                let _ = window.emit("artifact-success", "HTML/SVG/XML 预览已准备完成");
+            }
+            // 发送跳转事件，让前端窗口自动跳转
+            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                let _ = window.emit("artifact-redirect", "预览已准备完成");
+            }
         }
         "react" | "jsx" => {
-            let _ = open_preview_react_window(app_handle, input_str.to_string(), nextjs_port).await;
+            println!("🎯 [Artifacts] 处理 React/JSX 代码");
+            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                let _ = window.emit("artifact-log", "分析 React/JSX 代码...");
+            }
+
+            // 检查是否是完整的组件代码
+            if is_react_component(input_str) {
+                println!("🎯 [Artifacts] 检测到完整的 React 组件，使用新预览");
+                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                    let _ = window.emit("artifact-log", "检测到完整的 React 组件，准备创建预览...");
+                }
+
+                // 使用新的 React Component Preview
+                let component_name = extract_component_name(input_str).unwrap_or_else(|| {
+                    println!("🎯 [Artifacts] 无法提取组件名称，使用默认名称");
+                    "UserComponent".to_string()
+                });
+                println!("🎯 [Artifacts] 组件名称: {}", component_name);
+                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                    let _ = window.emit("artifact-log", format!("组件名称: {}", component_name));
+                }
+
+                let preview_id = create_react_preview_for_artifact(
+                    app_handle.clone(),
+                    input_str.to_string(),
+                    component_name,
+                )
+                .await
+                .map_err(|e| {
+                    println!("❌ [Artifacts] React 组件预览失败: {}", e);
+                    let error_msg = format!("React 组件预览失败: {}", e);
+                    if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                        let _ = window.emit("artifact-error", &error_msg);
+                    }
+                    AppError::RunCodeError(error_msg)
+                })?;
+
+                let success_msg = format!("React 组件预览已启动，预览 ID: {}", preview_id);
+                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                    let _ = window.emit("artifact-log", &success_msg);
+                }
+
+                return Ok(success_msg);
+            } else {
+                println!("🎯 [Artifacts] 检测到代码片段，使用旧预览方式");
+                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                    let _ = window.emit("artifact-log", "检测到代码片段，使用传统预览方式...");
+                }
+
+                // 使用旧的预览方式（代码片段）
+                let _ = open_preview_react_window(
+                    app_handle.clone(),
+                    input_str.to_string(),
+                    nextjs_port,
+                )
+                .await;
+                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                    let _ = window.emit("artifact-success", "React 代码片段预览已准备完成");
+                }
+                // 发送跳转事件
+                let preview_url = format!(
+                    "http://preview.teafakedomain.com:{}/previews/react",
+                    nextjs_port
+                );
+                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                    let _ = window.emit("artifact-redirect", preview_url);
+                }
+            }
         }
         "vue" => {
-            let _ = open_preview_vue_window(app_handle, input_str.to_string(), nuxtjs_port).await;
+            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                let _ = window.emit("artifact-log", "准备 Vue 预览...");
+            }
+            let _ = open_preview_vue_window(app_handle.clone(), input_str.to_string(), nuxtjs_port)
+                .await;
+            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                let _ = window.emit("artifact-success", "Vue 预览已准备完成");
+            }
+            // 发送跳转事件
+            let preview_url = format!(
+                "http://preview.teafakedomain.com:{}/previews/vue",
+                nuxtjs_port
+            );
+            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                let _ = window.emit("artifact-redirect", preview_url);
+            }
         }
         _ => {
             // Handle other languages here
-            return Err(AppError::RunCodeError(
-                "暂不支持该语言的代码执行".to_owned(),
-            ));
+            let error_msg = "暂不支持该语言的代码执行".to_owned();
+            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                let _ = window.emit("artifact-error", &error_msg);
+            }
+            return Err(AppError::RunCodeError(error_msg));
         }
     }
     Ok("".to_string())
@@ -69,45 +242,7 @@ pub async fn run_artifacts(
 
 #[tauri::command]
 pub fn check_bun_version(app: tauri::AppHandle) -> Result<String, String> {
-    let bun_executable_name = if cfg!(target_os = "windows") {
-        "bun.exe"
-    } else {
-        "bun"
-    };
-
-    // 优先检查我们应用下载的 Bun 位置
-    let custom_bun_path = app
-        .path()
-        .app_data_dir()
-        .map(|p| p.join("bun").join("bin").join(&bun_executable_name));
-
-    // 定义一个闭包，尝试执行指定路径的 Bun --version
-    let get_version = |exe: &std::path::Path| -> Option<String> {
-        if exe.exists() {
-            match Command::new(exe).arg("--version").output() {
-                Ok(output) if output.status.success() => {
-                    Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
-                }
-                _ => None,
-            }
-        } else {
-            None
-        }
-    };
-
-    // 1. 先试自定义路径
-    if let Ok(custom_path) = &custom_bun_path {
-        if let Some(ver) = get_version(custom_path) {
-            return Ok(ver);
-        }
-    }
-
-    // 2. 再试系统 PATH
-    if let Some(ver) = get_version(std::path::Path::new(&bun_executable_name)) {
-        return Ok(ver);
-    }
-
-    Ok("Not Installed".to_string())
+    BunUtils::get_bun_version(&app)
 }
 
 #[tauri::command]
@@ -130,7 +265,7 @@ pub fn check_uv_version() -> Result<String, String> {
 #[tauri::command]
 pub fn install_bun(window: tauri::Window) -> Result<(), String> {
     std::thread::spawn(move || {
-        let bun_version = "1.2.9";
+        let bun_version = "1.2.18";
         let (os, arch) = if cfg!(target_os = "windows") {
             ("windows", "x64")
         } else if cfg!(target_os = "macos") {
@@ -260,4 +395,23 @@ pub fn install_uv(window: tauri::Window) -> Result<(), String> {
     });
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn open_react_component_preview(app_handle: tauri::AppHandle) -> Result<(), String> {
+    use crate::window::open_preview_frontend_window;
+    open_preview_frontend_window(app_handle).await
+}
+
+#[tauri::command]
+pub async fn preview_react_component(
+    app_handle: tauri::AppHandle,
+    component_code: String,
+    component_name: Option<String>,
+) -> Result<String, String> {
+    let name = component_name.unwrap_or_else(|| {
+        extract_component_name(&component_code).unwrap_or_else(|| "UserComponent".to_string())
+    });
+
+    create_react_preview(app_handle, component_code, name).await
 }
