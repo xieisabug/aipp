@@ -6,11 +6,28 @@ import Ok from "../assets/ok.svg?react";
 import Copy from "../assets/copy.svg?react";
 import Run from "../assets/run.svg?react";
 
+const BUTTON_HEIGHT = 40;
+const TOP_OFFSET = 8;
+const RIGHT_OFFSET = 8;
+const FIXED_BUTTON_TOP_OFFSET = 90;
+const SCROLL_THROTTLE_DELAY = 100;
+
+const throttle = <T extends any[]>(func: (...args: T) => void, delay: number) => {
+    let timeoutId: NodeJS.Timeout | null = null;
+    return (...args: T) => {
+        if (timeoutId) return;
+        timeoutId = setTimeout(() => {
+            func(...args);
+            timeoutId = null;
+        }, delay);
+    };
+};
+
 const CodeBlock = React.memo(({ language, children, onCodeRun }: { language: string, children: React.ReactNode, onCodeRun: (lang: string, code: string) => void }) => {
     const [copyIconState, setCopyIconState] = useState<'copy' | 'ok'>('copy');
     const [shouldShowFixed, setShouldShowFixed] = useState(false);
     const [fixedButtonPosition, setFixedButtonPosition] = useState({ top: 0, right: 0 });
-    const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+    const mousePositionRef = useRef({ x: 0, y: 0 });
     const codeRef = useRef<HTMLElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
 
@@ -36,10 +53,10 @@ const CodeBlock = React.memo(({ language, children, onCodeRun }: { language: str
     // 监听滚动和鼠标移动事件
     useEffect(() => {
         const handleMouseMove = (e: MouseEvent) => {
-            setMousePosition({ x: e.clientX, y: e.clientY });
+            mousePositionRef.current = { x: e.clientX, y: e.clientY };
         };
 
-        const handleScroll = () => {
+        const handleScroll = throttle(() => {
             if (!containerRef.current) return;
             
             const rect = containerRef.current.getBoundingClientRect();
@@ -51,15 +68,15 @@ const CodeBlock = React.memo(({ language, children, onCodeRun }: { language: str
             
             // 原始按钮区域（代码块顶部）是否可见
             const originalButtonTop = rect.top;
-            const originalButtonBottom = rect.top + 40; // 大约按钮高度
+            const originalButtonBottom = rect.top + BUTTON_HEIGHT;
             const isOriginalButtonVisible = originalButtonTop >= 0 && originalButtonBottom <= viewportHeight;
             
             // 鼠标是否在 CodeBlock 内
             const mouseInCodeBlock = (
-                mousePosition.x >= rect.left &&
-                mousePosition.x <= rect.right &&
-                mousePosition.y >= rect.top &&
-                mousePosition.y <= rect.bottom
+                mousePositionRef.current.x >= rect.left &&
+                mousePositionRef.current.x <= rect.right &&
+                mousePositionRef.current.y >= rect.top &&
+                mousePositionRef.current.y <= rect.bottom
             );
             
             // 只有在以下条件都满足时才显示固定按钮：
@@ -75,11 +92,11 @@ const CodeBlock = React.memo(({ language, children, onCodeRun }: { language: str
                 const visibleRight = Math.min(rect.right, viewportWidth);
                 
                 setFixedButtonPosition({
-                    top: visibleTop + 8, // 8px 的 top 偏移
-                    right: viewportWidth - visibleRight + 8 // 8px 的 right 偏移
+                    top: visibleTop + TOP_OFFSET,
+                    right: viewportWidth - visibleRight + RIGHT_OFFSET
                 });
             }
-        };
+        }, SCROLL_THROTTLE_DELAY);
 
         // 添加多种滚动相关事件监听以兼容 macOS
         const events = ['scroll', 'wheel', 'touchmove'];
@@ -98,7 +115,7 @@ const CodeBlock = React.memo(({ language, children, onCodeRun }: { language: str
             });
             window.removeEventListener('mousemove', handleMouseMove);
         };
-    }, [mousePosition]);
+    }, []);
 
     // 不再在客户端动态高亮，直接渲染 rehype-highlight 生成的元素
     
@@ -127,7 +144,7 @@ const CodeBlock = React.memo(({ language, children, onCodeRun }: { language: str
                 <div 
                     className="fixed z-50"
                     style={{
-                        top: `${fixedButtonPosition.top + 90}px`,
+                        top: `${fixedButtonPosition.top + FIXED_BUTTON_TOP_OFFSET}px`,
                         right: `${fixedButtonPosition.right}px`
                     }}
                 >
