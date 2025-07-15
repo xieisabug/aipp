@@ -695,8 +695,12 @@ impl ReactPreviewManager {
     fn find_available_port(&self) -> Result<u16, Box<dyn std::error::Error>> {
         use std::net::TcpListener;
 
-        for port in 3000..4000 {
-            if TcpListener::bind(("127.0.0.1", port)).is_ok() {
+        for port in 3001..4000 {
+            // Check if port is available on both 127.0.0.1 and 0.0.0.0
+            let localhost_available = TcpListener::bind(("127.0.0.1", port)).is_ok();
+            let wildcard_available = TcpListener::bind(("0.0.0.0", port)).is_ok();
+            
+            if localhost_available && wildcard_available {
                 return Ok(port);
             }
         }
