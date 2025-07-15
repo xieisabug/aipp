@@ -30,6 +30,12 @@ pub struct TemplateCache {
     pub deps_hash: String,
 }
 
+#[derive(Debug, Clone)]
+enum PreviewMode {
+    Artifact,
+    Window,
+}
+
 pub struct ReactPreviewManager {
     app_handle: AppHandle,
 }
@@ -191,6 +197,23 @@ impl ReactPreviewManager {
         component_code: String,
         component_name: String,
     ) -> Result<String, Box<dyn std::error::Error>> {
+        self.create_preview_internal(component_code, component_name, PreviewMode::Artifact)
+    }
+
+    pub fn create_preview(
+        &self,
+        component_code: String,
+        component_name: String,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        self.create_preview_internal(component_code, component_name, PreviewMode::Window)
+    }
+
+    fn create_preview_internal(
+        &self,
+        component_code: String,
+        component_name: String,
+        mode: PreviewMode,
+    ) -> Result<String, Box<dyn std::error::Error>> {
         let preview_id = "react".to_string();
         println!("🚀 [React Preview] 开始创建预览, ID: {}", preview_id);
         if let Some(window) = self.app_handle.get_webview_window("artifact_preview") {
@@ -241,98 +264,7 @@ impl ReactPreviewManager {
             .unwrap()
             .insert(preview_id.clone(), server);
 
-        // 验证服务器是否成功添加
-        let servers = GLOBAL_SERVERS.lock().unwrap();
-        if servers.contains_key(&preview_id) {
-            println!("✅ [ReactPreview] 服务器成功添加到映射: {}", preview_id);
-        } else {
-            println!("❌ [ReactPreview] 服务器添加失败: {}", preview_id);
-        }
-        drop(servers); // 释放锁
-
-        // 等待开发服务器启动
-        let app_handle = self.app_handle.clone();
-        std::thread::spawn(move || {
-            // 等待服务器启动
-            println!("🚀 [React Preview] 等待服务器启动...");
-            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-log", "等待服务器启动...");
-            }
-            std::thread::sleep(std::time::Duration::from_secs(3));
-            
-            let preview_url = format!("http://localhost:{}", port);
-            println!("🚀 [React Preview] 预览已准备完成: {}", preview_url);
-            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-success", "预览服务器已启动完成");
-            }
-            
-            // 发送跳转事件，让前端窗口自动跳转到预览页面
-            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-redirect", preview_url);
-            }
-        });
-
-        println!("🚀 [React Preview] 预览创建成功, ID: {}", preview_id);
-        if let Some(window) = self.app_handle.get_webview_window("artifact_preview") {
-            let _ = window.emit("artifact-log", "React 预览创建成功");
-        }
-        Ok(preview_id)
-    }
-
-    pub fn create_preview(
-        &self,
-        component_code: String,
-        component_name: String,
-    ) -> Result<String, Box<dyn std::error::Error>> {
-        let preview_id = "react".to_string();
-        println!("🚀 [React Preview] 开始创建预览, ID: {}", preview_id);
-        if let Some(window) = self.app_handle.get_webview_window("artifact_preview") {
-            let _ = window.emit("artifact-log", "开始创建 React 预览...");
-        }
-
-        let port = self.find_available_port()?;
-        println!("🚀 [React Preview] 找到可用端口: {}", port);
-        if let Some(window) = self.app_handle.get_webview_window("artifact_preview") {
-            let _ = window.emit("artifact-log", format!("找到可用端口: {}", port));
-        }
-
-        // 关闭已存在的预览实例
-        let _ = self.close_preview(&preview_id);
-
-        // 设置项目目录
-        if let Some(window) = self.app_handle.get_webview_window("artifact_preview") {
-            let _ = window.emit("artifact-log", "设置项目模板...");
-        }
-        let (template_path, need_install_deps) =
-            self.setup_template_project(&preview_id, &component_code, &component_name)?;
-        println!("🚀 [React Preview] 模板项目已设置到: {:?}", template_path);
-        if let Some(window) = self.app_handle.get_webview_window("artifact_preview") {
-            let _ = window.emit("artifact-log", "模板项目设置完成");
-        }
-
-        // 启动开发服务器
-        if let Some(window) = self.app_handle.get_webview_window("artifact_preview") {
-            let _ = window.emit("artifact-log", "启动开发服务器...");
-        }
-        let process_id = self.start_dev_server(&template_path, port, need_install_deps)?;
-        println!("🚀 [React Preview] 开发服务器已启动, PID: {}", process_id);
-        if let Some(window) = self.app_handle.get_webview_window("artifact_preview") {
-            let _ = window.emit("artifact-log", format!("开发服务器已启动, PID: {}", process_id));
-        }
-
-        let server = PreviewServer {
-            id: preview_id.clone(),
-            port,
-            process: Some(process_id),
-            template_path,
-        };
-
-        GLOBAL_SERVERS
-            .lock()
-            .unwrap()
-            .insert(preview_id.clone(), server);
-
-        // 延迟打开预览窗口，等待服务器启动
+        // 等待开发服务器启动并执行相应操作
         let app_handle = self.app_handle.clone();
         let preview_id_clone = preview_id.clone();
         std::thread::spawn(move || {
@@ -342,13 +274,30 @@ impl ReactPreviewManager {
                 let _ = window.emit("artifact-log", "等待服务器启动...");
             }
             std::thread::sleep(std::time::Duration::from_secs(3));
-            println!("🚀 [React Preview] 尝试打开预览窗口");
-            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-log", "打开预览窗口...");
-            }
-            let _ = Self::open_preview_window_static(&app_handle, &preview_id_clone, port);
-            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-success", format!("预览窗口已打开: http://localhost:{}", port));
+            
+            match mode {
+                PreviewMode::Artifact => {
+                    let preview_url = format!("http://localhost:{}", port);
+                    println!("🚀 [React Preview] 预览已准备完成: {}", preview_url);
+                    if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                        let _ = window.emit("artifact-success", "预览服务器已启动完成");
+                    }
+                    
+                    // 发送跳转事件，让前端窗口自动跳转到预览页面
+                    if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                        let _ = window.emit("artifact-redirect", preview_url);
+                    }
+                }
+                PreviewMode::Window => {
+                    println!("🚀 [React Preview] 尝试打开预览窗口");
+                    if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                        let _ = window.emit("artifact-log", "打开预览窗口...");
+                    }
+                    let _ = Self::open_preview_window_static(&app_handle, &preview_id_clone, port);
+                    if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                        let _ = window.emit("artifact-success", format!("预览窗口已打开: http://localhost:{}", port));
+                    }
+                }
             }
         });
 
@@ -372,37 +321,43 @@ impl ReactPreviewManager {
         if let Some(server) = servers.remove(preview_id) {
             println!("🔧 [ReactPreview] 找到预览服务器: {}", preview_id);
             
-            // 终止进程
+            // 优先使用PID终止进程
             if let Some(pid) = server.process {
                 println!("🔧 [ReactPreview] 准备终止进程 PID: {}", pid);
                 match self.kill_process(pid) {
                     Ok(_) => {
                         println!("✅ [ReactPreview] 成功终止进程 PID: {}", pid);
+                        // PID终止成功，无需再按端口清理
                     }
                     Err(e) => {
                         println!("❌ [ReactPreview] 终止进程失败 PID: {}, 错误: {}", pid, e);
                         // 尝试强制终止进程组
-                        if let Err(e2) = self.kill_process_group(pid) {
-                            println!("❌ [ReactPreview] 强制终止进程组也失败: {}", e2);
-                        } else {
-                            println!("✅ [ReactPreview] 成功强制终止进程组");
+                        match self.kill_process_group(pid) {
+                            Ok(_) => {
+                                println!("✅ [ReactPreview] 成功强制终止进程组");
+                            }
+                            Err(e2) => {
+                                println!("❌ [ReactPreview] 强制终止进程组也失败: {}", e2);
+                                // 作为最后手段，尝试根据端口清理
+                                println!("🔧 [ReactPreview] 尝试根据端口 {} 清理进程", server.port);
+                                if let Err(e3) = self.kill_processes_by_port(server.port) {
+                                    println!("❌ [ReactPreview] 根据端口清理进程失败: {}", e3);
+                                } else {
+                                    println!("✅ [ReactPreview] 成功根据端口清理进程");
+                                }
+                            }
                         }
                     }
                 }
             } else {
-                println!("⚠️ [ReactPreview] 服务器记录中没有进程 PID");
+                println!("⚠️ [ReactPreview] 服务器记录中没有进程 PID，尝试根据端口清理");
+                // 没有PID记录，只能根据端口清理
+                if let Err(e) = self.kill_processes_by_port(server.port) {
+                    println!("❌ [ReactPreview] 根据端口清理进程失败: {}", e);
+                } else {
+                    println!("✅ [ReactPreview] 成功根据端口清理进程");
+                }
             }
-            
-            // 额外的清理：根据端口终止进程
-            let port = server.port;
-            println!("🔧 [ReactPreview] 尝试根据端口 {} 清理进程", port);
-            if let Err(e) = self.kill_processes_by_port(port) {
-                println!("❌ [ReactPreview] 根据端口清理进程失败: {}", e);
-            } else {
-                println!("✅ [ReactPreview] 成功根据端口清理进程");
-            }
-            
-            // 注意：不再删除文件夹，保留模板以便重用
         } else {
             println!("⚠️ [ReactPreview] 未找到预览服务器: {}", preview_id);
             println!("🔧 [ReactPreview] 可能的原因:");
@@ -721,13 +676,22 @@ impl ReactPreviewManager {
         let child = vite_command.spawn();
 
         match child {
-            Ok(child) => {
+            Ok(mut child) => {
                 let pid = child.id();
                 println!("✅ [DevServer] Vite 服务器启动成功, PID: {}", pid);
 
-                // 不要立即 forget，而是将 child 存储起来以便后续管理
-                // 这里我们保存 PID 并让进程在后台运行
-                std::mem::forget(child);
+                // 在后台线程中管理子进程生命周期，避免僵尸进程
+                std::thread::spawn(move || {
+                    // 等待子进程结束或者被终止
+                    match child.wait() {
+                        Ok(status) => {
+                            println!("🔧 [DevServer] Vite 进程 PID {} 已结束，状态: {}", pid, status);
+                        }
+                        Err(e) => {
+                            println!("⚠️ [DevServer] 等待 Vite 进程 PID {} 结束时出错: {}", pid, e);
+                        }
+                    }
+                });
 
                 Ok(pid)
             }
@@ -860,22 +824,44 @@ fn kill_process_group_by_pid(pid: u32) -> Result<(), Box<dyn std::error::Error>>
 #[cfg(not(target_os = "windows"))]
 fn kill_process_by_pid(pid: u32) -> Result<(), Box<dyn std::error::Error>> {
     println!("🔧 [Unix] 尝试终止进程 PID: {}", pid);
+    
+    // 先检查进程是否存在
+    if !process_exists(pid) {
+        println!("✅ [Unix] 进程 PID {} 不存在或已终止", pid);
+        return Ok(());
+    }
+    
+    // 发送 TERM 信号
     let output = Command::new("kill")
         .args(&["-TERM", &pid.to_string()])
         .output()?;
     
     if output.status.success() {
         println!("✅ [Unix] kill -TERM 成功");
-        // 等待一下，然后检查进程是否还在
+        // 等待进程终止
         std::thread::sleep(std::time::Duration::from_millis(500));
         
-        // 尝试发送 SIGKILL
+        // 检查进程是否已经终止
+        if !process_exists(pid) {
+            println!("✅ [Unix] 进程 PID {} 已成功终止", pid);
+            return Ok(());
+        }
+        
+        // 进程仍然存在，发送 SIGKILL
+        println!("🔧 [Unix] 进程仍在运行，发送 SIGKILL");
         let output = Command::new("kill")
             .args(&["-9", &pid.to_string()])
             .output()?;
         
         if output.status.success() {
             println!("✅ [Unix] kill -9 成功");
+            // 再次检查进程状态
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            if !process_exists(pid) {
+                println!("✅ [Unix] 进程 PID {} 已被强制终止", pid);
+            } else {
+                println!("⚠️ [Unix] 进程 PID {} 可能仍在运行", pid);
+            }
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
             println!("❌ [Unix] kill -9 失败: {}", stderr);
@@ -890,8 +876,24 @@ fn kill_process_by_pid(pid: u32) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(not(target_os = "windows"))]
+fn process_exists(pid: u32) -> bool {
+    // 使用 kill -0 检查进程是否存在
+    Command::new("kill")
+        .args(&["-0", &pid.to_string()])
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "windows"))]
 fn kill_process_group_by_pid(pid: u32) -> Result<(), Box<dyn std::error::Error>> {
     println!("🔧 [Unix] 尝试终止进程组 PID: {}", pid);
+    
+    // 先检查进程组是否存在
+    if !process_exists(pid) {
+        println!("✅ [Unix] 进程组 PID {} 不存在或已终止", pid);
+        return Ok(());
+    }
     
     // 先尝试终止整个进程组
     let output = Command::new("kill")
@@ -900,16 +902,30 @@ fn kill_process_group_by_pid(pid: u32) -> Result<(), Box<dyn std::error::Error>>
     
     if output.status.success() {
         println!("✅ [Unix] kill -TERM 进程组成功");
-        // 等待一下
+        // 等待进程组终止
         std::thread::sleep(std::time::Duration::from_millis(500));
         
-        // 强制终止进程组
+        // 检查进程组是否已经终止
+        if !process_exists(pid) {
+            println!("✅ [Unix] 进程组 PID {} 已成功终止", pid);
+            return Ok(());
+        }
+        
+        // 进程组仍然存在，强制终止
+        println!("🔧 [Unix] 进程组仍在运行，强制终止");
         let output = Command::new("kill")
             .args(&["-9", &format!("-{}", pid)])
             .output()?;
         
         if output.status.success() {
             println!("✅ [Unix] kill -9 进程组成功");
+            // 再次检查进程组状态
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            if !process_exists(pid) {
+                println!("✅ [Unix] 进程组 PID {} 已被强制终止", pid);
+            } else {
+                println!("⚠️ [Unix] 进程组 PID {} 可能仍在运行", pid);
+            }
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
             println!("❌ [Unix] kill -9 进程组失败: {}", stderr);
