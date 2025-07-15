@@ -3,12 +3,18 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
+use std::sync::LazyLock;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, Emitter};
 use sha2::{Sha256, Digest};
 use hex;
 
 use crate::utils::bun_utils::BunUtils;
 use crate::db::system_db::{SystemDatabase, FeatureConfig};
+
+// 全局共享的服务器映射
+static GLOBAL_SERVERS: LazyLock<Arc<Mutex<HashMap<String, PreviewServer>>>> = LazyLock::new(|| {
+    Arc::new(Mutex::new(HashMap::new()))
+});
 
 #[derive(Debug, Clone)]
 pub struct PreviewServer {
@@ -25,14 +31,12 @@ pub struct TemplateCache {
 }
 
 pub struct ReactPreviewManager {
-    servers: Arc<Mutex<HashMap<String, PreviewServer>>>,
     app_handle: AppHandle,
 }
 
 impl ReactPreviewManager {
     pub fn new(app_handle: AppHandle) -> Self {
         Self {
-            servers: Arc::new(Mutex::new(HashMap::new())),
             app_handle,
         }
     }
@@ -230,10 +234,21 @@ impl ReactPreviewManager {
             template_path,
         };
 
-        self.servers
+        println!("🔧 [ReactPreview] 创建服务器对象: ID={}, Port={}, PID={:?}", preview_id, port, process_id);
+        
+        GLOBAL_SERVERS
             .lock()
             .unwrap()
             .insert(preview_id.clone(), server);
+
+        // 验证服务器是否成功添加
+        let servers = GLOBAL_SERVERS.lock().unwrap();
+        if servers.contains_key(&preview_id) {
+            println!("✅ [ReactPreview] 服务器成功添加到映射: {}", preview_id);
+        } else {
+            println!("❌ [ReactPreview] 服务器添加失败: {}", preview_id);
+        }
+        drop(servers); // 释放锁
 
         // 等待开发服务器启动
         let app_handle = self.app_handle.clone();
@@ -312,7 +327,7 @@ impl ReactPreviewManager {
             template_path,
         };
 
-        self.servers
+        GLOBAL_SERVERS
             .lock()
             .unwrap()
             .insert(preview_id.clone(), server);
@@ -345,14 +360,61 @@ impl ReactPreviewManager {
     }
 
     pub fn close_preview(&self, preview_id: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let mut servers = self.servers.lock().unwrap();
+        let mut servers = GLOBAL_SERVERS.lock().unwrap();
+        
+        // 调试信息：显示当前所有服务器
+        println!("🔧 [ReactPreview] 当前服务器列表:");
+        for (id, server) in servers.iter() {
+            println!("  - ID: {}, Port: {}, PID: {:?}", id, server.port, server.process);
+        }
+        println!("🔧 [ReactPreview] 尝试关闭服务器 ID: {}", preview_id);
 
         if let Some(server) = servers.remove(preview_id) {
+            println!("🔧 [ReactPreview] 找到预览服务器: {}", preview_id);
+            
             // 终止进程
             if let Some(pid) = server.process {
-                let _ = self.kill_process(pid);
+                println!("🔧 [ReactPreview] 准备终止进程 PID: {}", pid);
+                match self.kill_process(pid) {
+                    Ok(_) => {
+                        println!("✅ [ReactPreview] 成功终止进程 PID: {}", pid);
+                    }
+                    Err(e) => {
+                        println!("❌ [ReactPreview] 终止进程失败 PID: {}, 错误: {}", pid, e);
+                        // 尝试强制终止进程组
+                        if let Err(e2) = self.kill_process_group(pid) {
+                            println!("❌ [ReactPreview] 强制终止进程组也失败: {}", e2);
+                        } else {
+                            println!("✅ [ReactPreview] 成功强制终止进程组");
+                        }
+                    }
+                }
+            } else {
+                println!("⚠️ [ReactPreview] 服务器记录中没有进程 PID");
             }
+            
+            // 额外的清理：根据端口终止进程
+            let port = server.port;
+            println!("🔧 [ReactPreview] 尝试根据端口 {} 清理进程", port);
+            if let Err(e) = self.kill_processes_by_port(port) {
+                println!("❌ [ReactPreview] 根据端口清理进程失败: {}", e);
+            } else {
+                println!("✅ [ReactPreview] 成功根据端口清理进程");
+            }
+            
             // 注意：不再删除文件夹，保留模板以便重用
+        } else {
+            println!("⚠️ [ReactPreview] 未找到预览服务器: {}", preview_id);
+            println!("🔧 [ReactPreview] 可能的原因:");
+            println!("  1. 服务器创建失败");
+            println!("  2. 服务器已被其他地方清理");
+            println!("  3. 竞态条件导致数据不一致");
+        }
+
+        // 显示清理后的服务器列表
+        println!("🔧 [ReactPreview] 清理后的服务器列表:");
+        for (id, server) in servers.iter() {
+            println!("  - ID: {}, Port: {}, PID: {:?}", id, server.port, server.process);
         }
 
         Ok(())
@@ -640,6 +702,22 @@ impl ReactPreviewManager {
             .stdout(Stdio::null())
             .stderr(Stdio::null());
 
+        // 为 Unix 系统创建新的进程组
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            vite_command.process_group(0); // 创建新的进程组
+            println!("🔧 [DevServer] 为 Unix 系统创建新进程组");
+        }
+
+        // 为 Windows 系统创建新的进程组
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            vite_command.creation_flags(0x00000200); // CREATE_NEW_PROCESS_GROUP
+            println!("🔧 [DevServer] 为 Windows 系统创建新进程组");
+        }
+
         let child = vite_command.spawn();
 
         match child {
@@ -647,7 +725,8 @@ impl ReactPreviewManager {
                 let pid = child.id();
                 println!("✅ [DevServer] Vite 服务器启动成功, PID: {}", pid);
 
-                // 让子进程在后台运行
+                // 不要立即 forget，而是将 child 存储起来以便后续管理
+                // 这里我们保存 PID 并让进程在后台运行
                 std::mem::forget(child);
 
                 Ok(pid)
@@ -727,23 +806,191 @@ impl ReactPreviewManager {
     }
 
     fn kill_process(&self, pid: u32) -> Result<(), Box<dyn std::error::Error>> {
+        println!("🔧 [ReactPreview] 执行 kill_process PID: {}", pid);
         kill_process_by_pid(pid)
+    }
+
+    fn kill_process_group(&self, pid: u32) -> Result<(), Box<dyn std::error::Error>> {
+        println!("🔧 [ReactPreview] 执行 kill_process_group PID: {}", pid);
+        kill_process_group_by_pid(pid)
+    }
+
+    fn kill_processes_by_port(&self, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+        println!("🔧 [ReactPreview] 根据端口 {} 查找并终止进程", port);
+        kill_processes_by_port(port)
     }
 }
 
 #[cfg(target_os = "windows")]
 fn kill_process_by_pid(pid: u32) -> Result<(), Box<dyn std::error::Error>> {
-    Command::new("taskkill")
+    println!("🔧 [Windows] 尝试终止进程 PID: {}", pid);
+    let output = Command::new("taskkill")
         .args(&["/F", "/PID", &pid.to_string()])
         .output()?;
+    
+    if output.status.success() {
+        println!("✅ [Windows] taskkill 成功");
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        println!("❌ [Windows] taskkill 失败: {}", stderr);
+        return Err(format!("taskkill 失败: {}", stderr).into());
+    }
+    
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn kill_process_group_by_pid(pid: u32) -> Result<(), Box<dyn std::error::Error>> {
+    println!("🔧 [Windows] 尝试终止进程树 PID: {}", pid);
+    let output = Command::new("taskkill")
+        .args(&["/F", "/T", "/PID", &pid.to_string()])
+        .output()?;
+    
+    if output.status.success() {
+        println!("✅ [Windows] taskkill 进程树成功");
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        println!("❌ [Windows] taskkill 进程树失败: {}", stderr);
+        return Err(format!("taskkill 进程树失败: {}", stderr).into());
+    }
+    
     Ok(())
 }
 
 #[cfg(not(target_os = "windows"))]
 fn kill_process_by_pid(pid: u32) -> Result<(), Box<dyn std::error::Error>> {
-    Command::new("kill")
-        .args(&["-9", &pid.to_string()])
+    println!("🔧 [Unix] 尝试终止进程 PID: {}", pid);
+    let output = Command::new("kill")
+        .args(&["-TERM", &pid.to_string()])
         .output()?;
+    
+    if output.status.success() {
+        println!("✅ [Unix] kill -TERM 成功");
+        // 等待一下，然后检查进程是否还在
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        
+        // 尝试发送 SIGKILL
+        let output = Command::new("kill")
+            .args(&["-9", &pid.to_string()])
+            .output()?;
+        
+        if output.status.success() {
+            println!("✅ [Unix] kill -9 成功");
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            println!("❌ [Unix] kill -9 失败: {}", stderr);
+        }
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        println!("❌ [Unix] kill -TERM 失败: {}", stderr);
+        return Err(format!("kill 失败: {}", stderr).into());
+    }
+    
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn kill_process_group_by_pid(pid: u32) -> Result<(), Box<dyn std::error::Error>> {
+    println!("🔧 [Unix] 尝试终止进程组 PID: {}", pid);
+    
+    // 先尝试终止整个进程组
+    let output = Command::new("kill")
+        .args(&["-TERM", &format!("-{}", pid)])
+        .output()?;
+    
+    if output.status.success() {
+        println!("✅ [Unix] kill -TERM 进程组成功");
+        // 等待一下
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        
+        // 强制终止进程组
+        let output = Command::new("kill")
+            .args(&["-9", &format!("-{}", pid)])
+            .output()?;
+        
+        if output.status.success() {
+            println!("✅ [Unix] kill -9 进程组成功");
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            println!("❌ [Unix] kill -9 进程组失败: {}", stderr);
+        }
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        println!("❌ [Unix] kill -TERM 进程组失败: {}", stderr);
+        return Err(format!("kill 进程组失败: {}", stderr).into());
+    }
+    
+    Ok(())
+}
+
+// 根据端口查找并终止进程
+#[cfg(target_os = "windows")]
+fn kill_processes_by_port(port: u16) -> Result<(), Box<dyn std::error::Error>> {
+    println!("🔧 [Windows] 查找端口 {} 上的进程", port);
+    
+    // 使用 netstat 查找占用端口的进程
+    let output = Command::new("netstat")
+        .args(&["-ano"])
+        .output()?;
+    
+    if !output.status.success() {
+        return Err("netstat 命令失败".into());
+    }
+    
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    let mut pids_to_kill = Vec::new();
+    
+    for line in output_str.lines() {
+        if line.contains(&format!(":{}", port)) && line.contains("LISTENING") {
+            // 解析 PID（最后一列）
+            if let Some(pid_str) = line.split_whitespace().last() {
+                if let Ok(pid) = pid_str.parse::<u32>() {
+                    pids_to_kill.push(pid);
+                    println!("🔧 [Windows] 找到占用端口 {} 的进程 PID: {}", port, pid);
+                }
+            }
+        }
+    }
+    
+    // 终止所有找到的进程
+    for pid in pids_to_kill {
+        println!("🔧 [Windows] 终止端口 {} 相关进程 PID: {}", port, pid);
+        let _ = kill_process_by_pid(pid); // 继续处理其他进程，即使某个失败
+    }
+    
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn kill_processes_by_port(port: u16) -> Result<(), Box<dyn std::error::Error>> {
+    println!("🔧 [Unix] 查找端口 {} 上的进程", port);
+    
+    // 使用 lsof 查找占用端口的进程
+    let output = Command::new("lsof")
+        .args(&["-ti", &format!(":{}", port)])
+        .output()?;
+    
+    if !output.status.success() {
+        println!("⚠️ [Unix] lsof 未找到端口 {} 上的进程", port);
+        return Ok(());
+    }
+    
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    let mut pids_to_kill = Vec::new();
+    
+    for line in output_str.lines() {
+        if let Ok(pid) = line.trim().parse::<u32>() {
+            pids_to_kill.push(pid);
+            println!("🔧 [Unix] 找到占用端口 {} 的进程 PID: {}", port, pid);
+        }
+    }
+    
+    // 终止所有找到的进程
+    for pid in pids_to_kill {
+        println!("🔧 [Unix] 终止端口 {} 相关进程 PID: {}", port, pid);
+        let _ = kill_process_by_pid(pid); // 继续处理其他进程，即使某个失败
+    }
+    
     Ok(())
 }
 
