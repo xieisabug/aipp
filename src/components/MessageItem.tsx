@@ -84,6 +84,7 @@ const MessageItem = React.memo(
             markdown: string,
             customTags: { [key: string]: (match: RegExpExecArray) => string },
         ) => {
+            console.log("customParser input:", markdown);
             let result = markdown;
 
             Object.keys(customTags).forEach((tag) => {
@@ -102,6 +103,14 @@ const MessageItem = React.memo(
         };
 
         const customTags = {
+            think: (match: RegExpExecArray) => {
+                // 使用 Base64 编码避免引号问题
+                const thinkContent = match[2];
+                const encodedContent = btoa(unescape(encodeURIComponent(thinkContent)));
+                console.log("think tag found:", thinkContent);
+                console.log("encoded:", encodedContent);
+                return `\n<think data-content-encoded="${encodedContent}"></think>\n`;
+            },
             fileattachment: (match: RegExpExecArray) =>
                 `\n<fileattachment ${match[1]}></fileattachment>\n`,
             bangwebtomarkdown: (match: RegExpExecArray) =>
@@ -111,7 +120,11 @@ const MessageItem = React.memo(
         };
 
         const markdownContent = useMemo(
-            () => customParser(displayedContent, customTags),
+            () => {
+                const result = customParser(displayedContent, customTags);
+                console.log("final markdown content:", result);
+                return result;
+            },
             [displayedContent],
         );
 
@@ -127,21 +140,21 @@ const MessageItem = React.memo(
             ],
             attributes: {
                 ...(defaultSchema.attributes || {}),
+                think: ["data-content-encoded", "dataContentEncoded"],
                 fileattachment: [
-                    ...(defaultSchema.attributes?.fileattachment || []),
                     "attachment_id",
                     "attachment_url",
                     "attachment_type",
                     "attachment_content",
                 ],
-                bangwebtomarkdown: [
-                    ...(defaultSchema.attributes?.bangwebtomarkdown || []),
-                ],
-                bangweb: [
-                    ...(defaultSchema.attributes?.bangweb || []),
-                ],
+                bangwebtomarkdown: [],
+                bangweb: [],
+                // 确保 data-* 属性被全局允许
+                "*": ["data-*"],
             },
         };
+        console.log("sanitizeSchema for think:", sanitizeSchema.attributes.think);
+        console.log("full sanitizeSchema:", sanitizeSchema);
 
         const markdownElement = useMemo(
             () => (
@@ -181,17 +194,50 @@ const MessageItem = React.memo(
                                 </code>
                             );
                         },
-                        think: ({ children }) => (
-                            <div>
-                                <div
-                                    className="py-2 px-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl inline-block cursor-pointer text-xs font-medium transition-all duration-200 shadow-md hover:-translate-y-0.5 hover:shadow-lg"
-                                    title={children}
-                                    data-thinking={children}
-                                >
-                                    思考...
+                        think: (props: any) => {
+                            const [isExpanded, setIsExpanded] = useState(false);
+
+                            console.log("think component props:", props);
+                            // 从 data-content-encoded 属性解码内容
+                            const encodedContent = props['data-content-encoded'] || '';
+                            console.log("think encoded content:", encodedContent);
+                            let content = '';
+                            try {
+                                content = decodeURIComponent(escape(atob(encodedContent)));
+                                console.log("think decoded content:", content);
+                            } catch (e) {
+                                content = '解析思考内容时出错';
+                                console.log("think decode error:", e);
+                            }
+
+                            const lines = content.split('\n');
+                            const previewLines = lines.slice(-3); // 默认显示最后3行
+
+                            return (
+                                <div className="my-2 p-3 bg-slate-50 border-l-4 border-indigo-500 rounded-r-lg">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse"></div>
+                                        <span className="text-sm font-medium text-indigo-700">思考中...</span>
+                                    </div>
+                                    <div className="text-sm text-gray-700 whitespace-pre-wrap font-mono">
+                                        {isExpanded ? content : (
+                                            <>
+                                                {lines.length > 3 && <div className="text-gray-400 text-xs mb-1">...</div>}
+                                                {previewLines.join('\n')}
+                                            </>
+                                        )}
+                                    </div>
+                                    {lines.length > 3 && (
+                                        <button
+                                            onClick={() => setIsExpanded(!isExpanded)}
+                                            className="mt-2 text-xs text-indigo-600 hover:text-indigo-800 underline cursor-pointer"
+                                        >
+                                            {isExpanded ? '收起' : '展开'}
+                                        </button>
+                                    )}
                                 </div>
-                            </div>
-                        ),
+                            );
+                        },
                         fileattachment: MessageFileAttachment,
                         bangwebtomarkdown: MessageWebContent,
                         bangweb: MessageWebContent,
