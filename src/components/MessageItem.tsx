@@ -87,14 +87,35 @@ const MessageItem = React.memo(
             let result = markdown;
 
             Object.keys(customTags).forEach((tag) => {
-                const regex = new RegExp(
-                    `<${tag}([^>]*)>([\\s\\S]*?)<\/${tag}>`,
+                // 首先尝试匹配完整的标签对
+                const completeRegex = new RegExp(
+                    `<${tag}([^>]*)>([\\s\\S]*?)<\\/${tag}>`,
                     "g",
                 );
                 let match;
-                while ((match = regex.exec(markdown)) !== null) {
+                while ((match = completeRegex.exec(markdown)) !== null) {
                     const replacement = customTags[tag](match);
                     result = result.replace(match[0], replacement);
+                }
+
+                // 如果是 think 标签，还要处理未闭合的情况（流式输出中）
+                if (tag === 'think') {
+                    const incompleteRegex = new RegExp(
+                        `<${tag}([^>]*)>([\\s\\S]*?)$`,
+                        "g",
+                    );
+                    // 重置正则表达式的 lastIndex
+                    incompleteRegex.lastIndex = 0;
+                    
+                    let incompleteMatch;
+                    while ((incompleteMatch = incompleteRegex.exec(markdown)) !== null) {
+                        // 检查是否已经有完整的闭合标签，如果有就跳过
+                        const hasClosingTag = incompleteMatch[0].includes(`</${tag}>`);
+                        if (!hasClosingTag) {
+                            const replacement = customTags[tag](incompleteMatch);
+                            result = result.replace(incompleteMatch[0], replacement);
+                        }
+                    }
                 }
             });
 
@@ -194,8 +215,12 @@ const MessageItem = React.memo(
                             // 从 data-content-encoded 属性解码内容
                             const encodedContent = props['data-content-encoded'] || props.dataContentEncoded || '';
                             let content = '';
+                            let isIncomplete = false;
+                            
                             try {
                                 content = decodeURIComponent(escape(atob(encodedContent)));
+                                // 检查内容是否以流式输出的方式结束（没有明显的结尾）
+                                isIncomplete = !content.trim().endsWith('.') && !content.trim().endsWith('。') && !content.trim().endsWith('!') && !content.trim().endsWith('！');
                             } catch (e) {
                                 content = '解析思考内容时出错';
                             }
@@ -206,8 +231,13 @@ const MessageItem = React.memo(
                             return (
                                 <div className="my-2 p-3 bg-slate-50 border-l-4 border-indigo-500 rounded-r-lg">
                                     <div className="flex items-center gap-2 mb-2">
-                                        <div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse"></div>
-                                        <span className="text-sm font-medium text-indigo-700">思考中...</span>
+                                        <div className={`w-2 h-2 bg-indigo-500 rounded-full ${isIncomplete ? 'animate-pulse' : ''}`}></div>
+                                        <span className="text-sm font-medium text-indigo-700">
+                                            {isIncomplete ? '思考中...' : '思考完成'}
+                                        </span>
+                                        {isIncomplete && (
+                                            <span className="text-xs text-gray-500">正在输出</span>
+                                        )}
                                     </div>
                                     <div className="text-sm text-gray-700 whitespace-pre-wrap font-mono">
                                         {isExpanded ? content : (
@@ -215,6 +245,9 @@ const MessageItem = React.memo(
                                                 {lines.length > 3 && <div className="text-gray-400 text-xs mb-1">...</div>}
                                                 {previewLines.join('\n')}
                                             </>
+                                        )}
+                                        {isIncomplete && (
+                                            <span className="inline-block w-2 h-4 bg-indigo-500 animate-pulse ml-1"></span>
                                         )}
                                     </div>
                                     {lines.length > 3 && (
