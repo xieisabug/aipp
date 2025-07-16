@@ -84,7 +84,6 @@ const MessageItem = React.memo(
             markdown: string,
             customTags: { [key: string]: (match: RegExpExecArray) => string },
         ) => {
-            console.log("customParser input:", markdown);
             let result = markdown;
 
             Object.keys(customTags).forEach((tag) => {
@@ -107,8 +106,6 @@ const MessageItem = React.memo(
                 // 使用 Base64 编码避免引号问题
                 const thinkContent = match[2];
                 const encodedContent = btoa(unescape(encodeURIComponent(thinkContent)));
-                console.log("think tag found:", thinkContent);
-                console.log("encoded:", encodedContent);
                 return `\n<think data-content-encoded="${encodedContent}"></think>\n`;
             },
             fileattachment: (match: RegExpExecArray) =>
@@ -120,11 +117,7 @@ const MessageItem = React.memo(
         };
 
         const markdownContent = useMemo(
-            () => {
-                const result = customParser(displayedContent, customTags);
-                console.log("final markdown content:", result);
-                return result;
-            },
+            () => customParser(displayedContent, customTags),
             [displayedContent],
         );
 
@@ -142,19 +135,20 @@ const MessageItem = React.memo(
                 ...(defaultSchema.attributes || {}),
                 think: ["data-content-encoded", "dataContentEncoded"],
                 fileattachment: [
+                    ...(defaultSchema.attributes?.fileattachment || []),
                     "attachment_id",
                     "attachment_url",
                     "attachment_type",
                     "attachment_content",
                 ],
-                bangwebtomarkdown: [],
-                bangweb: [],
-                // 确保 data-* 属性被全局允许
-                "*": ["data-*"],
+                bangwebtomarkdown: [
+                    ...(defaultSchema.attributes?.bangwebtomarkdown || []),
+                ],
+                bangweb: [
+                    ...(defaultSchema.attributes?.bangweb || []),
+                ],
             },
         };
-        console.log("sanitizeSchema for think:", sanitizeSchema.attributes.think);
-        console.log("full sanitizeSchema:", sanitizeSchema);
 
         const markdownElement = useMemo(
             () => (
@@ -197,17 +191,13 @@ const MessageItem = React.memo(
                         think: (props: any) => {
                             const [isExpanded, setIsExpanded] = useState(false);
 
-                            console.log("think component props:", props);
                             // 从 data-content-encoded 属性解码内容
-                            const encodedContent = props['data-content-encoded'] || '';
-                            console.log("think encoded content:", encodedContent);
+                            const encodedContent = props['data-content-encoded'] || props.dataContentEncoded || '';
                             let content = '';
                             try {
                                 content = decodeURIComponent(escape(atob(encodedContent)));
-                                console.log("think decoded content:", content);
                             } catch (e) {
                                 content = '解析思考内容时出错';
-                                console.log("think decode error:", e);
                             }
 
                             const lines = content.split('\n');
