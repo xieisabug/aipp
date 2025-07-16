@@ -81,11 +81,6 @@ pub async fn run_artifacts(
     // 等待窗口加载（延长到 1 秒，避免日志在窗口完成加载前发送导致丢失）
     tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 
-    // 发送日志事件
-    if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-        let _ = window.emit("artifact-log", format!("开始执行 {} 代码...", lang));
-    }
-
     let config_map = state.config_feature_map.lock().await;
     let preview_config = config_map
         .get("preview")
@@ -142,16 +137,10 @@ pub async fn run_artifacts(
         }
         "react" | "jsx" => {
             println!("🎯 [Artifacts] 处理 React/JSX 代码");
-            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-log", "分析 React/JSX 代码...");
-            }
 
             // 检查是否是完整的组件代码
             if is_react_component(input_str) {
                 println!("🎯 [Artifacts] 检测到完整的 React 组件，使用新预览");
-                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                    let _ = window.emit("artifact-log", "检测到完整的 React 组件，准备创建预览...");
-                }
 
                 // 使用新的 React Component Preview
                 let component_name = extract_component_name(input_str).unwrap_or_else(|| {
@@ -159,9 +148,6 @@ pub async fn run_artifacts(
                     "UserComponent".to_string()
                 });
                 println!("🎯 [Artifacts] 组件名称: {}", component_name);
-                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                    let _ = window.emit("artifact-log", format!("组件名称: {}", component_name));
-                }
 
                 let preview_id = create_react_preview_for_artifact(
                     app_handle.clone(),
@@ -179,9 +165,6 @@ pub async fn run_artifacts(
                 })?;
 
                 let success_msg = format!("React 组件预览已启动，预览 ID: {}", preview_id);
-                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                    let _ = window.emit("artifact-log", &success_msg);
-                }
 
                 return Ok(success_msg);
             } else {

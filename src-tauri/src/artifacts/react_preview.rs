@@ -63,7 +63,16 @@ impl ReactPreviewManager {
             "dist",
             "build",
             ".cache",
-            "UserComponent.tsx" // 这个文件会被动态替换，不参与哈希计算
+            ".tmp",
+            ".temp",
+            "UserComponent.tsx", // 这个文件会被动态替换，不参与哈希计算
+            ".DS_Store",         // macOS 系统文件
+            "Thumbs.db",         // Windows 系统文件
+            ".gitignore",        // git 忽略文件可能变化
+            "bun.lockb",         // bun 二进制锁文件
+            ".vite",             // vite 缓存目录
+            ".turbo",            // turbo 缓存目录
+            "coverage",          // 测试覆盖率目录
         ];
         
         self.hash_directory_recursive(template_path, &mut hasher, &exclude_patterns)?;
@@ -96,15 +105,23 @@ impl ReactPreviewManager {
 
             // 检查是否应该排除
             if exclude_patterns.iter().any(|&pattern| file_name_str.contains(pattern)) {
+                println!("🔍 [Hash] 排除文件: {:?}", path);
                 continue;
             }
 
             if path.is_dir() {
+                println!("🔍 [Hash] 处理目录: {:?}", path);
                 // 递归处理子目录
                 self.hash_directory_recursive(&path, hasher, exclude_patterns)?;
             } else if path.is_file() {
-                // 添加文件路径到哈希
-                hasher.update(path.to_string_lossy().as_bytes());
+                println!("🔍 [Hash] 包含文件: {:?}", path);
+                
+                // 只添加相对路径到哈希，避免绝对路径差异
+                if let Ok(relative_path) = path.strip_prefix(dir) {
+                    hasher.update(relative_path.to_string_lossy().as_bytes());
+                } else {
+                    hasher.update(path.to_string_lossy().as_bytes());
+                }
                 
                 // 添加文件内容到哈希
                 if let Ok(content) = fs::read(&path) {
@@ -142,17 +159,40 @@ impl ReactPreviewManager {
     fn get_template_cache(&self, template_name: &str) -> Result<Option<TemplateCache>, Box<dyn std::error::Error>> {
         let db = SystemDatabase::new(&self.app_handle)?;
         
+        println!("🔍 [Cache] 查询模板缓存: {}", template_name);
+        
         // 查询文件哈希
-        let files_hash_config = db.get_feature_config("template_cache", &format!("{}_files_hash", template_name))?;
-        let deps_hash_config = db.get_feature_config("template_cache", &format!("{}_deps_hash", template_name))?;
+        let files_hash_key = format!("{}_files_hash", template_name);
+        let deps_hash_key = format!("{}_deps_hash", template_name);
+        
+        println!("🔍 [Cache] 查询文件哈希配置: feature_code='template_cache', key='{}'", files_hash_key);
+        let files_hash_config = db.get_feature_config("template_cache", &files_hash_key)?;
+        
+        println!("🔍 [Cache] 查询依赖哈希配置: feature_code='template_cache', key='{}'", deps_hash_key);
+        let deps_hash_config = db.get_feature_config("template_cache", &deps_hash_key)?;
 
-        if let (Some(files_config), Some(deps_config)) = (files_hash_config, deps_hash_config) {
-            Ok(Some(TemplateCache {
-                files_hash: files_config.value,
-                deps_hash: deps_config.value,
-            }))
-        } else {
-            Ok(None)
+        match (&files_hash_config, &deps_hash_config) {
+            (Some(files_config), Some(deps_config)) => {
+                println!("✅ [Cache] 找到缓存信息:");
+                println!("  - 文件哈希: {}", files_config.value);
+                println!("  - 依赖哈希: {}", deps_config.value);
+                Ok(Some(TemplateCache {
+                    files_hash: files_config.value.clone(),
+                    deps_hash: deps_config.value.clone(),
+                }))
+            }
+            (None, Some(_)) => {
+                println!("⚠️ [Cache] 只找到依赖哈希配置，缺少文件哈希配置");
+                Ok(None)
+            }
+            (Some(_), None) => {
+                println!("⚠️ [Cache] 只找到文件哈希配置，缺少依赖哈希配置");
+                Ok(None)
+            }
+            (None, None) => {
+                println!("🔍 [Cache] 没有找到任何缓存配置");
+                Ok(None)
+            }
         }
     }
 
@@ -180,13 +220,44 @@ impl ReactPreviewManager {
             description: Some(format!("{} 模板依赖哈希值", template_name)),
         };
 
-        // 尝试更新或插入
-        if let Err(_) = db.update_feature_config(&files_hash_config) {
-            db.add_feature_config(&files_hash_config)?;
+        // 尝试插入或更新文件哈希
+        println!("💾 [Cache] 尝试插入文件哈希配置...");
+        match db.add_feature_config(&files_hash_config) {
+            Ok(_) => {
+                println!("✅ [Cache] 文件哈希配置插入成功");
+            }
+            Err(add_err) => {
+                println!("⚠️ [Cache] 文件哈希配置插入失败: {}, 尝试更新现有记录", add_err);
+                match db.update_feature_config(&files_hash_config) {
+                    Ok(_) => {
+                        println!("✅ [Cache] 文件哈希配置更新成功");
+                    }
+                    Err(update_err) => {
+                        println!("❌ [Cache] 文件哈希配置更新失败: {}", update_err);
+                        return Err(Box::new(update_err));
+                    }
+                }
+            }
         }
         
-        if let Err(_) = db.update_feature_config(&deps_hash_config) {
-            db.add_feature_config(&deps_hash_config)?;
+        // 尝试插入或更新依赖哈希
+        println!("💾 [Cache] 尝试插入依赖哈希配置...");
+        match db.add_feature_config(&deps_hash_config) {
+            Ok(_) => {
+                println!("✅ [Cache] 依赖哈希配置插入成功");
+            }
+            Err(add_err) => {
+                println!("⚠️ [Cache] 依赖哈希配置插入失败: {}, 尝试更新现有记录", add_err);
+                match db.update_feature_config(&deps_hash_config) {
+                    Ok(_) => {
+                        println!("✅ [Cache] 依赖哈希配置更新成功");
+                    }
+                    Err(update_err) => {
+                        println!("❌ [Cache] 依赖哈希配置更新失败: {}", update_err);
+                        return Err(Box::new(update_err));
+                    }
+                }
+            }
         }
 
         Ok(())
@@ -222,32 +293,18 @@ impl ReactPreviewManager {
 
         let port = self.find_available_port()?;
         println!("🚀 [React Preview] 找到可用端口: {}", port);
-        if let Some(window) = self.app_handle.get_webview_window("artifact_preview") {
-            let _ = window.emit("artifact-log", format!("找到可用端口: {}", port));
-        }
-
+        
         // 关闭已存在的预览实例
         let _ = self.close_preview(&preview_id);
 
-        // 设置项目目录
-        if let Some(window) = self.app_handle.get_webview_window("artifact_preview") {
-            let _ = window.emit("artifact-log", "设置项目模板...");
-        }
         let (template_path, need_install_deps) =
             self.setup_template_project(&preview_id, &component_code, &component_name)?;
         println!("🚀 [React Preview] 模板项目已设置到: {:?}", template_path);
-        if let Some(window) = self.app_handle.get_webview_window("artifact_preview") {
-            let _ = window.emit("artifact-log", "模板项目设置完成");
-        }
 
-        // 启动开发服务器
-        if let Some(window) = self.app_handle.get_webview_window("artifact_preview") {
-            let _ = window.emit("artifact-log", "启动开发服务器...");
-        }
         let process_id = self.start_dev_server(&template_path, port, need_install_deps)?;
         println!("🚀 [React Preview] 开发服务器已启动, PID: {}", process_id);
         if let Some(window) = self.app_handle.get_webview_window("artifact_preview") {
-            let _ = window.emit("artifact-log", format!("开发服务器已启动, PID: {}", process_id));
+            let _ = window.emit("artifact-log", "预览服务启动");
         }
 
         let server = PreviewServer {
@@ -271,7 +328,7 @@ impl ReactPreviewManager {
             // 等待服务器启动
             println!("🚀 [React Preview] 等待服务器启动...");
             if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-log", "等待服务器启动...");
+                let _ = window.emit("artifact-log", "等待服务器启动完毕...");
             }
             std::thread::sleep(std::time::Duration::from_secs(3));
             
@@ -294,17 +351,11 @@ impl ReactPreviewManager {
                         let _ = window.emit("artifact-log", "打开预览窗口...");
                     }
                     let _ = Self::open_preview_window_static(&app_handle, &preview_id_clone, port);
-                    if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                        let _ = window.emit("artifact-success", format!("预览窗口已打开: http://localhost:{}", port));
-                    }
                 }
             }
         });
 
         println!("🚀 [React Preview] 预览创建成功, ID: {}", preview_id);
-        if let Some(window) = self.app_handle.get_webview_window("artifact_preview") {
-            let _ = window.emit("artifact-log", "React 预览创建成功");
-        }
         Ok(preview_id)
     }
 
@@ -424,52 +475,34 @@ impl ReactPreviewManager {
             if cache.files_hash == current_files_hash && preview_dir.exists() {
                 need_copy_files = false;
                 println!("✅ [Setup] 模板文件无变化，跳过复制");
-                if let Some(window) = self.app_handle.get_webview_window("artifact_preview") {
-                    let _ = window.emit("artifact-log", "模板文件无变化，跳过复制");
-                }
             }
             
             // 检查依赖是否需要更新
             if cache.deps_hash == current_deps_hash && preview_dir.join("node_modules").exists() {
                 need_install_deps = false;
                 println!("✅ [Setup] 依赖文件无变化，跳过安装");
-                if let Some(window) = self.app_handle.get_webview_window("artifact_preview") {
-                    let _ = window.emit("artifact-log", "依赖文件无变化，跳过安装");
-                }
             }
         } else {
             println!("🔍 [Setup] 没有找到缓存信息，需要初始化");
-            if let Some(window) = self.app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-log", "首次设置模板，需要初始化");
-            }
         }
 
         // 如果需要复制文件
         if need_copy_files {
             println!("📂 [Setup] 开始复制模板文件...");
-            if let Some(window) = self.app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-log", "开始复制模板文件...");
-            }
             self.copy_template(&template_source, &preview_dir)?;
             println!("✅ [Setup] 模板文件复制完成");
-            if let Some(window) = self.app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-log", "模板文件复制完成");
-            }
         }
 
         // 如果需要安装依赖
         if need_install_deps {
             println!("📦 [Setup] 需要安装/更新依赖");
             if let Some(window) = self.app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-log", "需要安装/更新依赖");
+                let _ = window.emit("artifact-log", "安装/更新依赖");
             }
             // 删除现有的 node_modules（如果存在）
             let node_modules_dir = preview_dir.join("node_modules");
             if node_modules_dir.exists() {
                 println!("🗑️ [Setup] 删除现有的 node_modules");
-                if let Some(window) = self.app_handle.get_webview_window("artifact_preview") {
-                    let _ = window.emit("artifact-log", "删除现有的 node_modules");
-                }
                 let _ = fs::remove_dir_all(&node_modules_dir);
             }
         }

@@ -32,11 +32,7 @@ export default function ArtifactPreviewWindow() {
     // 当预览准备好时，切换到预览视图
     useEffect(() => {
         if (isPreviewReady && previewUrl) {
-            // 延迟一秒再切换，让用户看到"预览准备完成"的日志
-            const timer = setTimeout(() => {
-                setCurrentView('preview');
-            }, 300);
-            return () => clearTimeout(timer);
+            setCurrentView('preview');
         }
     }, [isPreviewReady, previewUrl]);
 
@@ -155,71 +151,73 @@ export default function ArtifactPreviewWindow() {
     };
 
     return (
-        <div className="w-full h-full flex flex-col">
-            {/* 顶部工具栏 */}
-            {isPreviewReady && previewUrl && (
-                <div className="flex-shrink-0 p-2 bg-gray-100 border-b flex items-center justify-between">
-                    <div className="text-sm text-gray-600">
-                        {currentView === 'logs' ? '日志视图' : `预览地址: ${previewUrl}`}
-                    </div>
-                    <button
-                        onClick={handleToggleView}
-                        className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
-                    >
-                        {currentView === 'logs' ? '查看预览' : '查看日志'}
-                    </button>
-                </div>
-            )}
-
-            {/* 主要内容区域 */}
-            <div className="flex-1 flex flex-col">
-                {currentView === 'logs' ? (
-                    /* 日志视图 - 全屏显示 */
-                    <div className="flex-1 flex flex-col p-4">
-                        <h2 className="text-lg font-semibold mb-2">Artifact Preview Logs</h2>
-                        <div className="flex-1 overflow-y-auto rounded border p-2 bg-gray-50 text-sm font-mono">
-                            {logs.map((log, idx) => (
-                                <div
-                                    key={idx}
-                                    className={
-                                        log.type === 'error'
-                                            ? 'text-red-600'
-                                            : log.type === 'success'
-                                                ? 'text-green-700'
-                                                : 'text-gray-800'
-                                    }
-                                >
-                                    {log.message}
-                                </div>
-                            ))}
-                            <div ref={logsEndRef} />
+        <div className="flex h-screen bg-gray-100">
+            <div className="flex flex-col flex-1 bg-white rounded-xl m-2 shadow-lg">
+                {/* 顶部工具栏 */}
+                {isPreviewReady && previewUrl && (
+                    <div className="flex-shrink-0 p-4 border-b flex items-center justify-between">
+                        <div className="text-sm text-gray-600">
+                            {currentView === 'logs' ? '日志视图' : `预览地址: ${previewUrl}`}
                         </div>
-                        
-                        {/* 如果预览准备好了，显示提示 */}
-                        {isPreviewReady && previewUrl && (
-                            <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded">
-                                <p className="text-green-700 text-sm">
-                                    ✅ 预览准备完成，即将自动切换到预览视图...
-                                </p>
-                            </div>
-                        )}
-                    </div>
-                ) : (
-                    /* 预览视图 - 全屏 iframe */
-                    <div className="flex-1 flex flex-col">
-                        <iframe
-                            src={previewUrl || ''}
-                            className="flex-1 w-full border-0"
-                            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation"
-                            onLoad={() => {
-                                console.log('🔧 [ArtifactPreviewWindow] iframe 加载完成');
-                            }}
-                            onError={(e) => {
-                                console.error('🔧 [ArtifactPreviewWindow] iframe 加载失败:', e);
-                            }}
-                        />
+                        <button
+                            onClick={handleToggleView}
+                            className="px-6 bg-gray-800 hover:bg-gray-900 text-white shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
+                        >
+                            {currentView === 'logs' ? '查看预览' : '查看日志'}
+                        </button>
                     </div>
                 )}
+
+                {/* 主要内容区域 */}
+                <div className="flex-1 flex flex-col">
+                    {currentView === 'logs' ? (
+                        /* 日志视图 - 全屏显示 */
+                        <div className="flex-1 flex flex-col p-4">
+                            <h2 className="text-lg font-semibold mb-2">Artifact Preview Logs</h2>
+                            <div className="flex-1 overflow-y-auto rounded border p-2 bg-gray-50 text-sm font-mono">
+                                {logs.map((log, idx) => (
+                                    <div
+                                        key={idx}
+                                        className={
+                                            log.type === 'error'
+                                                ? 'text-red-600'
+                                                : log.type === 'success'
+                                                    ? 'text-green-700'
+                                                    : 'text-gray-800'
+                                        }
+                                    >
+                                        {log.message}
+                                    </div>
+                                ))}
+                                <div ref={logsEndRef} />
+                            </div>
+                            
+                            {/* 如果预览准备好了，显示提示 */}
+                            {isPreviewReady && previewUrl && (
+                                <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded">
+                                    <p className="text-green-700 text-sm">
+                                        ✅ 预览准备完成，即将自动切换到预览视图...
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        /* 预览视图 - 全屏 iframe */
+                        <div className="flex-1 flex flex-col">
+                            <iframe
+                                src={previewUrl || ''}
+                                className="flex-1 w-full border-0"
+                                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation"
+                                onLoad={() => {
+                                    console.log('🔧 [ArtifactPreviewWindow] iframe 加载完成');
+                                }}
+                                onError={(e) => {
+                                    console.error('🔧 [ArtifactPreviewWindow] iframe 加载失败:', e);
+                                }}
+                            />
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );
