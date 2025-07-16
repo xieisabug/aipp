@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { open } from '@tauri-apps/plugin-shell';
 import '../styles/ArtifactPreviewWIndow.css';
 
 interface LogLine {
@@ -150,6 +151,17 @@ export default function ArtifactPreviewWindow() {
         setCurrentView(current => current === 'logs' ? 'preview' : 'logs');
     };
 
+    // 在浏览器中打开预览页面
+    const handleOpenInBrowser = async () => {
+        if (previewUrl) {
+            try {
+                await open(previewUrl);
+            } catch (error) {
+                console.error('打开浏览器失败:', error);
+            }
+        }
+    };
+
     return (
         <div className="flex h-screen bg-gray-100">
             <div className="flex flex-col flex-1 bg-white rounded-xl m-2 shadow-lg">
@@ -159,12 +171,21 @@ export default function ArtifactPreviewWindow() {
                         <div className="text-sm text-gray-600">
                             {currentView === 'logs' ? '日志视图' : `预览地址: ${previewUrl}`}
                         </div>
-                        <button
-                            onClick={handleToggleView}
-                            className="px-6 bg-gray-800 hover:bg-gray-900 text-white shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
-                        >
-                            {currentView === 'logs' ? '查看预览' : '查看日志'}
-                        </button>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={handleOpenInBrowser}
+                                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
+                                title="在浏览器中打开"
+                            >
+                                打开浏览器
+                            </button>
+                            <button
+                                onClick={handleToggleView}
+                                className="px-6 py-2 bg-gray-800 hover:bg-gray-900 text-white shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
+                            >
+                                {currentView === 'logs' ? '查看预览' : '查看日志'}
+                            </button>
+                        </div>
                     </div>
                 )}
 
