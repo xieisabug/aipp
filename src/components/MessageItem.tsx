@@ -120,6 +120,7 @@ const MessageItem = React.memo(
             ...defaultSchema,
             tagNames: [
                 ...(defaultSchema.tagNames || []),
+                "think",
                 "fileattachment",
                 "bangwebtomarkdown",
                 "bangweb",
