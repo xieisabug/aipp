@@ -231,7 +231,7 @@ const MessageItem = React.memo(
                             return (
                                 <div className="my-2 p-3 bg-slate-50 border-l-4 border-indigo-500 rounded-r-lg">
                                     <div className="flex items-center gap-2 mb-2">
-                                        <div className={`w-2 h-2 bg-indigo-500 rounded-full ${isIncomplete ? 'animate-pulse' : ''}`}></div>
+                                        <div className="w-2 h-2 bg-indigo-500 rounded-full"></div>
                                         <span className="text-sm font-medium text-indigo-700">
                                             {isIncomplete ? '思考中...' : '思考完成'}
                                         </span>
@@ -245,9 +245,6 @@ const MessageItem = React.memo(
                                                 {lines.length > 3 && <div className="text-gray-400 text-xs mb-1">...</div>}
                                                 {previewLines.join('\n')}
                                             </>
-                                        )}
-                                        {isIncomplete && (
-                                            <span className="inline-block w-2 h-4 bg-indigo-500 animate-pulse ml-1"></span>
                                         )}
                                     </div>
                                     {lines.length > 3 && (
