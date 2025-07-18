@@ -331,49 +331,117 @@ pub fn install_bun(window: tauri::Window) -> Result<(), String> {
 #[tauri::command]
 pub fn install_uv(window: tauri::Window) -> Result<(), String> {
     std::thread::spawn(move || {
-        let (command, args) = if cfg!(target_os = "windows") {
-            (
-                "powershell",
-                vec!["-c", "irm https://astral.sh/uv/install.ps1 | iex"],
-            )
-        } else {
-            (
-                "sh",
-                vec!["-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"],
-            )
-        };
+        let max_retries = 3;
+        let mut success = false;
+        
+        for attempt in 1..=max_retries {
+            let log_msg = format!("正在尝试安装 uv (第 {} 次尝试)...", attempt);
+            println!("uv-install-log: {}", log_msg);
+            window.emit("uv-install-log", log_msg).unwrap();
+            
+            let (command, args) = if cfg!(target_os = "windows") {
+                (
+                    "powershell",
+                    vec!["-c", "irm https://astral.sh/uv/install.ps1 | iex"],
+                )
+            } else {
+                (
+                    "sh",
+                    vec!["-c", "curl -LsSf --retry 3 --retry-delay 2 https://astral.sh/uv/install.sh | sh"],
+                )
+            };
 
-        let mut child = Command::new(command)
-            .args(args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("Failed to spawn command");
+            let mut child = match Command::new(command)
+                .args(args)
+                .env("UV_INSTALLER_GHE_BASE_URL", "https://ghfast.top/https://github.com")
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+            {
+                Ok(child) => child,
+                Err(e) => {
+                    let error_msg = format!("启动安装命令失败: {}", e);
+                    println!("uv-install-log: {}", error_msg);
+                    window.emit("uv-install-log", error_msg).unwrap();
+                    continue;
+                }
+            };
 
-        if let Some(stdout) = child.stdout.take() {
-            let reader = BufReader::new(stdout);
-            for line in reader.lines() {
-                if let Ok(line) = line {
-                    println!("uv-install-log: {}", line);
-                    window.emit("uv-install-log", line).unwrap();
+            let mut has_critical_error = false;
+
+            if let Some(stdout) = child.stdout.take() {
+                let reader = BufReader::new(stdout);
+                for line in reader.lines() {
+                    if let Ok(line) = line {
+                        println!("uv-install-log: {}", line);
+                        window.emit("uv-install-log", line).unwrap();
+                    }
+                }
+            }
+
+            if let Some(stderr) = child.stderr.take() {
+                let reader = BufReader::new(stderr);
+                for line in reader.lines() {
+                    if let Ok(line) = line {
+                        // 检查是否有关键错误
+                        if line.contains("curl:") && (
+                            line.contains("Error in the HTTP2 framing layer") ||
+                            line.contains("Recv failure: Connection reset by peer") ||
+                            line.contains("Failed to connect") ||
+                            line.contains("Could not resolve host")
+                        ) {
+                            has_critical_error = true;
+                        }
+                        
+                        println!("uv-install-log: {}", line);
+                        window.emit("uv-install-log", line).unwrap();
+                    }
+                }
+            }
+
+            match child.wait() {
+                Ok(status) => {
+                    // 即使退出码成功，但如果有关键错误，也需要重试
+                    if status.success() && !has_critical_error {
+                        success = true;
+                        let success_msg = "uv 安装成功！";
+                        println!("uv-install-log: {}", success_msg);
+                        window.emit("uv-install-log", success_msg).unwrap();
+                        break;
+                    } else {
+                        let error_msg = if has_critical_error {
+                            format!("第 {} 次尝试失败：检测到网络错误", attempt)
+                        } else {
+                            format!("第 {} 次尝试失败，退出码: {}", attempt, status.code().unwrap_or(-1))
+                        };
+                        println!("uv-install-log: {}", error_msg);
+                        window.emit("uv-install-log", error_msg).unwrap();
+                        
+                        if attempt < max_retries {
+                            let retry_msg = format!("等待 2 秒后重试...");
+                            println!("uv-install-log: {}", retry_msg);
+                            window.emit("uv-install-log", retry_msg).unwrap();
+                            std::thread::sleep(std::time::Duration::from_secs(2));
+                        }
+                    }
+                }
+                Err(e) => {
+                    let error_msg = format!("等待进程失败: {}", e);
+                    println!("uv-install-log: {}", error_msg);
+                    window.emit("uv-install-log", error_msg).unwrap();
                 }
             }
         }
 
-        if let Some(stderr) = child.stderr.take() {
-            let reader = BufReader::new(stderr);
-            for line in reader.lines() {
-                if let Ok(line) = line {
-                    println!("uv-install-log: {}", line);
-                    window.emit("uv-install-log", line).unwrap();
-                }
-            }
+        if !success {
+            let final_error = format!("经过 {} 次尝试后，uv 安装失败", max_retries);
+            println!("uv-install-log: {}", final_error);
+            window.emit("uv-install-log", final_error).unwrap();
         }
 
-        let status = child.wait().expect("Failed to wait on child");
-        println!("uv-install-finished: {}", status.success());
+        println!("uv-install-finished: {}", success);
         window
-            .emit("uv-install-finished", status.success())
+            .emit("uv-install-finished", success)
             .unwrap();
     });
 
