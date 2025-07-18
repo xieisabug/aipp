@@ -1,47 +1,76 @@
 <script setup lang="ts">
-import HelloWorld from './components/HelloWorld.vue'
-import TheWelcome from './components/TheWelcome.vue'
+import { ref, onMounted, defineAsyncComponent } from 'vue'
+
+const error = ref<string | null>(null)
+const loading = ref(true)
+
+// 使用 defineAsyncComponent 创建异步组件
+const DynamicComponent = defineAsyncComponent({
+  loader: () => import('./UserComponent.vue'),
+  loadingComponent: {
+    template: '<div class="loading-spinner"></div>'
+  },
+  errorComponent: {
+    template: '<div class="error-message">组件加载失败</div>'
+  },
+  delay: 200,
+  timeout: 10000,
+  onError: (error) => {
+    console.error('Failed to load user component:', error)
+  }
+})
+
+onMounted(() => {
+  // 组件加载完成后隐藏加载状态
+  setTimeout(() => {
+    loading.value = false
+  }, 100)
+})
 </script>
 
 <template>
-  <header>
-    <img alt="Vue logo" class="logo" src="./assets/logo.svg" width="125" height="125" />
-
-    <div class="wrapper">
-      <HelloWorld msg="You did it!" />
+  <div class="container">
+    <div class="component-preview">
+      <!-- 直接渲染动态组件，defineAsyncComponent 会自动处理加载和错误状态 -->
+      <DynamicComponent />
     </div>
-  </header>
-
-  <main>
-    <TheWelcome />
-  </main>
+  </div>
 </template>
 
 <style scoped>
-header {
-  line-height: 1.5;
+.container {
+  width: 100%;
+  margin: 0 auto;
+  padding: 2rem;
 }
 
-.logo {
-  display: block;
-  margin: 0 auto 2rem;
+.component-preview {
+  width: 100%;
 }
 
-@media (min-width: 1024px) {
-  header {
-    display: flex;
-    place-items: center;
-    padding-right: calc(var(--section-gap) / 2);
-  }
+/* 为 defineAsyncComponent 的加载和错误状态提供样式 */
+:deep(.loading-spinner) {
+  width: 2rem;
+  height: 2rem;
+  border: 2px solid #f3f4f6;
+  border-top: 2px solid #2563eb;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 2rem auto;
+}
 
-  .logo {
-    margin: 0 2rem 0 0;
-  }
+:deep(.error-message) {
+  color: #ef4444;
+  text-align: center;
+  padding: 2rem;
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 0.5rem;
+  margin: 2rem;
+}
 
-  header .wrapper {
-    display: flex;
-    place-items: flex-start;
-    flex-wrap: wrap;
-  }
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 </style>

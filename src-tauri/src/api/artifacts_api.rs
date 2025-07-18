@@ -12,6 +12,7 @@ use crate::{
         applescript::run_applescript,
         powershell::run_powershell,
         react_preview::{create_react_preview, create_react_preview_for_artifact},
+        vue_preview::create_vue_preview_for_artifact,
     },
     errors::AppError,
     window::{open_preview_html_window, open_preview_react_window, open_preview_vue_window},
@@ -65,6 +66,47 @@ fn extract_component_name(code: &str) -> Option<String> {
 
     None
 }
+
+// 检查是否是完整的 Vue 组件代码
+fn is_vue_component(code: &str) -> bool {
+    // 检查代码是否包含 Vue 组件的特征
+    let has_template = code.contains("<template>");
+    let has_script = code.contains("<script");
+    let has_style = code.contains("<style");
+    
+    // 检查是否有 Vue 3 Composition API 或者 Options API
+    let has_setup = code.contains("setup") || code.contains("defineComponent");
+    let has_export_default = code.contains("export default");
+    
+    // 至少要有 template 和 script 标签
+    has_template && has_script && (has_setup || has_export_default)
+}
+
+// 从 Vue 组件代码中提取组件名称
+fn extract_vue_component_name(code: &str) -> Option<String> {
+    use regex::Regex;
+    
+    // 尝试匹配 export default 中的 name 属性
+    if let Ok(re) = Regex::new(r#"name\s*:\s*['"]([A-Z][a-zA-Z0-9_]*)['"]"#) {
+        if let Some(caps) = re.captures(code) {
+            if let Some(name) = caps.get(1) {
+                return Some(name.as_str().to_string());
+            }
+        }
+    }
+    
+    // 尝试匹配 defineComponent 中的 name
+    if let Ok(re) = Regex::new(r#"defineComponent\s*\(\s*\{\s*name\s*:\s*['"]([A-Z][a-zA-Z0-9_]*)['"]"#) {
+        if let Some(caps) = re.captures(code) {
+            if let Some(name) = caps.get(1) {
+                return Some(name.as_str().to_string());
+            }
+        }
+    }
+    
+    None
+}
+
 #[tauri::command]
 pub async fn run_artifacts(
     app_handle: tauri::AppHandle,
@@ -194,21 +236,57 @@ pub async fn run_artifacts(
             }
         }
         "vue" => {
-            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-log", "准备 Vue 预览...");
-            }
-            let _ = open_preview_vue_window(app_handle.clone(), input_str.to_string(), nuxtjs_port)
-                .await;
-            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-success", "Vue 预览已准备完成");
-            }
-            // 发送跳转事件
-            let preview_url = format!(
-                "http://preview.teafakedomain.com:{}/previews/vue",
-                nuxtjs_port
-            );
-            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-redirect", preview_url);
+            println!("🎯 [Artifacts] 处理 Vue 代码");
+
+            // 检查是否是完整的组件代码
+            if is_vue_component(input_str) {
+                println!("🎯 [Artifacts] 检测到完整的 Vue 组件，使用新预览");
+
+                // 使用新的 Vue Component Preview
+                let component_name = extract_vue_component_name(input_str).unwrap_or_else(|| {
+                    println!("🎯 [Artifacts] 无法提取组件名称，使用默认名称");
+                    "UserComponent".to_string()
+                });
+                println!("🎯 [Artifacts] 组件名称: {}", component_name);
+
+                let preview_id = create_vue_preview_for_artifact(
+                    app_handle.clone(),
+                    input_str.to_string(),
+                    component_name,
+                )
+                .await
+                .map_err(|e| {
+                    println!("❌ [Artifacts] Vue 组件预览失败: {}", e);
+                    let error_msg = format!("Vue 组件预览失败: {}", e);
+                    if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                        let _ = window.emit("artifact-error", &error_msg);
+                    }
+                    AppError::RunCodeError(error_msg)
+                })?;
+
+                let success_msg = format!("Vue 组件预览已启动，预览 ID: {}", preview_id);
+
+                return Ok(success_msg);
+            } else {
+                println!("🎯 [Artifacts] 检测到代码片段，使用旧预览方式");
+                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                    let _ = window.emit("artifact-log", "检测到Vue代码片段，使用传统预览方式...");
+                }
+
+                // 使用旧的预览方式（代码片段）
+                let _ = open_preview_vue_window(app_handle.clone(), input_str.to_string(), nuxtjs_port)
+                    .await;
+                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                    let _ = window.emit("artifact-success", "Vue 代码片段预览已准备完成");
+                }
+                // 发送跳转事件
+                let preview_url = format!(
+                    "http://preview.teafakedomain.com:{}/previews/vue",
+                    nuxtjs_port
+                );
+                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                    let _ = window.emit("artifact-redirect", preview_url);
+                }
             }
         }
         _ => {

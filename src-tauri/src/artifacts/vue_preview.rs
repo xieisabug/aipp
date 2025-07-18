@@ -1,0 +1,1048 @@
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
+use std::sync::LazyLock;
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, Emitter};
+use sha2::{Sha256, Digest};
+use hex;
+
+use crate::utils::bun_utils::BunUtils;
+use crate::db::system_db::{SystemDatabase, FeatureConfig};
+
+// 全局共享的Vue服务器映射
+static GLOBAL_VUE_SERVERS: LazyLock<Arc<Mutex<HashMap<String, VuePreviewServer>>>> = LazyLock::new(|| {
+    Arc::new(Mutex::new(HashMap::new()))
+});
+
+#[derive(Debug, Clone)]
+pub struct VuePreviewServer {
+    pub id: String,
+    pub port: u16,
+    pub process: Option<u32>, // PID
+    pub template_path: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+pub struct VueTemplateCache {
+    pub files_hash: String,
+    pub deps_hash: String,
+}
+
+#[derive(Debug, Clone)]
+enum VuePreviewMode {
+    Artifact,
+    Window,
+}
+
+pub struct VuePreviewManager {
+    app_handle: AppHandle,
+}
+
+impl VuePreviewManager {
+    pub fn new(app_handle: AppHandle) -> Self {
+        Self {
+            app_handle,
+        }
+    }
+
+    // 获取 bun 可执行文件路径
+    fn get_bun_executable(&self) -> Result<PathBuf, Box<dyn std::error::Error>> {
+        BunUtils::get_bun_executable(&self.app_handle)
+    }
+
+    // 计算模板文件的 MD5 哈希值
+    fn calculate_template_files_hash(&self, template_path: &PathBuf) -> Result<String, Box<dyn std::error::Error>> {
+        let mut hasher = Sha256::new();
+        
+        // 排除的文件和目录
+        let exclude_patterns = vec![
+            "node_modules",
+            ".git",
+            "dist",
+            "build",
+            ".cache",
+            ".tmp",
+            ".temp",
+            "UserComponent.vue", // 这个文件会被动态替换，不参与哈希计算
+            ".DS_Store",         // macOS 系统文件
+            "Thumbs.db",         // Windows 系统文件
+            ".gitignore",        // git 忽略文件可能变化
+            "bun.lockb",         // bun 二进制锁文件
+            ".vite",             // vite 缓存目录
+            ".turbo",            // turbo 缓存目录
+            "coverage",          // 测试覆盖率目录
+        ];
+        
+        self.hash_directory_recursive(template_path, &mut hasher, &exclude_patterns)?;
+        let result = hasher.finalize();
+        Ok(hex::encode(result))
+    }
+
+    // 递归计算目录的哈希
+    fn hash_directory_recursive(
+        &self,
+        dir: &PathBuf,
+        hasher: &mut Sha256,
+        exclude_patterns: &[&str],
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if !dir.exists() {
+            return Ok(());
+        }
+
+        let mut entries: Vec<_> = fs::read_dir(dir)?
+            .filter_map(|entry| entry.ok())
+            .collect();
+        
+        // 按文件名排序以确保一致的哈希结果
+        entries.sort_by_key(|entry| entry.file_name());
+
+        for entry in entries {
+            let path = entry.path();
+            let file_name = entry.file_name();
+            let file_name_str = file_name.to_string_lossy();
+
+            // 检查是否应该排除
+            if exclude_patterns.iter().any(|&pattern| file_name_str.contains(pattern)) {
+                println!("🔍 [VueHash] 排除文件: {:?}", path);
+                continue;
+            }
+
+            if path.is_dir() {
+                println!("🔍 [VueHash] 处理目录: {:?}", path);
+                // 递归处理子目录
+                self.hash_directory_recursive(&path, hasher, exclude_patterns)?;
+            } else if path.is_file() {
+                println!("🔍 [VueHash] 包含文件: {:?}", path);
+                
+                // 只添加相对路径到哈希，避免绝对路径差异
+                if let Ok(relative_path) = path.strip_prefix(dir) {
+                    hasher.update(relative_path.to_string_lossy().as_bytes());
+                } else {
+                    hasher.update(path.to_string_lossy().as_bytes());
+                }
+                
+                // 添加文件内容到哈希
+                if let Ok(content) = fs::read(&path) {
+                    hasher.update(&content);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    // 计算依赖文件的 MD5 哈希值（package.json 和 bun.lock）
+    fn calculate_deps_hash(&self, template_path: &PathBuf) -> Result<String, Box<dyn std::error::Error>> {
+        let mut hasher = Sha256::new();
+        
+        // 计算 package.json 的哈希
+        let package_json = template_path.join("package.json");
+        if package_json.exists() {
+            let content = fs::read(&package_json)?;
+            hasher.update(&content);
+        }
+
+        // 计算 bun.lock 的哈希（如果存在）
+        let bun_lock = template_path.join("bun.lock");
+        if bun_lock.exists() {
+            let content = fs::read(&bun_lock)?;
+            hasher.update(&content);
+        }
+
+        let result = hasher.finalize();
+        Ok(hex::encode(result))
+    }
+
+    // 从数据库获取模板缓存信息
+    fn get_template_cache(&self, template_name: &str) -> Result<Option<VueTemplateCache>, Box<dyn std::error::Error>> {
+        let db = SystemDatabase::new(&self.app_handle)?;
+        
+        println!("🔍 [VueCache] 查询模板缓存: {}", template_name);
+        
+        // 查询文件哈希
+        let files_hash_key = format!("{}_files_hash", template_name);
+        let deps_hash_key = format!("{}_deps_hash", template_name);
+        
+        println!("🔍 [VueCache] 查询文件哈希配置: feature_code='template_cache', key='{}'", files_hash_key);
+        let files_hash_config = db.get_feature_config("template_cache", &files_hash_key)?;
+        
+        println!("🔍 [VueCache] 查询依赖哈希配置: feature_code='template_cache', key='{}'", deps_hash_key);
+        let deps_hash_config = db.get_feature_config("template_cache", &deps_hash_key)?;
+
+        match (&files_hash_config, &deps_hash_config) {
+            (Some(files_config), Some(deps_config)) => {
+                println!("✅ [VueCache] 找到缓存信息:");
+                println!("  - 文件哈希: {}", files_config.value);
+                println!("  - 依赖哈希: {}", deps_config.value);
+                Ok(Some(VueTemplateCache {
+                    files_hash: files_config.value.clone(),
+                    deps_hash: deps_config.value.clone(),
+                }))
+            }
+            (None, Some(_)) => {
+                println!("⚠️ [VueCache] 只找到依赖哈希配置，缺少文件哈希配置");
+                Ok(None)
+            }
+            (Some(_), None) => {
+                println!("⚠️ [VueCache] 只找到文件哈希配置，缺少依赖哈希配置");
+                Ok(None)
+            }
+            (None, None) => {
+                println!("🔍 [VueCache] 没有找到任何缓存配置");
+                Ok(None)
+            }
+        }
+    }
+
+    // 保存模板缓存信息到数据库
+    fn save_template_cache(&self, template_name: &str, cache: &VueTemplateCache) -> Result<(), Box<dyn std::error::Error>> {
+        let db = SystemDatabase::new(&self.app_handle)?;
+
+        // 保存文件哈希
+        let files_hash_config = FeatureConfig {
+            id: None,
+            feature_code: "template_cache".to_string(),
+            key: format!("{}_files_hash", template_name),
+            value: cache.files_hash.clone(),
+            data_type: "string".to_string(),
+            description: Some(format!("{} 模板文件哈希值", template_name)),
+        };
+
+        // 保存依赖哈希
+        let deps_hash_config = FeatureConfig {
+            id: None,
+            feature_code: "template_cache".to_string(),
+            key: format!("{}_deps_hash", template_name),
+            value: cache.deps_hash.clone(),
+            data_type: "string".to_string(),
+            description: Some(format!("{} 模板依赖哈希值", template_name)),
+        };
+
+        // 尝试插入或更新文件哈希
+        println!("💾 [VueCache] 尝试插入文件哈希配置...");
+        match db.add_feature_config(&files_hash_config) {
+            Ok(_) => {
+                println!("✅ [VueCache] 文件哈希配置插入成功");
+            }
+            Err(add_err) => {
+                println!("⚠️ [VueCache] 文件哈希配置插入失败: {}, 尝试更新现有记录", add_err);
+                match db.update_feature_config(&files_hash_config) {
+                    Ok(_) => {
+                        println!("✅ [VueCache] 文件哈希配置更新成功");
+                    }
+                    Err(update_err) => {
+                        println!("❌ [VueCache] 文件哈希配置更新失败: {}", update_err);
+                        return Err(Box::new(update_err));
+                    }
+                }
+            }
+        }
+        
+        // 尝试插入或更新依赖哈希
+        println!("💾 [VueCache] 尝试插入依赖哈希配置...");
+        match db.add_feature_config(&deps_hash_config) {
+            Ok(_) => {
+                println!("✅ [VueCache] 依赖哈希配置插入成功");
+            }
+            Err(add_err) => {
+                println!("⚠️ [VueCache] 依赖哈希配置插入失败: {}, 尝试更新现有记录", add_err);
+                match db.update_feature_config(&deps_hash_config) {
+                    Ok(_) => {
+                        println!("✅ [VueCache] 依赖哈希配置更新成功");
+                    }
+                    Err(update_err) => {
+                        println!("❌ [VueCache] 依赖哈希配置更新失败: {}", update_err);
+                        return Err(Box::new(update_err));
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn create_preview_for_artifact(
+        &self,
+        component_code: String,
+        component_name: String,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        self.create_preview_internal(component_code, component_name, VuePreviewMode::Artifact)
+    }
+
+    pub fn create_preview(
+        &self,
+        component_code: String,
+        component_name: String,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        self.create_preview_internal(component_code, component_name, VuePreviewMode::Window)
+    }
+
+    fn create_preview_internal(
+        &self,
+        component_code: String,
+        component_name: String,
+        mode: VuePreviewMode,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let preview_id = "vue".to_string();
+        println!("🚀 [Vue Preview] 开始创建预览, ID: {}", preview_id);
+        if let Some(window) = self.app_handle.get_webview_window("artifact_preview") {
+            let _ = window.emit("artifact-log", "开始创建 Vue 预览...");
+        }
+
+        let port = self.find_available_port()?;
+        println!("🚀 [Vue Preview] 找到可用端口: {}", port);
+        
+        // 关闭已存在的预览实例
+        let _ = self.close_preview(&preview_id);
+
+        let (template_path, need_install_deps) =
+            self.setup_template_project(&preview_id, &component_code, &component_name)?;
+        println!("🚀 [Vue Preview] 模板项目已设置到: {:?}", template_path);
+
+        let process_id = self.start_dev_server(&template_path, port, need_install_deps)?;
+        println!("🚀 [Vue Preview] 开发服务器已启动, PID: {}", process_id);
+        if let Some(window) = self.app_handle.get_webview_window("artifact_preview") {
+            let _ = window.emit("artifact-log", "Vue 预览服务启动");
+        }
+
+        let server = VuePreviewServer {
+            id: preview_id.clone(),
+            port,
+            process: Some(process_id),
+            template_path,
+        };
+
+        println!("🔧 [VuePreview] 创建服务器对象: ID={}, Port={}, PID={:?}", preview_id, port, process_id);
+        
+        GLOBAL_VUE_SERVERS
+            .lock()
+            .unwrap()
+            .insert(preview_id.clone(), server);
+
+        // 等待开发服务器启动并执行相应操作
+        let app_handle = self.app_handle.clone();
+        let preview_id_clone = preview_id.clone();
+        std::thread::spawn(move || {
+            // 等待服务器启动
+            println!("🚀 [Vue Preview] 等待服务器启动...");
+            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                let _ = window.emit("artifact-log", "等待 Vue 服务器启动完毕...");
+            }
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            
+            match mode {
+                VuePreviewMode::Artifact => {
+                    let preview_url = format!("http://localhost:{}", port);
+                    println!("🚀 [Vue Preview] 预览已准备完成: {}", preview_url);
+                    if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                        let _ = window.emit("artifact-success", "Vue 预览服务器已启动完成");
+                    }
+                    
+                    // 发送跳转事件，让前端窗口自动跳转到预览页面
+                    if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                        let _ = window.emit("artifact-redirect", preview_url);
+                    }
+                }
+                VuePreviewMode::Window => {
+                    println!("🚀 [Vue Preview] 尝试打开预览窗口");
+                    if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                        let _ = window.emit("artifact-log", "打开Vue预览窗口...");
+                    }
+                    let _ = Self::open_preview_window_static(&app_handle, &preview_id_clone, port);
+                }
+            }
+        });
+
+        println!("🚀 [Vue Preview] 预览创建成功, ID: {}", preview_id);
+        Ok(preview_id)
+    }
+
+    pub fn close_preview(&self, preview_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let mut servers = GLOBAL_VUE_SERVERS.lock().unwrap();
+        
+        // 调试信息：显示当前所有服务器
+        println!("🔧 [VuePreview] 当前服务器列表:");
+        for (id, server) in servers.iter() {
+            println!("  - ID: {}, Port: {}, PID: {:?}", id, server.port, server.process);
+        }
+        println!("🔧 [VuePreview] 尝试关闭服务器 ID: {}", preview_id);
+
+        if let Some(server) = servers.remove(preview_id) {
+            println!("🔧 [VuePreview] 找到预览服务器: {}", preview_id);
+            
+            // 优先使用PID终止进程
+            if let Some(pid) = server.process {
+                println!("🔧 [VuePreview] 准备终止进程 PID: {}", pid);
+                match self.kill_process(pid) {
+                    Ok(_) => {
+                        println!("✅ [VuePreview] 成功终止进程 PID: {}", pid);
+                    }
+                    Err(e) => {
+                        println!("❌ [VuePreview] 终止进程失败 PID: {}, 错误: {}", pid, e);
+                        // 尝试强制终止进程组
+                        match self.kill_process_group(pid) {
+                            Ok(_) => {
+                                println!("✅ [VuePreview] 成功强制终止进程组");
+                            }
+                            Err(e2) => {
+                                println!("❌ [VuePreview] 强制终止进程组也失败: {}", e2);
+                                // 作为最后手段，尝试根据端口清理
+                                println!("🔧 [VuePreview] 尝试根据端口 {} 清理进程", server.port);
+                                if let Err(e3) = self.kill_processes_by_port(server.port) {
+                                    println!("❌ [VuePreview] 根据端口清理进程失败: {}", e3);
+                                } else {
+                                    println!("✅ [VuePreview] 成功根据端口清理进程");
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                println!("⚠️ [VuePreview] 服务器记录中没有进程 PID，尝试根据端口清理");
+                // 没有PID记录，只能根据端口清理
+                if let Err(e) = self.kill_processes_by_port(server.port) {
+                    println!("❌ [VuePreview] 根据端口清理进程失败: {}", e);
+                } else {
+                    println!("✅ [VuePreview] 成功根据端口清理进程");
+                }
+            }
+        } else {
+            println!("⚠️ [VuePreview] 未找到预览服务器: {}", preview_id);
+            println!("🔧 [VuePreview] 可能的原因:");
+            println!("  1. 服务器创建失败");
+            println!("  2. 服务器已被其他地方清理");
+            println!("  3. 竞态条件导致数据不一致");
+        }
+
+        // 显示清理后的服务器列表
+        println!("🔧 [VuePreview] 清理后的服务器列表:");
+        for (id, server) in servers.iter() {
+            println!("  - ID: {}, Port: {}, PID: {:?}", id, server.port, server.process);
+        }
+
+        Ok(())
+    }
+
+    fn setup_template_project(
+        &self,
+        preview_id: &str,
+        component_code: &str,
+        _component_name: &str,
+    ) -> Result<(PathBuf, bool), Box<dyn std::error::Error>> {
+        // 使用应用数据目录，类似 bun 二进制存放位置
+        let app_data_dir = self
+            .app_handle
+            .path()
+            .app_data_dir()
+            .map_err(|e| format!("无法获取应用数据目录: {}", e))?;
+
+        let preview_dir = app_data_dir
+            .join("preview")
+            .join("templates")
+            .join(preview_id);
+        println!("🛠️ [VueSetup] 设置预览目录: {:?}", preview_dir);
+
+        // 获取模板源路径
+        let template_source = self.get_template_path();
+        println!("🛠️ [VueSetup] 模板源路径: {:?}", template_source);
+
+        if !template_source.exists() {
+            let error_msg = format!("模板源路径不存在: {:?}", template_source);
+            println!("❌ [VueSetup] {}", error_msg);
+            return Err(error_msg.into());
+        }
+
+        // 计算当前模板的哈希值
+        let current_files_hash = self.calculate_template_files_hash(&template_source)?;
+        let current_deps_hash = self.calculate_deps_hash(&template_source)?;
+        
+        println!("🔍 [VueSetup] 当前模板文件哈希: {}", current_files_hash);
+        println!("🔍 [VueSetup] 当前依赖哈希: {}", current_deps_hash);
+
+        // 检查缓存
+        let cached_info = self.get_template_cache("vue");
+        let mut need_copy_files = true;
+        let mut need_install_deps = true;
+
+        if let Ok(Some(cache)) = cached_info {
+            println!("🔍 [VueSetup] 缓存文件哈希: {}", cache.files_hash);
+            println!("🔍 [VueSetup] 缓存依赖哈希: {}", cache.deps_hash);
+            
+            // 检查文件是否需要更新
+            if cache.files_hash == current_files_hash && preview_dir.exists() {
+                need_copy_files = false;
+                println!("✅ [VueSetup] 模板文件无变化，跳过复制");
+            }
+            
+            // 检查依赖是否需要更新
+            if cache.deps_hash == current_deps_hash && preview_dir.join("node_modules").exists() {
+                need_install_deps = false;
+                println!("✅ [VueSetup] 依赖文件无变化，跳过安装");
+            }
+        } else {
+            println!("🔍 [VueSetup] 没有找到缓存信息，需要初始化");
+        }
+
+        // 如果需要复制文件
+        if need_copy_files {
+            println!("📂 [VueSetup] 开始复制模板文件...");
+            self.copy_template(&template_source, &preview_dir)?;
+            println!("✅ [VueSetup] 模板文件复制完成");
+        }
+
+        // 如果需要安装依赖
+        if need_install_deps {
+            println!("📦 [VueSetup] 需要安装/更新依赖");
+            if let Some(window) = self.app_handle.get_webview_window("artifact_preview") {
+                let _ = window.emit("artifact-log", "安装/更新Vue依赖");
+            }
+            // 删除现有的 node_modules（如果存在）
+            let node_modules_dir = preview_dir.join("node_modules");
+            if node_modules_dir.exists() {
+                println!("🗑️ [VueSetup] 删除现有的 node_modules");
+                let _ = fs::remove_dir_all(&node_modules_dir);
+            }
+        }
+
+        // 保存新的缓存信息
+        let new_cache = VueTemplateCache {
+            files_hash: current_files_hash,
+            deps_hash: current_deps_hash,
+        };
+        
+        if let Err(e) = self.save_template_cache("vue", &new_cache) {
+            println!("⚠️ [VueSetup] 保存缓存信息失败: {}", e);
+        } else {
+            println!("✅ [VueSetup] 缓存信息已更新");
+        }
+
+        // 写入组件代码到 UserComponent.vue
+        let component_file = preview_dir.join("src").join("UserComponent.vue");
+        println!("🛠️ [VueSetup] 写入组件文件到: {:?}", component_file);
+
+        fs::write(&component_file, component_code)?;
+        println!("🛠️ [VueSetup] 组件文件写入完成");
+
+        // 返回预览目录和是否需要安装依赖的标志
+        Ok((preview_dir, need_install_deps))
+    }
+
+    fn copy_template(
+        &self,
+        source: &PathBuf,
+        dest: &PathBuf,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if dest.exists() {
+            fs::remove_dir_all(dest)?;
+        }
+        fs::create_dir_all(dest)?;
+
+        // 递归复制文件
+        self.copy_dir_recursively(source, dest)?;
+
+        Ok(())
+    }
+
+    fn copy_dir_recursively(
+        &self,
+        source: &PathBuf,
+        dest: &PathBuf,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        for entry in fs::read_dir(source)? {
+            let entry = entry?;
+            let path = entry.path();
+            let dest_path = dest.join(entry.file_name());
+
+            if path.is_dir() {
+                if entry.file_name() != "node_modules" && entry.file_name() != ".git" {
+                    fs::create_dir_all(&dest_path)?;
+                    self.copy_dir_recursively(&path, &dest_path)?;
+                }
+            } else {
+                fs::copy(&path, &dest_path)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn start_dev_server(
+        &self,
+        project_path: &PathBuf,
+        port: u16,
+        force_install: bool,
+    ) -> Result<u32, Box<dyn std::error::Error>> {
+        println!(
+            "🔧 [VueDevServer] 在项目路径启动开发服务器: {:?}",
+            project_path
+        );
+        println!("🔧 [VueDevServer] 使用端口: {}", port);
+
+        // 获取 bun 可执行文件路径
+        let bun_executable = self.get_bun_executable()?;
+        println!("🔧 [VueDevServer] Bun 可执行文件: {:?}", bun_executable);
+
+        // 检查 bun 版本
+        match Command::new(&bun_executable).arg("--version").output() {
+            Ok(output) => {
+                let version = String::from_utf8_lossy(&output.stdout);
+                println!("🔧 [VueDevServer] Bun 版本: {}", version.trim());
+            }
+            Err(e) => {
+                let error_msg = format!("无法获取 Bun 版本: {}", e);
+                println!("❌ [VueDevServer] {}", error_msg);
+                return Err(error_msg.into());
+            }
+        }
+
+        // 检查项目路径和package.json
+        let package_json = project_path.join("package.json");
+        if !package_json.exists() {
+            let error_msg = format!("package.json 不存在: {:?}", package_json);
+            println!("❌ [VueDevServer] {}", error_msg);
+            return Err(error_msg.into());
+        }
+        println!("🔧 [VueDevServer] package.json 存在: {:?}", package_json);
+
+        // 先安装依赖（如果需要的话）
+        if force_install || !project_path.join("node_modules").exists() {
+            println!("🔧 [VueDevServer] 开始安装依赖...");
+            let install_result = Command::new(&bun_executable)
+                .args(&["install", "--force"])
+                .current_dir(project_path)
+                .output();
+
+            match install_result {
+                Ok(output) => {
+                    if output.status.success() {
+                        println!("✅ [VueDevServer] 依赖安装成功");
+                        let stdout = String::from_utf8_lossy(&output.stdout);
+                        if !stdout.is_empty() {
+                            println!("🔧 [VueDevServer] Bun install 输出: {}", stdout.trim());
+                        }
+                    } else {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        let stdout = String::from_utf8_lossy(&output.stdout);
+                        let error_msg =
+                            format!("Bun install 失败:\nStderr: {}\nStdout: {}", stderr, stdout);
+                        println!("❌ [VueDevServer] {}", error_msg);
+                        return Err(error_msg.into());
+                    }
+                }
+                Err(e) => {
+                    let error_msg = format!("无法执行 bun install: {}", e);
+                    println!("❌ [VueDevServer] {}", error_msg);
+                    return Err(error_msg.into());
+                }
+            }
+        } else {
+            println!("✅ [VueDevServer] 依赖已存在，跳过安装");
+        }
+
+        // 启动 Vite 开发服务器
+        println!("🔧 [VueDevServer] 启动 Vite 开发服务器...");
+
+        // 使用 bun run dev 启动 Vue 项目
+        let mut vite_command = Command::new(&bun_executable);
+        vite_command
+            .args(&[
+                "run",
+                "dev",
+                "--",
+                "--port",
+                &port.to_string(),
+                "--host",
+                "127.0.0.1",
+            ])
+            .current_dir(project_path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+
+        // 为 Unix 系统创建新的进程组
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            vite_command.process_group(0); // 创建新的进程组
+            println!("🔧 [VueDevServer] 为 Unix 系统创建新进程组");
+        }
+
+        // 为 Windows 系统创建新的进程组
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            vite_command.creation_flags(0x00000200); // CREATE_NEW_PROCESS_GROUP
+            println!("🔧 [VueDevServer] 为 Windows 系统创建新进程组");
+        }
+
+        let child = vite_command.spawn();
+
+        match child {
+            Ok(mut child) => {
+                let pid = child.id();
+                println!("✅ [VueDevServer] Vite 服务器启动成功, PID: {}", pid);
+
+                // 在后台线程中管理子进程生命周期，避免僵尸进程
+                std::thread::spawn(move || {
+                    // 等待子进程结束或者被终止
+                    match child.wait() {
+                        Ok(status) => {
+                            println!("🔧 [VueDevServer] Vite 进程 PID {} 已结束，状态: {}", pid, status);
+                        }
+                        Err(e) => {
+                            println!("⚠️ [VueDevServer] 等待 Vite 进程 PID {} 结束时出错: {}", pid, e);
+                        }
+                    }
+                });
+
+                Ok(pid)
+            }
+            Err(e) => {
+                let error_msg = format!("无法启动 Vite 服务器: {}", e);
+                println!("❌ [VueDevServer] {}", error_msg);
+                Err(error_msg.into())
+            }
+        }
+    }
+
+    fn open_preview_window_static(
+        app_handle: &AppHandle,
+        preview_id: &str,
+        port: u16,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let url = format!("http://localhost:{}", port);
+        println!("🪟 [VueWindow] 准备打开预览窗口: {}", url);
+
+        let window = WebviewWindowBuilder::new(
+            app_handle,
+            format!("vue-preview-{}", preview_id),
+            WebviewUrl::External(url.parse().unwrap()),
+        )
+        .title("Vue Component Preview - AIPP")
+        .inner_size(1024.0, 768.0)
+        .center()
+        .resizable(true)
+        .build();
+
+        match window {
+            Ok(_) => {
+                println!("✅ [VueWindow] Vue预览窗口创建成功");
+                Ok(())
+            }
+            Err(e) => {
+                let error_msg = format!("Vue预览窗口创建失败: {}", e);
+                println!("❌ [VueWindow] {}", error_msg);
+                Err(error_msg.into())
+            }
+        }
+    }
+
+    fn find_available_port(&self) -> Result<u16, Box<dyn std::error::Error>> {
+        use std::net::TcpListener;
+
+        for port in 3010..4000 {
+            // Check if port is available on both 127.0.0.1 and 0.0.0.0
+            let localhost_available = TcpListener::bind(("127.0.0.1", port)).is_ok();
+            let wildcard_available = TcpListener::bind(("0.0.0.0", port)).is_ok();
+            
+            if localhost_available && wildcard_available {
+                return Ok(port);
+            }
+        }
+
+        Err("No available port found".into())
+    }
+
+    fn get_template_path(&self) -> PathBuf {
+        // 获取应用资源目录中的模板路径
+        let resource_dir = self.app_handle.path().resource_dir().unwrap_or_else(|_| {
+            println!("⚠️ [VueTemplate] 无法获取资源目录，使用当前目录");
+            PathBuf::from(".")
+        });
+
+        let template_path = resource_dir
+            .join("artifacts")
+            .join("templates")
+            .join("vue");
+
+        println!("📁 [VueTemplate] 资源目录: {:?}", resource_dir);
+        println!("📁 [VueTemplate] 模板路径: {:?}", template_path);
+
+        template_path
+    }
+
+    fn kill_process(&self, pid: u32) -> Result<(), Box<dyn std::error::Error>> {
+        println!("🔧 [VuePreview] 执行 kill_process PID: {}", pid);
+        kill_process_by_pid(pid)
+    }
+
+    fn kill_process_group(&self, pid: u32) -> Result<(), Box<dyn std::error::Error>> {
+        println!("🔧 [VuePreview] 执行 kill_process_group PID: {}", pid);
+        kill_process_group_by_pid(pid)
+    }
+
+    fn kill_processes_by_port(&self, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+        println!("🔧 [VuePreview] 根据端口 {} 查找并终止进程", port);
+        kill_processes_by_port(port)
+    }
+}
+
+// 进程管理函数（从 react_preview.rs 复制过来）
+#[cfg(target_os = "windows")]
+fn kill_process_by_pid(pid: u32) -> Result<(), Box<dyn std::error::Error>> {
+    println!("🔧 [Windows] 尝试终止进程 PID: {}", pid);
+    let output = Command::new("taskkill")
+        .args(&["/F", "/PID", &pid.to_string()])
+        .output()?;
+    
+    if output.status.success() {
+        println!("✅ [Windows] taskkill 成功");
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        println!("❌ [Windows] taskkill 失败: {}", stderr);
+        return Err(format!("taskkill 失败: {}", stderr).into());
+    }
+    
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn kill_process_group_by_pid(pid: u32) -> Result<(), Box<dyn std::error::Error>> {
+    println!("🔧 [Windows] 尝试终止进程树 PID: {}", pid);
+    let output = Command::new("taskkill")
+        .args(&["/F", "/T", "/PID", &pid.to_string()])
+        .output()?;
+    
+    if output.status.success() {
+        println!("✅ [Windows] taskkill 进程树成功");
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        println!("❌ [Windows] taskkill 进程树失败: {}", stderr);
+        return Err(format!("taskkill 进程树失败: {}", stderr).into());
+    }
+    
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn kill_process_by_pid(pid: u32) -> Result<(), Box<dyn std::error::Error>> {
+    println!("🔧 [Unix] 尝试终止进程 PID: {}", pid);
+    
+    // 先检查进程是否存在
+    if !process_exists(pid) {
+        println!("✅ [Unix] 进程 PID {} 不存在或已终止", pid);
+        return Ok(());
+    }
+    
+    // 发送 TERM 信号
+    let output = Command::new("kill")
+        .args(&["-TERM", &pid.to_string()])
+        .output()?;
+    
+    if output.status.success() {
+        println!("✅ [Unix] kill -TERM 成功");
+        // 等待进程终止
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        
+        // 检查进程是否已经终止
+        if !process_exists(pid) {
+            println!("✅ [Unix] 进程 PID {} 已成功终止", pid);
+            return Ok(());
+        }
+        
+        // 进程仍然存在，发送 SIGKILL
+        println!("🔧 [Unix] 进程仍在运行，发送 SIGKILL");
+        let output = Command::new("kill")
+            .args(&["-9", &pid.to_string()])
+            .output()?;
+        
+        if output.status.success() {
+            println!("✅ [Unix] kill -9 成功");
+            // 再次检查进程状态
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            if !process_exists(pid) {
+                println!("✅ [Unix] 进程 PID {} 已被强制终止", pid);
+            } else {
+                println!("⚠️ [Unix] 进程 PID {} 可能仍在运行", pid);
+            }
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            println!("❌ [Unix] kill -9 失败: {}", stderr);
+        }
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        println!("❌ [Unix] kill -TERM 失败: {}", stderr);
+        return Err(format!("kill 失败: {}", stderr).into());
+    }
+    
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn process_exists(pid: u32) -> bool {
+    // 使用 kill -0 检查进程是否存在
+    Command::new("kill")
+        .args(&["-0", &pid.to_string()])
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn kill_process_group_by_pid(pid: u32) -> Result<(), Box<dyn std::error::Error>> {
+    println!("🔧 [Unix] 尝试终止进程组 PID: {}", pid);
+    
+    // 先检查进程组是否存在
+    if !process_exists(pid) {
+        println!("✅ [Unix] 进程组 PID {} 不存在或已终止", pid);
+        return Ok(());
+    }
+    
+    // 先尝试终止整个进程组
+    let output = Command::new("kill")
+        .args(&["-TERM", &format!("-{}", pid)])
+        .output()?;
+    
+    if output.status.success() {
+        println!("✅ [Unix] kill -TERM 进程组成功");
+        // 等待进程组终止
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        
+        // 检查进程组是否已经终止
+        if !process_exists(pid) {
+            println!("✅ [Unix] 进程组 PID {} 已成功终止", pid);
+            return Ok(());
+        }
+        
+        // 进程组仍然存在，强制终止
+        println!("🔧 [Unix] 进程组仍在运行，强制终止");
+        let output = Command::new("kill")
+            .args(&["-9", &format!("-{}", pid)])
+            .output()?;
+        
+        if output.status.success() {
+            println!("✅ [Unix] kill -9 进程组成功");
+            // 再次检查进程组状态
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            if !process_exists(pid) {
+                println!("✅ [Unix] 进程组 PID {} 已被强制终止", pid);
+            } else {
+                println!("⚠️ [Unix] 进程组 PID {} 可能仍在运行", pid);
+            }
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            println!("❌ [Unix] kill -9 进程组失败: {}", stderr);
+        }
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        println!("❌ [Unix] kill -TERM 进程组失败: {}", stderr);
+        return Err(format!("kill 进程组失败: {}", stderr).into());
+    }
+    
+    Ok(())
+}
+
+// 根据端口查找并终止进程
+#[cfg(target_os = "windows")]
+fn kill_processes_by_port(port: u16) -> Result<(), Box<dyn std::error::Error>> {
+    println!("🔧 [Windows] 查找端口 {} 上的进程", port);
+    
+    // 使用 netstat 查找占用端口的进程
+    let output = Command::new("netstat")
+        .args(&["-ano"])
+        .output()?;
+    
+    if !output.status.success() {
+        return Err("netstat 命令失败".into());
+    }
+    
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    let mut pids_to_kill = Vec::new();
+    
+    for line in output_str.lines() {
+        if line.contains(&format!(":{}", port)) && line.contains("LISTENING") {
+            // 解析 PID（最后一列）
+            if let Some(pid_str) = line.split_whitespace().last() {
+                if let Ok(pid) = pid_str.parse::<u32>() {
+                    pids_to_kill.push(pid);
+                    println!("🔧 [Windows] 找到占用端口 {} 的进程 PID: {}", port, pid);
+                }
+            }
+        }
+    }
+    
+    // 终止所有找到的进程
+    for pid in pids_to_kill {
+        println!("🔧 [Windows] 终止端口 {} 相关进程 PID: {}", port, pid);
+        let _ = kill_process_by_pid(pid); // 继续处理其他进程，即使某个失败
+    }
+    
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn kill_processes_by_port(port: u16) -> Result<(), Box<dyn std::error::Error>> {
+    println!("🔧 [Unix] 查找端口 {} 上的进程", port);
+    
+    // 使用 lsof 查找占用端口的进程
+    let output = Command::new("lsof")
+        .args(&["-ti", &format!(":{}", port)])
+        .output()?;
+    
+    if !output.status.success() {
+        println!("⚠️ [Unix] lsof 未找到端口 {} 上的进程", port);
+        return Ok(());
+    }
+    
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    let mut pids_to_kill = Vec::new();
+    
+    for line in output_str.lines() {
+        if let Ok(pid) = line.trim().parse::<u32>() {
+            pids_to_kill.push(pid);
+            println!("🔧 [Unix] 找到占用端口 {} 的进程 PID: {}", port, pid);
+        }
+    }
+    
+    // 终止所有找到的进程
+    for pid in pids_to_kill {
+        println!("🔧 [Unix] 终止端口 {} 相关进程 PID: {}", port, pid);
+        let _ = kill_process_by_pid(pid); // 继续处理其他进程，即使某个失败
+    }
+    
+    Ok(())
+}
+
+// Tauri 命令接口
+#[tauri::command]
+pub async fn create_vue_preview_for_artifact(
+    app_handle: AppHandle,
+    component_code: String,
+    component_name: String,
+) -> Result<String, String> {
+    let manager = VuePreviewManager::new(app_handle);
+    manager
+        .create_preview_for_artifact(component_code, component_name)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn create_vue_preview(
+    app_handle: AppHandle,
+    component_code: String,
+    component_name: String,
+) -> Result<String, String> {
+    let manager = VuePreviewManager::new(app_handle);
+    manager
+        .create_preview(component_code, component_name)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn close_vue_preview(app_handle: AppHandle, preview_id: String) -> Result<(), String> {
+    println!("🔧 [VuePreview] 关闭预览窗口: {}", preview_id);
+    let manager = VuePreviewManager::new(app_handle);
+    manager
+        .close_preview(&preview_id)
+        .map_err(|e| e.to_string())
+}

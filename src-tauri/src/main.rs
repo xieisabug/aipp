@@ -35,6 +35,7 @@ use crate::api::system_api::{
     save_feature_config,
 };
 use crate::artifacts::react_preview::{create_react_preview, create_react_preview_for_artifact, close_react_preview};
+use crate::artifacts::vue_preview::{create_vue_preview, create_vue_preview_for_artifact, close_vue_preview};
 use crate::db::assistant_db::AssistantDatabase;
 use crate::db::llm_db::LLMDatabase;
 use crate::db::system_db::SystemDatabase;
@@ -308,7 +309,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             preview_react_component,
             create_react_preview,
             create_react_preview_for_artifact,
-            close_react_preview
+            close_react_preview,
+            create_vue_preview,
+            create_vue_preview_for_artifact,
+            close_vue_preview
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -21,6 +21,7 @@ export default function ArtifactPreviewWindow() {
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [isPreviewReady, setIsPreviewReady] = useState(false);
     const [currentView, setCurrentView] = useState<'logs' | 'preview'>('logs');
+    const [previewType, setPreviewType] = useState<'react' | 'vue' | null>(null);
     const logsEndRef = useRef<HTMLDivElement | null>(null);
     const unlistenersRef = useRef<(() => void)[]>([]);
     const isRegisteredRef = useRef(false);
@@ -49,8 +50,16 @@ export default function ArtifactPreviewWindow() {
             isRegisteredRef.current = true;
 
             const addLog = (type: LogLine['type']) => (event: { payload: any }) => {
-                console.log('🔧 [ArtifactPreviewWindow] 添加日志', event.payload);
-                setLogs(prev => [...prev, { type, message: event.payload as string }]);
+                const message = event.payload as string;
+                console.log('🔧 [ArtifactPreviewWindow] 添加日志', message);
+                setLogs(prev => [...prev, { type, message }]);
+                
+                // 根据日志内容检测预览类型
+                if (message.includes('Vue') || message.includes('vue')) {
+                    setPreviewType('vue');
+                } else if (message.includes('React') || message.includes('react')) {
+                    setPreviewType('react');
+                }
             };
 
             const handleRedirect = (event: { payload: any }) => {
@@ -107,13 +116,21 @@ export default function ArtifactPreviewWindow() {
 
             try {
                 console.log('🔧 [ArtifactPreviewWindow] 窗口关闭，开始清理预览服务器');
-                // 调用后端API关闭React预览服务器
-                await invoke('close_react_preview', { previewId: 'react' });
+                
+                // 根据预览类型调用相应的关闭函数
+                if (previewType === 'vue') {
+                    console.log('🔧 [ArtifactPreviewWindow] 关闭Vue预览服务器');
+                    await invoke('close_vue_preview', { previewId: 'vue' });
+                } else {
+                    console.log('🔧 [ArtifactPreviewWindow] 关闭React预览服务器');
+                    await invoke('close_react_preview', { previewId: 'react' });
+                }
 
                 setLogs([]);
                 setPreviewUrl(null);
                 setIsPreviewReady(false);
                 setCurrentView('logs');
+                setPreviewType(null);
 
                 console.log('🔧 [ArtifactPreviewWindow] 预览服务器清理完成');
             } catch (error) {
