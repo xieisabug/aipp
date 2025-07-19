@@ -179,6 +179,16 @@ export default function ArtifactPreviewWindow() {
         }
     };
 
+    // 刷新iframe
+    const handleRefresh = () => {
+        if (previewUrl) {
+            // 移除现有的_refresh参数，然后添加新的时间戳
+            const url = new URL(previewUrl);
+            url.searchParams.set('_refresh', Date.now().toString());
+            setPreviewUrl(url.toString());
+        }
+    };
+
     return (
         <div className="flex h-screen bg-gray-100">
             <div className="flex flex-col flex-1 bg-white rounded-xl m-2 shadow-lg">
@@ -189,6 +199,13 @@ export default function ArtifactPreviewWindow() {
                             {currentView === 'logs' ? '日志视图' : `预览地址: ${previewUrl}`}
                         </div>
                         <div className="flex gap-2">
+                            <button
+                                onClick={handleRefresh}
+                                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
+                                title="刷新预览"
+                            >
+                                刷新
+                            </button>
                             <button
                                 onClick={handleOpenInBrowser}
                                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
