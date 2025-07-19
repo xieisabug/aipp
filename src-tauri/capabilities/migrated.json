@@ -15,7 +15,6 @@
     "config",
     "chat_ui",
     "plugin",
-    "preview_html",
     "preview_react",
     "preview_vue",
     "artifact_preview"
