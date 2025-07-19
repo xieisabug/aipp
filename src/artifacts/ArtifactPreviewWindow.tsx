@@ -25,6 +25,12 @@ export default function ArtifactPreviewWindow() {
     const logsEndRef = useRef<HTMLDivElement | null>(null);
     const unlistenersRef = useRef<(() => void)[]>([]);
     const isRegisteredRef = useRef(false);
+    const previewTypeRef = useRef<'react' | 'vue' | null>(null);
+
+    // 同步 previewType 到 ref
+    useEffect(() => {
+        previewTypeRef.current = previewType;
+    }, [previewType]);
 
     // 自动滚动到底部
     useEffect(() => {
@@ -53,7 +59,7 @@ export default function ArtifactPreviewWindow() {
                 const message = event.payload as string;
                 console.log('🔧 [ArtifactPreviewWindow] 添加日志', message);
                 setLogs(prev => [...prev, { type, message }]);
-                
+
                 // 根据日志内容检测预览类型
                 if (message.includes('Vue') || message.includes('vue')) {
                     setPreviewType('vue');
@@ -116,9 +122,9 @@ export default function ArtifactPreviewWindow() {
 
             try {
                 console.log('🔧 [ArtifactPreviewWindow] 窗口关闭，开始清理预览服务器');
-                
+                debugger;
                 // 根据预览类型调用相应的关闭函数
-                if (previewType === 'vue') {
+                if (previewTypeRef.current === 'vue') {
                     console.log('🔧 [ArtifactPreviewWindow] 关闭Vue预览服务器');
                     await invoke('close_vue_preview', { previewId: 'vue' });
                 } else {
@@ -246,7 +252,7 @@ export default function ArtifactPreviewWindow() {
                                 ))}
                                 <div ref={logsEndRef} />
                             </div>
-                            
+
                             {/* 如果预览准备好了，显示提示 */}
                             {isPreviewReady && previewUrl && (
                                 <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded">
