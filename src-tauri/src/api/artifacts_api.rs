@@ -15,7 +15,7 @@ use crate::{
         vue_preview::create_vue_preview_for_artifact,
     },
     errors::AppError,
-    window::{open_preview_html_window, open_preview_react_window, open_preview_vue_window},
+    window::{open_preview_react_window, open_preview_vue_window},
 };
 
 // 检查是否是完整的 React 组件代码
@@ -179,13 +179,11 @@ pub async fn run_artifacts(
             if let Some(window) = app_handle.get_webview_window("artifact_preview") {
                 let _ = window.emit("artifact-log", format!("准备预览 {} 内容...", lang));
             }
-            let _ = open_preview_html_window(app_handle.clone(), input_str.to_string()).await;
+            
+            // 发送 HTML/SVG/XML 内容到前端
             if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-success", "HTML/SVG/XML 预览已准备完成");
-            }
-            // 发送跳转事件，让前端窗口自动跳转
-            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-redirect", "预览已准备完成");
+                let _ = window.emit("artifact-log", format!("{} content: {}", lang, input_str));
+                let _ = window.emit("artifact-success", format!("{} 预览已准备完成", lang.to_uppercase()));
             }
         }
         "react" | "jsx" => {

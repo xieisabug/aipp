@@ -393,43 +393,6 @@ pub async fn open_preview_frontend_window(app_handle: AppHandle) -> Result<(), S
     Ok(())
 }
 
-pub async fn open_preview_html_window(app_handle: AppHandle, html: String) -> Result<(), String> {
-    let window_builder = WebviewWindowBuilder::new(
-        &app_handle,
-        "preview_html",
-        WebviewUrl::App("index.html".into()),
-    )
-    .title("Aipp")
-    .inner_size(1000.0, 800.0)
-    .fullscreen(false)
-    .resizable(true)
-    .decorations(true)
-    .center();
-
-    #[cfg(not(target_os = "macos"))]
-    let window_builder = window_builder.transparent(false);
-
-    match window_builder.build() {
-        Ok(window) => {
-            let window_clone = window.clone();
-            window.on_window_event(move |event| {
-                if let WindowEvent::CloseRequested { .. } = event {
-                    window_clone.hide().unwrap();
-                }
-            });
-
-            let window = app_handle.get_webview_window("preview_html").unwrap();
-
-            window.clone().once("preview-window-load", move |_| {
-                window.emit("preview_html", html.clone()).unwrap();
-            });
-        }
-        Err(e) => eprintln!("Failed to build window: {}", e),
-    }
-
-    Ok(())
-}
-
 #[derive(Serialize, Deserialize)]
 struct ReactComponentPayload {
     code: String,

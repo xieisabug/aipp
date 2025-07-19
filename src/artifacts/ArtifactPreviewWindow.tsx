@@ -22,13 +22,14 @@ export default function ArtifactPreviewWindow() {
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [isPreviewReady, setIsPreviewReady] = useState(false);
     const [currentView, setCurrentView] = useState<'logs' | 'preview'>('logs');
-    const [previewType, setPreviewType] = useState<'react' | 'vue' | 'mermaid' | null>(null);
+    const [previewType, setPreviewType] = useState<'react' | 'vue' | 'mermaid' | 'html' | 'svg' | 'xml' | null>(null);
     const logsEndRef = useRef<HTMLDivElement | null>(null);
     const unlistenersRef = useRef<(() => void)[]>([]);
     const isRegisteredRef = useRef(false);
-    const previewTypeRef = useRef<'react' | 'vue' | 'mermaid' | null>(null);
+    const previewTypeRef = useRef<'react' | 'vue' | 'mermaid' | 'html' | 'svg' | 'xml' | null>(null);
     const mermaidContainerRef = useRef<HTMLDivElement | null>(null);
     const [mermaidContent, setMermaidContent] = useState<string>('');
+    const [htmlContent, setHtmlContent] = useState<string>('');
     const [mermaidScale, setMermaidScale] = useState<number>(1);
     const [mermaidPosition, setMermaidPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
     const [isDragging, setIsDragging] = useState<boolean>(false);
@@ -173,7 +174,7 @@ export default function ArtifactPreviewWindow() {
 
     // 当预览准备好时，切换到预览视图
     useEffect(() => {
-        if (isPreviewReady && (previewUrl || previewType === 'mermaid')) {
+        if (isPreviewReady && (previewUrl || previewType === 'mermaid' || previewType === 'html' || previewType === 'svg' || previewType === 'xml')) {
             setCurrentView('preview');
         }
     }, [isPreviewReady, previewUrl, previewType]);
@@ -204,6 +205,27 @@ export default function ArtifactPreviewWindow() {
                     const mermaidMatch = message.match(/mermaid content: ([\s\S]+)/);
                     if (mermaidMatch && mermaidMatch[1]) {
                         setMermaidContent(mermaidMatch[1]);
+                        setIsPreviewReady(true);
+                    }
+                } else if (message.includes('html content:')) {
+                    setPreviewType('html');
+                    const htmlMatch = message.match(/html content: ([\s\S]+)/);
+                    if (htmlMatch && htmlMatch[1]) {
+                        setHtmlContent(htmlMatch[1]);
+                        setIsPreviewReady(true);
+                    }
+                } else if (message.includes('svg content:')) {
+                    setPreviewType('svg');
+                    const svgMatch = message.match(/svg content: ([\s\S]+)/);
+                    if (svgMatch && svgMatch[1]) {
+                        setHtmlContent(svgMatch[1]);
+                        setIsPreviewReady(true);
+                    }
+                } else if (message.includes('xml content:')) {
+                    setPreviewType('xml');
+                    const xmlMatch = message.match(/xml content: ([\s\S]+)/);
+                    if (xmlMatch && xmlMatch[1]) {
+                        setHtmlContent(xmlMatch[1]);
                         setIsPreviewReady(true);
                     }
                 }
@@ -261,8 +283,8 @@ export default function ArtifactPreviewWindow() {
                 // 根据预览类型调用相应的关闭函数
                 if (previewTypeRef.current === 'vue') {
                     await invoke('close_vue_preview', { previewId: 'vue' });
-                } else if (previewTypeRef.current === 'mermaid') {
-                    // Mermaid 不需要服务器清理，只需要清除DOM
+                } else if (previewTypeRef.current === 'mermaid' || previewTypeRef.current === 'html' || previewTypeRef.current === 'svg' || previewTypeRef.current === 'xml') {
+                    // Mermaid/HTML/SVG/XML 不需要服务器清理，只需要清除DOM
                 } else {
                     await invoke('close_react_preview', { previewId: 'react' });
                 }
@@ -273,6 +295,7 @@ export default function ArtifactPreviewWindow() {
                 setCurrentView('logs');
                 setPreviewType(null);
                 setMermaidContent('');
+                setHtmlContent('');
 
             } catch (error) {
             }
@@ -329,15 +352,18 @@ export default function ArtifactPreviewWindow() {
         <div className="flex h-screen bg-gray-100">
             <div className="flex flex-col flex-1 bg-white rounded-xl m-2 shadow-lg">
                 {/* 顶部工具栏 */}
-                {isPreviewReady && (previewUrl || previewType === 'mermaid') && (
+                {isPreviewReady && (previewUrl || previewType === 'mermaid' || previewType === 'html' || previewType === 'svg' || previewType === 'xml') && (
                     <div className="flex-shrink-0 p-4 border-b flex items-center justify-between">
                         <div className="text-sm text-gray-600">
                             {currentView === 'logs' ? '日志视图' :
                                 previewType === 'mermaid' ? 'Mermaid 图表预览' :
-                                    `预览地址: ${previewUrl}`}
+                                    previewType === 'html' ? 'HTML 预览' :
+                                        previewType === 'svg' ? 'SVG 预览' :
+                                            previewType === 'xml' ? 'XML 预览' :
+                                                `预览地址: ${previewUrl}`}
                         </div>
                         <div className="flex gap-2">
-                            {previewType !== 'mermaid' && (
+                            {previewType !== 'mermaid' && previewType !== 'html' && previewType !== 'svg' && previewType !== 'xml' && (
                                 <>
                                     <button
                                         onClick={handleRefresh}
@@ -390,7 +416,7 @@ export default function ArtifactPreviewWindow() {
                             </div>
 
                             {/* 如果预览准备好了，显示提示 */}
-                            {isPreviewReady && (previewUrl || previewType === 'mermaid') && (
+                            {isPreviewReady && (previewUrl || previewType === 'mermaid' || previewType === 'html' || previewType === 'svg' || previewType === 'xml') && (
                                 <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded">
                                     <p className="text-green-700 text-sm">
                                         ✅ 预览准备完成，即将自动切换到预览视图...
@@ -447,6 +473,17 @@ export default function ArtifactPreviewWindow() {
                                         </div>
                                     </div>
                                 </div>
+                            ) : previewType === 'html' || previewType === 'svg' || previewType === 'xml' ? (
+                                /* HTML/SVG/XML 预览 */
+                                <iframe
+                                    srcDoc={htmlContent}
+                                    className="flex-1 w-full border-0"
+                                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation"
+                                    style={{
+                                        minHeight: '400px',
+                                        backgroundColor: 'white'
+                                    }}
+                                />
                             ) : (
                                 /* iframe 预览 - 用于 React 和 Vue */
                                 <iframe
