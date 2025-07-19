@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { open } from '@tauri-apps/plugin-shell';
+import mermaid from 'mermaid';
 import '../styles/ArtifactPreviewWIndow.css';
 
 interface LogLine {
@@ -21,28 +22,161 @@ export default function ArtifactPreviewWindow() {
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [isPreviewReady, setIsPreviewReady] = useState(false);
     const [currentView, setCurrentView] = useState<'logs' | 'preview'>('logs');
-    const [previewType, setPreviewType] = useState<'react' | 'vue' | null>(null);
+    const [previewType, setPreviewType] = useState<'react' | 'vue' | 'mermaid' | null>(null);
     const logsEndRef = useRef<HTMLDivElement | null>(null);
     const unlistenersRef = useRef<(() => void)[]>([]);
     const isRegisteredRef = useRef(false);
-    const previewTypeRef = useRef<'react' | 'vue' | null>(null);
+    const previewTypeRef = useRef<'react' | 'vue' | 'mermaid' | null>(null);
+    const mermaidContainerRef = useRef<HTMLDivElement | null>(null);
+    const [mermaidContent, setMermaidContent] = useState<string>('');
+    const [mermaidScale, setMermaidScale] = useState<number>(1);
+    const [mermaidPosition, setMermaidPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+    const [isDragging, setIsDragging] = useState<boolean>(false);
+    const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+    const [isSpacePressed, setIsSpacePressed] = useState<boolean>(false);
 
     // 同步 previewType 到 ref
     useEffect(() => {
         previewTypeRef.current = previewType;
     }, [previewType]);
 
+    // 初始化 mermaid
+    useEffect(() => {
+        mermaid.initialize({
+            startOnLoad: false,
+            theme: 'default',
+            securityLevel: 'loose',
+            fontFamily: 'monospace'
+        });
+    }, []);
+
     // 自动滚动到底部
     useEffect(() => {
         logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [logs]);
 
+    // 渲染 mermaid 图表
+    useEffect(() => {
+
+        // 确保在预览视图且是 mermaid 类型时才渲染
+        if (previewType === 'mermaid' && currentView === 'preview' && mermaidContent && mermaidContainerRef.current) {
+            const renderMermaid = async () => {
+                try {
+                    const container = mermaidContainerRef.current;
+                    if (!container) return;
+
+                    // 找到内部的可缩放容器
+                    const innerContainer = container.querySelector('div > div') as HTMLDivElement;
+                    if (!innerContainer) return;
+
+                    // 清空容器
+                    innerContainer.innerHTML = '';
+
+                    // 创建一个唯一的ID
+                    const id = `mermaid-${Date.now()}`;
+
+                    // 验证 mermaid 内容
+                    if (!mermaidContent.trim()) {
+                        innerContainer.innerHTML = '<div class="text-red-500 p-4">Mermaid 内容为空</div>';
+                        return;
+                    }
+
+                    // 渲染图表
+                    const { svg } = await mermaid.render(id, mermaidContent.trim());
+                    innerContainer.innerHTML = svg;
+
+                    // 设置 SVG 样式以适应容器
+                    const svgElement = innerContainer.querySelector('svg');
+                    if (svgElement) {
+                        svgElement.style.maxWidth = 'none';
+                        svgElement.style.maxHeight = 'none';
+                        svgElement.style.width = 'auto';
+                        svgElement.style.height = 'auto';
+                    }
+                } catch (error) {
+                    const container = mermaidContainerRef.current;
+                    if (container) {
+                        const innerContainer = container.querySelector('div > div') as HTMLDivElement;
+                        if (innerContainer) {
+                            innerContainer.innerHTML = `<div class="text-red-500 p-4">渲染失败: ${error}</div>`;
+                        }
+                    }
+                }
+            };
+
+            // 延迟渲染，确保 DOM 已准备好
+            setTimeout(renderMermaid, 200);
+        }
+    }, [previewType, currentView, mermaidContent]);
+
+    // 处理Mermaid图表的交互事件
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.code === 'Space' && previewType === 'mermaid' && currentView === 'preview') {
+                e.preventDefault();
+                setIsSpacePressed(true);
+            }
+        };
+
+        const handleKeyUp = (e: KeyboardEvent) => {
+            if (e.code === 'Space') {
+                setIsSpacePressed(false);
+                setIsDragging(false);
+            }
+        };
+
+        const handleWheel = (e: WheelEvent) => {
+            if (previewType === 'mermaid' && currentView === 'preview' && mermaidContainerRef.current?.contains(e.target as Node)) {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                setMermaidScale(prevScale => Math.max(0.1, Math.min(3, prevScale + delta)));
+            }
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
+        document.addEventListener('keyup', handleKeyUp);
+        document.addEventListener('wheel', handleWheel, { passive: false });
+
+        return () => {
+            document.removeEventListener('keydown', handleKeyDown);
+            document.removeEventListener('keyup', handleKeyUp);
+            document.removeEventListener('wheel', handleWheel);
+        };
+    }, [previewType, currentView]);
+
+    // 处理鼠标拖动
+    const handleMouseDown = (e: React.MouseEvent) => {
+        if (isSpacePressed && previewType === 'mermaid') {
+            setIsDragging(true);
+            setDragStart({ x: e.clientX - mermaidPosition.x, y: e.clientY - mermaidPosition.y });
+        }
+    };
+
+    const handleMouseMove = (e: React.MouseEvent) => {
+        if (isDragging && isSpacePressed) {
+            setMermaidPosition({
+                x: e.clientX - dragStart.x,
+                y: e.clientY - dragStart.y
+            });
+        }
+    };
+
+    const handleMouseUp = () => {
+        setIsDragging(false);
+    };
+
+    // 重置Mermaid缩放和位置
+    const resetMermaidView = () => {
+        setMermaidScale(1);
+        setMermaidPosition({ x: 0, y: 0 });
+    };
+
     // 当预览准备好时，切换到预览视图
     useEffect(() => {
-        if (isPreviewReady && previewUrl) {
+        if (isPreviewReady && (previewUrl || previewType === 'mermaid')) {
             setCurrentView('preview');
         }
-    }, [isPreviewReady, previewUrl]);
+    }, [isPreviewReady, previewUrl, previewType]);
 
     // 注册事件监听
     useEffect(() => {
@@ -57,7 +191,6 @@ export default function ArtifactPreviewWindow() {
 
             const addLog = (type: LogLine['type']) => (event: { payload: any }) => {
                 const message = event.payload as string;
-                console.log('🔧 [ArtifactPreviewWindow] 添加日志', message);
                 setLogs(prev => [...prev, { type, message }]);
 
                 // 根据日志内容检测预览类型
@@ -65,17 +198,23 @@ export default function ArtifactPreviewWindow() {
                     setPreviewType('vue');
                 } else if (message.includes('React') || message.includes('react')) {
                     setPreviewType('react');
+                } else if (message.includes('Mermaid') || message.includes('mermaid')) {
+                    setPreviewType('mermaid');
+                    // 如果是 mermaid，从日志中提取内容
+                    const mermaidMatch = message.match(/mermaid content: ([\s\S]+)/);
+                    if (mermaidMatch && mermaidMatch[1]) {
+                        setMermaidContent(mermaidMatch[1]);
+                        setIsPreviewReady(true);
+                    }
                 }
             };
 
             const handleRedirect = (event: { payload: any }) => {
                 const url = event.payload as string;
-                console.log('🔧 [ArtifactPreviewWindow] 收到预览 URL:', url);
                 setPreviewUrl(url);
                 setIsPreviewReady(true);
             };
 
-            console.log('🔧 [ArtifactPreviewWindow] 注册事件监听');
 
             try {
                 const unlisteners = await Promise.all([
@@ -93,7 +232,6 @@ export default function ArtifactPreviewWindow() {
 
                 unlistenersRef.current = unlisteners;
             } catch (error) {
-                console.error('注册事件监听失败:', error);
                 isRegisteredRef.current = false;
             }
         };
@@ -101,7 +239,6 @@ export default function ArtifactPreviewWindow() {
         registerListeners();
 
         return () => {
-            console.log('🔧 [ArtifactPreviewWindow] 卸载事件监听');
             isCancelled = true;
             unlistenersRef.current.forEach((fn) => fn());
             unlistenersRef.current = [];
@@ -121,14 +258,12 @@ export default function ArtifactPreviewWindow() {
             isCleanupDone = true;
 
             try {
-                console.log('🔧 [ArtifactPreviewWindow] 窗口关闭，开始清理预览服务器');
-                debugger;
                 // 根据预览类型调用相应的关闭函数
                 if (previewTypeRef.current === 'vue') {
-                    console.log('🔧 [ArtifactPreviewWindow] 关闭Vue预览服务器');
                     await invoke('close_vue_preview', { previewId: 'vue' });
+                } else if (previewTypeRef.current === 'mermaid') {
+                    // Mermaid 不需要服务器清理，只需要清除DOM
                 } else {
-                    console.log('🔧 [ArtifactPreviewWindow] 关闭React预览服务器');
                     await invoke('close_react_preview', { previewId: 'react' });
                 }
 
@@ -137,10 +272,9 @@ export default function ArtifactPreviewWindow() {
                 setIsPreviewReady(false);
                 setCurrentView('logs');
                 setPreviewType(null);
+                setMermaidContent('');
 
-                console.log('🔧 [ArtifactPreviewWindow] 预览服务器清理完成');
             } catch (error) {
-                console.error('🔧 [ArtifactPreviewWindow] 清理预览服务器失败:', error);
             }
         };
 
@@ -148,9 +282,7 @@ export default function ArtifactPreviewWindow() {
         const setupCloseListener = async () => {
             try {
                 unlistenCloseRequested = await currentWindow.onCloseRequested(cleanup);
-                console.log('🔧 [ArtifactPreviewWindow] 窗口关闭监听器已注册');
             } catch (error) {
-                console.error('🔧 [ArtifactPreviewWindow] 注册窗口关闭监听器失败:', error);
             }
         };
 
@@ -160,7 +292,6 @@ export default function ArtifactPreviewWindow() {
         return () => {
             if (unlistenCloseRequested) {
                 unlistenCloseRequested();
-                console.log('🔧 [ArtifactPreviewWindow] 窗口关闭监听器已移除');
             }
             // 组件卸载时也执行清理
             if (!isCleanupDone) {
@@ -180,7 +311,6 @@ export default function ArtifactPreviewWindow() {
             try {
                 await open(previewUrl);
             } catch (error) {
-                console.error('打开浏览器失败:', error);
             }
         }
     };
@@ -199,26 +329,32 @@ export default function ArtifactPreviewWindow() {
         <div className="flex h-screen bg-gray-100">
             <div className="flex flex-col flex-1 bg-white rounded-xl m-2 shadow-lg">
                 {/* 顶部工具栏 */}
-                {isPreviewReady && previewUrl && (
+                {isPreviewReady && (previewUrl || previewType === 'mermaid') && (
                     <div className="flex-shrink-0 p-4 border-b flex items-center justify-between">
                         <div className="text-sm text-gray-600">
-                            {currentView === 'logs' ? '日志视图' : `预览地址: ${previewUrl}`}
+                            {currentView === 'logs' ? '日志视图' :
+                                previewType === 'mermaid' ? 'Mermaid 图表预览' :
+                                    `预览地址: ${previewUrl}`}
                         </div>
                         <div className="flex gap-2">
-                            <button
-                                onClick={handleRefresh}
-                                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
-                                title="刷新预览"
-                            >
-                                刷新
-                            </button>
-                            <button
-                                onClick={handleOpenInBrowser}
-                                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
-                                title="在浏览器中打开"
-                            >
-                                打开浏览器
-                            </button>
+                            {previewType !== 'mermaid' && (
+                                <>
+                                    <button
+                                        onClick={handleRefresh}
+                                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
+                                        title="刷新预览"
+                                    >
+                                        刷新
+                                    </button>
+                                    <button
+                                        onClick={handleOpenInBrowser}
+                                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
+                                        title="在浏览器中打开"
+                                    >
+                                        打开浏览器
+                                    </button>
+                                </>
+                            )}
                             <button
                                 onClick={handleToggleView}
                                 className="px-6 py-2 bg-gray-800 hover:bg-gray-900 text-white shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
@@ -254,7 +390,7 @@ export default function ArtifactPreviewWindow() {
                             </div>
 
                             {/* 如果预览准备好了，显示提示 */}
-                            {isPreviewReady && previewUrl && (
+                            {isPreviewReady && (previewUrl || previewType === 'mermaid') && (
                                 <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded">
                                     <p className="text-green-700 text-sm">
                                         ✅ 预览准备完成，即将自动切换到预览视图...
@@ -263,19 +399,66 @@ export default function ArtifactPreviewWindow() {
                             )}
                         </div>
                     ) : (
-                        /* 预览视图 - 全屏 iframe */
+                        /* 预览视图 - 根据类型显示不同内容 */
                         <div className="flex-1 flex flex-col">
-                            <iframe
-                                src={previewUrl || ''}
-                                className="flex-1 w-full border-0"
-                                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation"
-                                onLoad={() => {
-                                    console.log('🔧 [ArtifactPreviewWindow] iframe 加载完成');
-                                }}
-                                onError={(e) => {
-                                    console.error('🔧 [ArtifactPreviewWindow] iframe 加载失败:', e);
-                                }}
-                            />
+                            {previewType === 'mermaid' ? (
+                                /* Mermaid 图表预览 */
+                                <div className="flex-1 flex flex-col p-4">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <div className="text-sm text-gray-600">
+                                            缩放: {Math.round(mermaidScale * 100)}% | 提示: 滚轮缩放，空格键+拖动
+                                        </div>
+                                        <button
+                                            onClick={resetMermaidView}
+                                            className="px-3 py-1 bg-gray-600 hover:bg-gray-700 text-white text-xs rounded transition-colors"
+                                        >
+                                            重置视图
+                                        </button>
+                                    </div>
+                                    <div
+                                        ref={mermaidContainerRef}
+                                        className={`flex-1 bg-white border rounded-lg shadow-sm overflow-hidden relative ${
+                                            isSpacePressed ? 'cursor-grab' : 'cursor-default'
+                                        } ${isDragging ? 'cursor-grabbing' : ''}`}
+                                        onMouseDown={handleMouseDown}
+                                        onMouseMove={handleMouseMove}
+                                        onMouseUp={handleMouseUp}
+                                        onMouseLeave={handleMouseUp}
+                                        style={{
+                                            minHeight: '400px',
+                                            maxHeight: 'calc(100vh - 200px)',
+                                            overflow: 'auto'
+                                        }}
+                                    >
+                                        <div
+                                            style={{
+                                                transform: `scale(${mermaidScale}) translate(${mermaidPosition.x}px, ${mermaidPosition.y}px)`,
+                                                transformOrigin: 'center center',
+                                                transition: isDragging ? 'none' : 'transform 0.1s ease-out',
+                                                display: 'flex',
+                                                justifyContent: 'center',
+                                                alignItems: 'center',
+                                                minWidth: '100%',
+                                                minHeight: '100%',
+                                                padding: '20px'
+                                            }}
+                                        >
+                                            {/* Mermaid SVG 将被渲染在这里 */}
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                /* iframe 预览 - 用于 React 和 Vue */
+                                <iframe
+                                    src={previewUrl || ''}
+                                    className="flex-1 w-full border-0"
+                                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation"
+                                    onLoad={() => {
+                                    }}
+                                    onError={() => {
+                                    }}
+                                />
+                            )}
                         </div>
                     )}
                 </div>

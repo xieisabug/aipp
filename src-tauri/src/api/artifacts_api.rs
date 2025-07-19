@@ -164,6 +164,17 @@ pub async fn run_artifacts(
                 AppError::RunCodeError(error_msg)
             })?);
         }
+        "mermaid" => {
+            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                let _ = window.emit("artifact-log", "准备预览 Mermaid 图表...");
+            }
+            
+            // 发送 mermaid 内容到前端
+            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                let _ = window.emit("artifact-log", format!("mermaid content: {}", input_str));
+                let _ = window.emit("artifact-success", "Mermaid 图表预览已准备完成");
+            }
+        }
         "xml" | "svg" | "html" => {
             if let Some(window) = app_handle.get_webview_window("artifact_preview") {
                 let _ = window.emit("artifact-log", format!("准备预览 {} 内容...", lang));
