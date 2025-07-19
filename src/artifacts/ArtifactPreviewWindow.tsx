@@ -4,7 +4,15 @@ import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { open } from '@tauri-apps/plugin-shell';
 import mermaid from 'mermaid';
+import ReactMarkdown from 'react-markdown';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import remarkMath from 'remark-math';
+import remarkBreaks from 'remark-breaks';
+import rehypeKatex from 'rehype-katex';
+import rehypeRaw from 'rehype-raw';
 import '../styles/ArtifactPreviewWIndow.css';
+import 'katex/dist/katex.min.css';
 
 interface LogLine {
     type: 'log' | 'error' | 'success';
@@ -22,14 +30,15 @@ export default function ArtifactPreviewWindow() {
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [isPreviewReady, setIsPreviewReady] = useState(false);
     const [currentView, setCurrentView] = useState<'logs' | 'preview'>('logs');
-    const [previewType, setPreviewType] = useState<'react' | 'vue' | 'mermaid' | 'html' | 'svg' | 'xml' | null>(null);
+    const [previewType, setPreviewType] = useState<'react' | 'vue' | 'mermaid' | 'html' | 'svg' | 'xml' | 'markdown' | 'md' | null>(null);
     const logsEndRef = useRef<HTMLDivElement | null>(null);
     const unlistenersRef = useRef<(() => void)[]>([]);
     const isRegisteredRef = useRef(false);
-    const previewTypeRef = useRef<'react' | 'vue' | 'mermaid' | 'html' | 'svg' | 'xml' | null>(null);
+    const previewTypeRef = useRef<'react' | 'vue' | 'mermaid' | 'html' | 'svg' | 'xml' | 'markdown' | 'md' | null>(null);
     const mermaidContainerRef = useRef<HTMLDivElement | null>(null);
     const [mermaidContent, setMermaidContent] = useState<string>('');
     const [htmlContent, setHtmlContent] = useState<string>('');
+    const [markdownContent, setMarkdownContent] = useState<string>('');
     const [mermaidScale, setMermaidScale] = useState<number>(1);
     const [mermaidPosition, setMermaidPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
     const [isDragging, setIsDragging] = useState<boolean>(false);
@@ -174,7 +183,7 @@ export default function ArtifactPreviewWindow() {
 
     // 当预览准备好时，切换到预览视图
     useEffect(() => {
-        if (isPreviewReady && (previewUrl || previewType === 'mermaid' || previewType === 'html' || previewType === 'svg' || previewType === 'xml')) {
+        if (isPreviewReady && (previewUrl || previewType === 'mermaid' || previewType === 'html' || previewType === 'svg' || previewType === 'xml' || previewType === 'markdown' || previewType === 'md')) {
             setCurrentView('preview');
         }
     }, [isPreviewReady, previewUrl, previewType]);
@@ -226,6 +235,14 @@ export default function ArtifactPreviewWindow() {
                     const xmlMatch = message.match(/xml content: ([\s\S]+)/);
                     if (xmlMatch && xmlMatch[1]) {
                         setHtmlContent(xmlMatch[1]);
+                        setIsPreviewReady(true);
+                    }
+                } else if (message.includes('markdown content:') || message.includes('md content:')) {
+                    const type = message.includes('markdown content:') ? 'markdown' : 'md';
+                    setPreviewType(type);
+                    const contentMatch = message.match(/(markdown|md) content: ([\s\S]+)/);
+                    if (contentMatch && contentMatch[2]) {
+                        setMarkdownContent(contentMatch[2]);
                         setIsPreviewReady(true);
                     }
                 }
@@ -283,8 +300,8 @@ export default function ArtifactPreviewWindow() {
                 // 根据预览类型调用相应的关闭函数
                 if (previewTypeRef.current === 'vue') {
                     await invoke('close_vue_preview', { previewId: 'vue' });
-                } else if (previewTypeRef.current === 'mermaid' || previewTypeRef.current === 'html' || previewTypeRef.current === 'svg' || previewTypeRef.current === 'xml') {
-                    // Mermaid/HTML/SVG/XML 不需要服务器清理，只需要清除DOM
+                } else if (previewTypeRef.current === 'mermaid' || previewTypeRef.current === 'html' || previewTypeRef.current === 'svg' || previewTypeRef.current === 'xml' || previewTypeRef.current === 'markdown' || previewTypeRef.current === 'md') {
+                    // Mermaid/HTML/SVG/XML/Markdown 不需要服务器清理，只需要清除DOM
                 } else {
                     await invoke('close_react_preview', { previewId: 'react' });
                 }
@@ -296,6 +313,7 @@ export default function ArtifactPreviewWindow() {
                 setPreviewType(null);
                 setMermaidContent('');
                 setHtmlContent('');
+                setMarkdownContent('');
 
             } catch (error) {
             }
@@ -352,7 +370,7 @@ export default function ArtifactPreviewWindow() {
         <div className="flex h-screen bg-gray-100">
             <div className="flex flex-col flex-1 bg-white rounded-xl m-2 shadow-lg">
                 {/* 顶部工具栏 */}
-                {isPreviewReady && (previewUrl || previewType === 'mermaid' || previewType === 'html' || previewType === 'svg' || previewType === 'xml') && (
+                {isPreviewReady && (previewUrl || previewType === 'mermaid' || previewType === 'html' || previewType === 'svg' || previewType === 'xml' || previewType === 'markdown' || previewType === 'md') && (
                     <div className="flex-shrink-0 p-4 border-b flex items-center justify-between">
                         <div className="text-sm text-gray-600">
                             {currentView === 'logs' ? '日志视图' :
@@ -360,10 +378,11 @@ export default function ArtifactPreviewWindow() {
                                     previewType === 'html' ? 'HTML 预览' :
                                         previewType === 'svg' ? 'SVG 预览' :
                                             previewType === 'xml' ? 'XML 预览' :
-                                                `预览地址: ${previewUrl}`}
+                                                previewType === 'markdown' || previewType === 'md' ? 'Markdown 预览' :
+                                                    `预览地址: ${previewUrl}`}
                         </div>
                         <div className="flex gap-2">
-                            {previewType !== 'mermaid' && previewType !== 'html' && previewType !== 'svg' && previewType !== 'xml' && (
+                            {previewType !== 'mermaid' && previewType !== 'html' && previewType !== 'svg' && previewType !== 'xml' && previewType !== 'markdown' && previewType !== 'md' && (
                                 <>
                                     <button
                                         onClick={handleRefresh}
@@ -416,7 +435,7 @@ export default function ArtifactPreviewWindow() {
                             </div>
 
                             {/* 如果预览准备好了，显示提示 */}
-                            {isPreviewReady && (previewUrl || previewType === 'mermaid' || previewType === 'html' || previewType === 'svg' || previewType === 'xml') && (
+                            {isPreviewReady && (previewUrl || previewType === 'mermaid' || previewType === 'html' || previewType === 'svg' || previewType === 'xml' || previewType === 'markdown' || previewType === 'md') && (
                                 <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded">
                                     <p className="text-green-700 text-sm">
                                         ✅ 预览准备完成，即将自动切换到预览视图...
@@ -471,6 +490,38 @@ export default function ArtifactPreviewWindow() {
                                         >
                                             {/* Mermaid SVG 将被渲染在这里 */}
                                         </div>
+                                    </div>
+                                </div>
+                            ) : previewType === 'markdown' || previewType === 'md' ? (
+                                /* Markdown 预览 */
+                                <div className="flex-1 overflow-auto bg-white p-6">
+                                    <div className="prose prose-lg max-w-none dark:prose-invert">
+                                        <ReactMarkdown
+                                            remarkPlugins={[remarkMath, remarkBreaks]}
+                                            rehypePlugins={[rehypeKatex, rehypeRaw]}
+                                            components={{
+                                                code({ className, children, ...props }: any) {
+                                                    const match = /language-(\w+)/.exec(className || '');
+                                                    const isInline = !match;
+                                                    return !isInline ? (
+                                                        <SyntaxHighlighter
+                                                            style={oneDark as any}
+                                                            language={match[1]}
+                                                            PreTag="div"
+                                                            {...props}
+                                                        >
+                                                            {String(children).replace(/\n$/, '')}
+                                                        </SyntaxHighlighter>
+                                                    ) : (
+                                                        <code className={className} {...props}>
+                                                            {children}
+                                                        </code>
+                                                    );
+                                                }
+                                            }}
+                                        >
+                                            {markdownContent}
+                                        </ReactMarkdown>
                                     </div>
                                 </div>
                             ) : previewType === 'html' || previewType === 'svg' || previewType === 'xml' ? (

@@ -175,12 +175,12 @@ pub async fn run_artifacts(
                 let _ = window.emit("artifact-success", "Mermaid 图表预览已准备完成");
             }
         }
-        "xml" | "svg" | "html" => {
+        "xml" | "svg" | "html" | "markdown" | "md" => {
             if let Some(window) = app_handle.get_webview_window("artifact_preview") {
                 let _ = window.emit("artifact-log", format!("准备预览 {} 内容...", lang));
             }
             
-            // 发送 HTML/SVG/XML 内容到前端
+            // 发送 HTML/SVG/XML/Markdown 内容到前端
             if let Some(window) = app_handle.get_webview_window("artifact_preview") {
                 let _ = window.emit("artifact-log", format!("{} content: {}", lang, input_str));
                 let _ = window.emit("artifact-success", format!("{} 预览已准备完成", lang.to_uppercase()));
