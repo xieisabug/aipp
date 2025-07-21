@@ -189,6 +189,21 @@ pub async fn run_artifacts(
         "react" | "jsx" => {
             println!("🎯 [Artifacts] 处理 React/JSX 代码");
 
+            // 检查是否需要 bun 环境
+            let bun_version = BunUtils::get_bun_version(&app_handle);
+            if bun_version.is_err() || bun_version.as_ref().unwrap_or(&String::new()).contains("Not Installed") {
+                println!("🎯 [Artifacts] 检测到需要 bun 环境但未安装");
+                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                    let _ = window.emit("environment-check", serde_json::json!({
+                        "tool": "bun",
+                        "message": "React 预览需要 bun 环境，但系统中未安装 bun。是否要自动安装？",
+                        "lang": lang,
+                        "input_str": input_str
+                    }));
+                }
+                return Ok("等待用户确认安装环境".to_string());
+            }
+
             // 检查是否是完整的组件代码
             if is_react_component(input_str) {
                 println!("🎯 [Artifacts] 检测到完整的 React 组件，使用新预览");
@@ -246,6 +261,21 @@ pub async fn run_artifacts(
         }
         "vue" => {
             println!("🎯 [Artifacts] 处理 Vue 代码");
+
+            // 检查是否需要 bun 环境
+            let bun_version = BunUtils::get_bun_version(&app_handle);
+            if bun_version.is_err() || bun_version.as_ref().unwrap_or(&String::new()).contains("Not Installed") {
+                println!("🎯 [Artifacts] 检测到需要 bun 环境但未安装");
+                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                    let _ = window.emit("environment-check", serde_json::json!({
+                        "tool": "bun",
+                        "message": "Vue 预览需要 bun 环境，但系统中未安装 bun。是否要自动安装？",
+                        "lang": lang,
+                        "input_str": input_str
+                    }));
+                }
+                return Ok("等待用户确认安装环境".to_string());
+            }
 
             // 检查是否是完整的组件代码
             if is_vue_component(input_str) {
@@ -333,7 +363,18 @@ pub fn check_uv_version() -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn install_bun(window: tauri::Window) -> Result<(), String> {
+pub fn install_bun(app_handle: tauri::AppHandle, target_window: Option<String>) -> Result<(), String> {
+    // 获取事件前缀和目标窗口
+    let (event_prefix, emit_to_window) = if let Some(ref window) = target_window {
+        if window == "artifact_preview" {
+            ("artifact", true)
+        } else {
+            ("bun-install", true)
+        }
+    } else {
+        ("bun-install", false)
+    };
+    
     std::thread::spawn(move || {
         let bun_version = "1.2.18";
         let (os, arch) = if cfg!(target_os = "windows") {
@@ -354,31 +395,103 @@ pub fn install_bun(window: tauri::Window) -> Result<(), String> {
             bun_version, os, arch
         );
 
-        window.emit("bun-install-log", "开始下载 Bun").unwrap();
+        // 发送日志到指定窗口或全局
+        let emit_log = |msg: &str| {
+            if emit_to_window {
+                if let Some(ref window_name) = target_window {
+                    if let Some(window) = app_handle.get_webview_window(window_name) {
+                        let _ = window.emit(&format!("{}-log", event_prefix), msg);
+                    }
+                }
+            } else {
+                let _ = app_handle.emit("bun-install-log", msg);
+            }
+        };
+
+        let emit_error = |msg: &str| {
+            if emit_to_window {
+                if let Some(ref window_name) = target_window {
+                    if let Some(window) = app_handle.get_webview_window(window_name) {
+                        let _ = window.emit(&format!("{}-error", event_prefix), msg);
+                        let _ = window.emit("bun-install-finished", false);
+                    }
+                }
+            } else {
+                let _ = app_handle.emit("bun-install-log", msg);
+                let _ = app_handle.emit("bun-install-finished", false);
+            }
+        };
+
+        let emit_success = |msg: &str| {
+            if emit_to_window {
+                if let Some(ref window_name) = target_window {
+                    if let Some(window) = app_handle.get_webview_window(window_name) {
+                        let _ = window.emit(&format!("{}-success", event_prefix), msg);
+                        let _ = window.emit("bun-install-finished", true);
+                    }
+                }
+            } else {
+                let _ = app_handle.emit("bun-install-log", msg);
+                let _ = app_handle.emit("bun-install-finished", true);
+            }
+        };
+
+        emit_log("开始下载 Bun");
 
         // 使用应用数据目录作为安装位置，避免依赖第三方目录库
-        let app_data_dir = window
-            .app_handle()
+        let app_data_dir = app_handle
             .path()
             .app_data_dir()
             .expect("无法获取应用数据目录");
         let bun_install_dir = app_data_dir.join("bun");
         let bun_bin_dir = bun_install_dir.join("bin");
-        std::fs::create_dir_all(&bun_bin_dir).unwrap();
+        
+        if let Err(e) = std::fs::create_dir_all(&bun_bin_dir) {
+            emit_error(&format!("创建目录失败: {}", e));
+            return;
+        }
 
         let zip_path = bun_install_dir.join("bun.zip");
 
         // Download
-        let mut response = reqwest::blocking::get(&url).unwrap();
-        let mut file = std::fs::File::create(&zip_path).unwrap();
-        std::io::copy(&mut response, &mut file).unwrap();
-        window.emit("bun-install-log", "下载完成.").unwrap();
+        match reqwest::blocking::get(&url) {
+            Ok(mut response) => {
+                match std::fs::File::create(&zip_path) {
+                    Ok(mut file) => {
+                        if let Err(e) = std::io::copy(&mut response, &mut file) {
+                            emit_error(&format!("下载失败: {}", e));
+                            return;
+                        }
+                        emit_log("下载完成");
+                    }
+                    Err(e) => {
+                        emit_error(&format!("创建文件失败: {}", e));
+                        return;
+                    }
+                }
+            }
+            Err(e) => {
+                emit_error(&format!("下载失败: {}", e));
+                return;
+            }
+        }
 
         // Unzip 到安装目录
-        window.emit("bun-install-log", "开始解压...").unwrap();
-        let zip_file = std::fs::File::open(&zip_path).unwrap();
-        zip_extract::extract(zip_file, &bun_install_dir, true).unwrap();
-        window.emit("bun-install-log", "解压成功.").unwrap();
+        emit_log("开始解压...");
+        
+        match std::fs::File::open(&zip_path) {
+            Ok(zip_file) => {
+                if let Err(e) = zip_extract::extract(zip_file, &bun_install_dir, true) {
+                    emit_error(&format!("解压失败: {}", e));
+                    return;
+                }
+                emit_log("解压成功");
+            }
+            Err(e) => {
+                emit_error(&format!("打开压缩文件失败: {}", e));
+                return;
+            }
+        }
 
         // Move executable
         let bun_executable_name = if cfg!(target_os = "windows") {
@@ -395,36 +508,96 @@ pub fn install_bun(window: tauri::Window) -> Result<(), String> {
                 .join(&bun_executable_name),
         ];
 
-        let bun_executable_path = candidate_paths
+        let bun_executable_path = match candidate_paths
             .iter()
-            .find(|p| p.exists())
-            .expect("未找到 bun 可执行文件")
-            .to_path_buf();
+            .find(|p| p.exists()) {
+                Some(path) => path.to_path_buf(),
+                None => {
+                    emit_error("未找到 bun 可执行文件");
+                    return;
+                }
+            };
 
         let dest_path = bun_bin_dir.join(&bun_executable_name);
         // 如果目标已存在则先删除
         if dest_path.exists() {
-            std::fs::remove_file(&dest_path).unwrap();
+            if let Err(e) = std::fs::remove_file(&dest_path) {
+                emit_error(&format!("删除旧文件失败: {}", e));
+                return;
+            }
         }
-        std::fs::rename(bun_executable_path, &dest_path).unwrap();
+        
+        if let Err(e) = std::fs::rename(bun_executable_path, &dest_path) {
+            emit_error(&format!("移动文件失败: {}", e));
+            return;
+        }
 
-        window.emit("bun-install-log", "Bun 安装成功.").unwrap();
-        window.emit("bun-install-finished", true).unwrap();
+        emit_success("Bun 安装成功");
     });
 
     Ok(())
 }
 
 #[tauri::command]
-pub fn install_uv(window: tauri::Window) -> Result<(), String> {
+pub fn install_uv(app_handle: tauri::AppHandle, target_window: Option<String>) -> Result<(), String> {
+    // 获取事件前缀和目标窗口
+    let (event_prefix, emit_to_window) = if let Some(ref window) = target_window {
+        if window == "artifact_preview" {
+            ("artifact", true)
+        } else {
+            ("uv-install", true)
+        }
+    } else {
+        ("uv-install", false)
+    };
+
     std::thread::spawn(move || {
         let max_retries = 3;
         let mut success = false;
         
+        // 发送日志到指定窗口或全局
+        let emit_log = |msg: &str| {
+            println!("uv-install-log: {}", msg);
+            if emit_to_window {
+                if let Some(ref window_name) = target_window {
+                    if let Some(window) = app_handle.get_webview_window(window_name) {
+                        let _ = window.emit(&format!("{}-log", event_prefix), msg);
+                    }
+                }
+            } else {
+                let _ = app_handle.emit("uv-install-log", msg);
+            }
+        };
+
+        let emit_error = |msg: &str| {
+            println!("uv-install-log: {}", msg);
+            if emit_to_window {
+                if let Some(ref window_name) = target_window {
+                    if let Some(window) = app_handle.get_webview_window(window_name) {
+                        let _ = window.emit(&format!("{}-error", event_prefix), msg);
+                    }
+                }
+            } else {
+                let _ = app_handle.emit("uv-install-log", msg);
+            }
+        };
+
+        let emit_success = |msg: &str| {
+            println!("uv-install-log: {}", msg);
+            if emit_to_window {
+                if let Some(ref window_name) = target_window {
+                    if let Some(window) = app_handle.get_webview_window(window_name) {
+                        let _ = window.emit(&format!("{}-success", event_prefix), msg);
+                    }
+                }
+            } else {
+                let _ = app_handle.emit("uv-install-log", msg);
+            }
+        };
+        
         for attempt in 1..=max_retries {
             let log_msg = format!("正在尝试安装 uv (第 {} 次尝试)...", attempt);
-            println!("uv-install-log: {}", log_msg);
-            window.emit("uv-install-log", log_msg).unwrap();
+            emit_log(&log_msg);
             
             let (command, args) = if cfg!(target_os = "windows") {
                 (
@@ -448,8 +621,7 @@ pub fn install_uv(window: tauri::Window) -> Result<(), String> {
                 Ok(child) => child,
                 Err(e) => {
                     let error_msg = format!("启动安装命令失败: {}", e);
-                    println!("uv-install-log: {}", error_msg);
-                    window.emit("uv-install-log", error_msg).unwrap();
+                    emit_error(&error_msg);
                     continue;
                 }
             };
@@ -460,8 +632,7 @@ pub fn install_uv(window: tauri::Window) -> Result<(), String> {
                 let reader = BufReader::new(stdout);
                 for line in reader.lines() {
                     if let Ok(line) = line {
-                        println!("uv-install-log: {}", line);
-                        window.emit("uv-install-log", line).unwrap();
+                        emit_log(&line);
                     }
                 }
             }
@@ -480,8 +651,7 @@ pub fn install_uv(window: tauri::Window) -> Result<(), String> {
                             has_critical_error = true;
                         }
                         
-                        println!("uv-install-log: {}", line);
-                        window.emit("uv-install-log", line).unwrap();
+                        emit_log(&line);
                     }
                 }
             }
@@ -492,8 +662,7 @@ pub fn install_uv(window: tauri::Window) -> Result<(), String> {
                     if status.success() && !has_critical_error {
                         success = true;
                         let success_msg = "uv 安装成功！";
-                        println!("uv-install-log: {}", success_msg);
-                        window.emit("uv-install-log", success_msg).unwrap();
+                        emit_success(success_msg);
                         break;
                     } else {
                         let error_msg = if has_critical_error {
@@ -501,35 +670,38 @@ pub fn install_uv(window: tauri::Window) -> Result<(), String> {
                         } else {
                             format!("第 {} 次尝试失败，退出码: {}", attempt, status.code().unwrap_or(-1))
                         };
-                        println!("uv-install-log: {}", error_msg);
-                        window.emit("uv-install-log", error_msg).unwrap();
+                        emit_error(&error_msg);
                         
                         if attempt < max_retries {
                             let retry_msg = format!("等待 2 秒后重试...");
-                            println!("uv-install-log: {}", retry_msg);
-                            window.emit("uv-install-log", retry_msg).unwrap();
+                            emit_log(&retry_msg);
                             std::thread::sleep(std::time::Duration::from_secs(2));
                         }
                     }
                 }
                 Err(e) => {
                     let error_msg = format!("等待进程失败: {}", e);
-                    println!("uv-install-log: {}", error_msg);
-                    window.emit("uv-install-log", error_msg).unwrap();
+                    emit_error(&error_msg);
                 }
             }
         }
 
         if !success {
             let final_error = format!("经过 {} 次尝试后，uv 安装失败", max_retries);
-            println!("uv-install-log: {}", final_error);
-            window.emit("uv-install-log", final_error).unwrap();
+            emit_error(&final_error);
         }
 
         println!("uv-install-finished: {}", success);
-        window
-            .emit("uv-install-finished", success)
-            .unwrap();
+        // 发送安装完成事件
+        if emit_to_window {
+            if let Some(ref window_name) = target_window {
+                if let Some(window) = app_handle.get_webview_window(window_name) {
+                    let _ = window.emit("uv-install-finished", success);
+                }
+            }
+        } else {
+            let _ = app_handle.emit("uv-install-finished", success);
+        }
     });
 
     Ok(())
@@ -553,3 +725,62 @@ pub async fn preview_react_component(
 
     create_react_preview(app_handle, component_code, name).await
 }
+
+#[tauri::command]
+pub async fn confirm_environment_install(
+    app_handle: tauri::AppHandle,
+    tool: String,
+    confirmed: bool,
+    lang: String,
+    input_str: String,
+) -> Result<String, String> {
+    if !confirmed {
+        // 用户选择取消，停止预览
+        if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+            let _ = window.emit("artifact-error", "用户取消了环境安装，预览已停止");
+        }
+        return Ok("用户取消安装".to_string());
+    }
+
+    // 用户确认安装，开始安装过程
+    if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+        let _ = window.emit("artifact-log", format!("开始安装 {} 环境...", tool));
+        
+        if tool == "bun" {
+            let _ = install_bun(app_handle.clone(), Some("artifact_preview".to_string()));
+        } else if tool == "uv" {
+            let _ = install_uv(app_handle.clone(), Some("artifact_preview".to_string()));
+        }
+        
+        // 保存原始参数，等待安装完成后重新调用
+        if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+            let _ = window.emit("environment-install-started", serde_json::json!({
+                "tool": tool,
+                "lang": lang,
+                "input_str": input_str
+            }));
+        }
+    }
+
+    Ok("开始安装环境".to_string())
+}
+
+#[tauri::command]
+pub async fn retry_preview_after_install(
+    app_handle: tauri::AppHandle,
+    lang: String,
+    input_str: String,
+) -> Result<String, String> {
+    println!("🔧 [ArtifactsAPI] 收到重新启动预览事件: lang={}, input_str={}", lang, input_str);
+    // 重新调用 run_artifacts 函数
+    match run_artifacts(
+        app_handle.clone(),
+        app_handle.state::<FeatureConfigState>(),
+        &lang,
+        &input_str,
+    ).await {
+        Ok(result) => Ok(result),
+        Err(e) => Err(e.to_string()),
+    }
+}
+

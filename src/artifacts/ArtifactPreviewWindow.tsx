@@ -13,6 +13,7 @@ import rehypeKatex from 'rehype-katex';
 import rehypeRaw from 'rehype-raw';
 import '../styles/ArtifactPreviewWIndow.css';
 import 'katex/dist/katex.min.css';
+import EnvironmentInstallDialog from '../components/EnvironmentInstallDialog';
 
 interface LogLine {
     type: 'log' | 'error' | 'success';
@@ -44,11 +45,29 @@ export default function ArtifactPreviewWindow() {
     const [isDragging, setIsDragging] = useState<boolean>(false);
     const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
     const [isSpacePressed, setIsSpacePressed] = useState<boolean>(false);
+    const isInstalling = useRef<boolean>(false);
+    
+    // 环境安装相关状态
+    const [showEnvironmentDialog, setShowEnvironmentDialog] = useState<boolean>(false);
+    const [environmentTool, setEnvironmentTool] = useState<string>('');
+    const [environmentMessage, setEnvironmentMessage] = useState<string>('');
+    const [currentLang, setCurrentLang] = useState<string>('');
+    const [currentInputStr, setCurrentInputStr] = useState<string>('');
+    
+    // 使用 refs 来存储最新的值，避免闭包陷阱
+    const currentLangRef = useRef<string>('');
+    const currentInputStrRef = useRef<string>('');
 
     // 同步 previewType 到 ref
     useEffect(() => {
         previewTypeRef.current = previewType;
     }, [previewType]);
+
+    // 同步 currentLang 和 currentInputStr 到 refs
+    useEffect(() => {
+        currentLangRef.current = currentLang;
+        currentInputStrRef.current = currentInputStr;
+    }, [currentLang, currentInputStr]);
 
     // 初始化 mermaid
     useEffect(() => {
@@ -181,6 +200,35 @@ export default function ArtifactPreviewWindow() {
         setMermaidPosition({ x: 0, y: 0 });
     };
 
+    // 处理环境安装确认
+    const handleEnvironmentInstallConfirm = async () => {
+        try {
+            await invoke('confirm_environment_install', {
+                tool: environmentTool,
+                confirmed: true,
+                lang: currentLangRef.current,
+                inputStr: currentInputStrRef.current
+            });
+        } catch (error) {
+            setLogs(prev => [...prev, { type: 'error', message: `确认安装失败: ${error}` }]);
+        }
+    };
+
+    // 处理环境安装取消
+    const handleEnvironmentInstallCancel = async () => {
+        try {
+            await invoke('confirm_environment_install', {
+                tool: environmentTool,
+                confirmed: false,
+                lang: currentLangRef.current,
+                inputStr: currentInputStrRef.current
+            });
+            setShowEnvironmentDialog(false);
+        } catch (error) {
+            setLogs(prev => [...prev, { type: 'error', message: `取消安装失败: ${error}` }]);
+        }
+    };
+
     // 当预览准备好时，切换到预览视图
     useEffect(() => {
         if (isPreviewReady && (previewUrl || previewType === 'mermaid' || previewType === 'html' || previewType === 'svg' || previewType === 'xml' || previewType === 'markdown' || previewType === 'md')) {
@@ -254,13 +302,75 @@ export default function ArtifactPreviewWindow() {
                 setIsPreviewReady(true);
             };
 
+            const handleEnvironmentCheck = (event: { payload: any }) => {
+                const data = event.payload;
+                setEnvironmentTool(data.tool);
+                setEnvironmentMessage(data.message);
+                setCurrentLang(data.lang);
+                setCurrentInputStr(data.input_str);
+                setShowEnvironmentDialog(true);
+            };
+
+            const handleEnvironmentInstallStarted = (event: { payload: any }) => {
+                const data = event.payload;
+                setCurrentLang(data.lang);
+                setCurrentInputStr(data.input_str);
+                isInstalling.current = true;
+                setShowEnvironmentDialog(false);
+            };
+
+            const handleBunInstallFinished = (event: { payload: any }) => {
+                const success = event.payload as boolean;
+                console.log('🔧 [ArtifactPreviewWindow] 收到Bun安装完成事件:', success, isInstalling);
+                if (success && isInstalling.current) {
+                    setLogs(prev => [...prev, { type: 'success', message: 'Bun 安装成功，正在重新启动预览...' }]);
+                    // 重新启动预览
+                    invoke('retry_preview_after_install', {
+                        lang: currentLangRef.current,
+                        inputStr: currentInputStrRef.current
+                    }).then(() => {
+                        isInstalling.current = false;
+                    }).catch(error => {
+                        setLogs(prev => [...prev, { type: 'error', message: `重新启动预览失败: ${error}` }]);
+                        isInstalling.current = false;
+                    });
+                } else if (!success) {
+                    setLogs(prev => [...prev, { type: 'error', message: 'Bun 安装失败' }]);
+                    isInstalling.current = false;
+                }
+            };
+
+            const handleUvInstallFinished = (event: { payload: any }) => {
+                const success = event.payload as boolean;
+                if (success && isInstalling.current) {
+                    setLogs(prev => [...prev, { type: 'success', message: 'uv 安装成功，正在重新启动预览...' }]);
+                    // 重新启动预览
+                    invoke('retry_preview_after_install', {
+                        lang: currentLangRef.current,
+                        inputStr: currentInputStrRef.current
+                    }).then(() => {
+                        isInstalling.current = false;
+                    }).catch(error => {
+                        setLogs(prev => [...prev, { type: 'error', message: `重新启动预览失败: ${error}` }]);
+                        isInstalling.current = false;
+                    });
+                } else if (!success) {
+                    setLogs(prev => [...prev, { type: 'error', message: 'uv 安装失败' }]);
+                    isInstalling.current = false;
+                }
+            };
+
 
             try {
                 const unlisteners = await Promise.all([
                     listen('artifact-log', addLog('log')),
                     listen('artifact-error', addLog('error')),
                     listen('artifact-success', addLog('success')),
-                    listen('artifact-redirect', handleRedirect)
+                    listen('artifact-redirect', handleRedirect),
+                    listen('environment-check', handleEnvironmentCheck),
+                    listen('environment-install-started', handleEnvironmentInstallStarted),
+                    listen('bun-install-finished', handleBunInstallFinished),
+                    listen('uv-install-finished', handleUvInstallFinished)
                 ]);
 
                 // 检查是否已被取消
@@ -551,6 +661,15 @@ export default function ArtifactPreviewWindow() {
                     )}
                 </div>
             </div>
+            
+            {/* 环境安装确认对话框 */}
+            <EnvironmentInstallDialog
+                tool={environmentTool}
+                message={environmentMessage}
+                isOpen={showEnvironmentDialog}
+                onConfirm={handleEnvironmentInstallConfirm}
+                onCancel={handleEnvironmentInstallCancel}
+            />
         </div>
     );
 } 

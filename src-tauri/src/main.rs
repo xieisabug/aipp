@@ -15,7 +15,7 @@ mod window;
 
 use crate::api::ai_api::{ask_ai, cancel_ai, regenerate_ai, regenerate_conversation_title};
 use crate::api::artifacts_api::{
-    check_bun_version, check_uv_version, install_bun, install_uv, run_artifacts, open_react_component_preview, preview_react_component,
+    check_bun_version, check_uv_version, install_bun, install_uv, run_artifacts, open_react_component_preview, preview_react_component, confirm_environment_install, retry_preview_after_install,
 };
 use crate::api::assistant_api::{
     add_assistant, copy_assistant, delete_assistant, get_assistant, get_assistant_field_value,
@@ -312,7 +312,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             close_react_preview,
             create_vue_preview,
             create_vue_preview_for_artifact,
-            close_vue_preview
+            close_vue_preview,
+            confirm_environment_install,
+            retry_preview_after_install
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application");
