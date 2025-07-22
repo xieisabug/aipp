@@ -25,6 +25,25 @@ export interface StreamEvent {
     is_done: boolean;
 }
 
+// 新增：Conversation 事件类型
+export interface ConversationEvent {
+    type: string;
+    data: any;
+}
+
+export interface MessageAddEvent {
+    message_id: number;
+    message_type: string;
+    temp_message_id: number; // 用于取消操作的临时ID
+}
+
+export interface MessageUpdateEvent {
+    message_id: number;
+    message_type: string;
+    content: string;
+    is_done: boolean;
+}
+
 // 消息类型枚举
 export type MessageType = 'system' | 'user' | 'assistant' | 'reasoning' | 'response' | 'error';
 

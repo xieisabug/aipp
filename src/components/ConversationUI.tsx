@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Sparkles } from "lucide-react";
 
-import { Conversation, FileInfo, Message, StreamEvent } from "../data/Conversation";
+import { Conversation, FileInfo, Message, StreamEvent, ConversationEvent, MessageAddEvent, MessageUpdateEvent } from "../data/Conversation";
 import "katex/dist/katex.min.css";
 import { listen } from "@tauri-apps/api/event";
 import { throttle } from "lodash";
@@ -200,102 +200,73 @@ function ConversationUI({
 
                     if (conversationId != res.conversation_id + "") {
                         onChangeConversationId(res.conversation_id + "");
-                    } else {
-                        const assistantMessage = {
-                            id: res.add_message_id,
-                            conversation_id: conversationId
-                                ? -1
-                                : +conversationId,
-                            llm_model_id: -1,
-                            content: "",
-                            token_count: 0,
-                            message_type: "assistant",
-                            created_time: new Date(),
-                            attachment_list: [],
-                            regenerate: null,
-                        };
-
-                        setMessages((prevMessages) => [
-                            ...prevMessages,
-                            assistantMessage,
-                        ]);
                     }
+                    // 不预先创建空的assistant消息，让流式处理动态创建
 
                     console.log(
-                        "Listening for response",
-                        `message_${res.add_message_id}`,
+                        "Listening for conversation events",
+                        `conversation_event_${res.conversation_id}`,
                     );
 
                     // 使用节流函数降低 setMessages 调用频率
                     const updateAssistantContent = throttle((streamEvent: StreamEvent) => {
-                        if (streamEvent.message_type === 'response') {
-                            // 现在response消息也通过streamingMessages管理
-                            setStreamingMessages((prev) => {
-                                const newMap = new Map(prev);
-                                newMap.set(streamEvent.message_id, streamEvent);
-                                return newMap;
-                            });
-                            scroll(); // 确保滚动到最新消息
-                        } else if (streamEvent.message_type === 'reasoning') {
-                            // 更新流式消息状态
-                            setStreamingMessages((prev) => {
-                                const newMap = new Map(prev);
-                                newMap.set(streamEvent.message_id, streamEvent);
-                                return newMap;
-                            });
-                        }
+                        console.log('updateAssistantContent called with:', streamEvent.message_id, streamEvent.message_type);
+                        setStreamingMessages((prev) => {
+                            const newMap = new Map(prev);
+                            newMap.set(streamEvent.message_id, streamEvent);
+                            console.log('Updated streamingMessages with', streamEvent.message_type + ':', streamEvent.message_id, 'size:', newMap.size);
+                            return newMap;
+                        });
+                        scroll(); // 确保滚动到最新消息
                     }, 50);
 
-                    unsubscribeRef.current = listen(
-                        `message_${res.add_message_id}`,
-                        (event) => {
+                    // 监听conversation事件，处理消息添加和更新
+                    const handleConversationEvent = (event: any) => {
+                        console.log('Received conversation event:', event.payload);
+                        
+                        const conversationEvent = event.payload as ConversationEvent;
+                        
+                        if (conversationEvent.type === 'message_add') {
+                            const messageAddData = conversationEvent.data as MessageAddEvent;
+                            console.log('Message added:', messageAddData.message_id, messageAddData.message_type);
+                            // 消息添加事件暂时不需要特殊处理，让 message_update 事件来处理内容
+                        } else if (conversationEvent.type === 'message_update') {
+                            const messageUpdateData = conversationEvent.data as MessageUpdateEvent;
+                            console.log('Message update:', messageUpdateData.message_id, messageUpdateData.message_type, messageUpdateData.is_done);
+                            
+                            const streamEvent: StreamEvent = {
+                                message_id: messageUpdateData.message_id,
+                                message_type: messageUpdateData.message_type as any,
+                                content: messageUpdateData.content,
+                                is_done: messageUpdateData.is_done,
+                            };
+                            
+                            // 处理插件兼容性
                             const streamMessageListener = functionMap.get(
                                 res.add_message_id,
                             )?.onStreamMessageListener;
                             if (streamMessageListener) {
-                                // 兼容旧版插件API，转换为字符串格式
-                                const payload = typeof event.payload === 'object' 
-                                    ? (event.payload as StreamEvent).content 
-                                    : event.payload as string;
                                 streamMessageListener(
-                                    payload,
+                                    messageUpdateData.content,
                                     res,
                                     setAiIsResponsing,
                                 );
-                            } else {
-                                if (typeof event.payload === 'object') {
-                                    // 新格式：JSON 对象
-                                    const streamEvent = event.payload as StreamEvent;
-                                    if (streamEvent.is_done) {
-                                        // 确保最后一帧内容被渲染
-                                        (updateAssistantContent as any).flush?.();
-                                        if (streamEvent.message_type === 'response') {
-                                            setAiIsResponsing(false);
-                                        }
-                                    } else {
-                                        updateAssistantContent(streamEvent);
-                                    }
-                                } else {
-                                    // 旧格式兼容：字符串
-                                    const payload = event.payload as string;
-                                    if (payload !== "Tea::Event::MessageFinish") {
-                                        // 构造兼容的 StreamEvent 对象
-                                        const streamEvent: StreamEvent = {
-                                            message_id: res.add_message_id,
-                                            message_type: 'response',
-                                            content: payload,
-                                            is_done: false,
-                                        };
-                                        updateAssistantContent(streamEvent);
-                                    } else {
-                                        // 确保最后一帧内容被渲染
-                                        (updateAssistantContent as any).flush?.();
-                                        setAiIsResponsing(false);
-                                    }
-                                }
                             }
-                        },
-                    );
+                            
+                            if (messageUpdateData.is_done) {
+                                (updateAssistantContent as any).flush?.();
+                                if (messageUpdateData.message_type === 'response') {
+                                    setAiIsResponsing(false);
+                                }
+                            } else {
+                                updateAssistantContent(streamEvent);
+                            }
+                        }
+                    };
+                    
+                    // 监听conversation事件而不是单独的message事件
+                    unsubscribeRef.current = listen(`conversation_event_${res.conversation_id}`, handleConversationEvent);
+                    
                     return res;
                 })
                 .catch((e) => {
@@ -441,6 +412,7 @@ function ConversationUI({
         if (!conversationId) {
             setMessages([]);
             setConversation(undefined);
+            setStreamingMessages(new Map()); // 清理流式消息状态
 
             invoke<Array<AssistantListItem>>("get_assistants").then(
                 (assistantList) => {
@@ -453,6 +425,7 @@ function ConversationUI({
             return;
         }
         setIsLoadingShow(true);
+        setStreamingMessages(new Map()); // 切换对话时清理流式消息状态
         console.log(`conversationId change : ${conversationId}`);
         invoke<Array<any>>("get_conversation_with_messages", {
             conversationId: +conversationId,
@@ -471,18 +444,30 @@ function ConversationUI({
             const lastMessageId = res[1][res[1].length - 1].id;
 
             setMessageId(lastMessageId);
-            unsubscribeRef.current = listen(
-                `message_${lastMessageId}`,
-                (event) => {
+            
+            const handleConversationEvent = (event: any) => {
+                const conversationEvent = event.payload as ConversationEvent;
+                
+                if (conversationEvent.type === 'message_add') {
+                    const messageAddData = conversationEvent.data as MessageAddEvent;
+                    console.log('Message added:', messageAddData.message_id, messageAddData.message_type);
+                } else if (conversationEvent.type === 'message_update') {
+                    const messageUpdateData = conversationEvent.data as MessageUpdateEvent;
+                    console.log('Message update:', messageUpdateData.message_id, messageUpdateData.message_type, messageUpdateData.is_done);
+                    
+                    const streamEvent: StreamEvent = {
+                        message_id: messageUpdateData.message_id,
+                        message_type: messageUpdateData.message_type as any,
+                        content: messageUpdateData.content,
+                        is_done: messageUpdateData.is_done,
+                    };
+                    
                     const streamMessageListener =
                         functionMap.get(lastMessageId)?.onStreamMessageListener;
                     if (streamMessageListener) {
                         // 兼容旧版插件API
-                        const payload = typeof event.payload === 'object' 
-                            ? (event.payload as StreamEvent).content 
-                            : event.payload as string;
                         streamMessageListener(
-                            payload,
+                            messageUpdateData.content,
                             {
                                 conversation_id: +conversationId,
                                 add_message_id: lastMessageId,
@@ -491,45 +476,24 @@ function ConversationUI({
                             setAiIsResponsing,
                         );
                     } else {
-                        if (typeof event.payload === 'object') {
-                            // 新格式：JSON 对象
-                            const streamEvent = event.payload as StreamEvent;
-                            if (streamEvent.is_done) {
-                                setAiIsResponsing(false);
-                            } else {
-                                // 更新流式消息状态 (reasoning和response都通过streamingMessages管理)
-                                if (streamEvent.message_type === 'reasoning' || streamEvent.message_type === 'response') {
-                                    setStreamingMessages((prev) => {
-                                        const newMap = new Map(prev);
-                                        newMap.set(streamEvent.message_id, streamEvent);
-                                        return newMap;
-                                    });
-                                    scroll();
-                                }
-                            }
+                        if (messageUpdateData.is_done) {
+                            setAiIsResponsing(false);
                         } else {
-                            // 旧格式兼容：字符串
-                            const payload = event.payload as string;
-                            if (payload !== "Tea::Event::MessageFinish") {
-                                // 构造兼容的StreamEvent对象
-                                const streamEvent: StreamEvent = {
-                                    message_id: lastMessageId,
-                                    message_type: 'response',
-                                    content: payload,
-                                    is_done: false,
-                                };
-                                setStreamingMessages((prev) => {
-                                    const newMap = new Map(prev);
-                                    newMap.set(streamEvent.message_id, streamEvent);
-                                    return newMap;
-                                });
-                                scroll();
-                            } else {
-                                setAiIsResponsing(false);
-                            }
+                            // 更新流式消息状态
+                            setStreamingMessages((prev) => {
+                                const newMap = new Map(prev);
+                                newMap.set(streamEvent.message_id, streamEvent);
+                                return newMap;
+                            });
+                            scroll();
                         }
                     }
-                },
+                }
+            };
+            
+            unsubscribeRef.current = listen(
+                `conversation_event_${conversationId}`,
+                handleConversationEvent
             );
         });
 
@@ -560,7 +524,7 @@ function ConversationUI({
 
     useEffect(() => {
         scroll();
-    }, [messages]);
+    }, [messages, streamingMessages]); // 同时监听 messages 和 streamingMessages 的变化
 
     const {
         fileInfoList,
@@ -658,59 +622,50 @@ function ConversationUI({
                         // 不预先创建空的assistant消息，让流式处理动态创建
 
                         console.log(
-                            "Listening for response",
-                            `message_${res.add_message_id}`,
+                            "Listening for conversation events",
+                            `conversation_event_${res.conversation_id}`,
                         );
 
-                        unsubscribeRef.current = listen(
-                            `message_${res.add_message_id}`,
-                            (event) => {
-                                if (typeof event.payload === 'object') {
-                                    // 新格式：JSON 对象
-                                    const streamEvent = event.payload as StreamEvent;
-                                    if (streamEvent.is_done) {
-                                        setAiIsResponsing(false);
-                                    } else {
-                                        // reasoning和response消息都通过streamingMessages管理
-                                        if (streamEvent.message_type === 'response') {
-                                            setStreamingMessages((prev) => {
-                                                const newMap = new Map(prev);
-                                                newMap.set(streamEvent.message_id, streamEvent);
-                                                return newMap;
-                                            });
-                                            scroll();
-                                        } else if (streamEvent.message_type === 'reasoning') {
-                                            // 更新流式消息状态
-                                            setStreamingMessages((prev) => {
-                                                const newMap = new Map(prev);
-                                                newMap.set(streamEvent.message_id, streamEvent);
-                                                return newMap;
-                                            });
-                                        }
-                                    }
+                        // 使用节流函数降低 setMessages 调用频率
+                        const updateContent = throttle((streamEvent: StreamEvent) => {
+                            setStreamingMessages((prev) => {
+                                const newMap = new Map(prev);
+                                newMap.set(streamEvent.message_id, streamEvent);
+                                return newMap;
+                            });
+                            scroll();
+                        }, 50);
+
+                        // 监听conversation事件，处理消息添加和更新
+                        const handleConversationEvent = (event: any) => {
+                            console.log('Received conversation event:', event.payload);
+                            
+                            const conversationEvent = event.payload as ConversationEvent;
+                            
+                            if (conversationEvent.type === 'message_add') {
+                                const messageAddData = conversationEvent.data as MessageAddEvent;
+                                console.log('Message added:', messageAddData.message_id, messageAddData.message_type);
+                            } else if (conversationEvent.type === 'message_update') {
+                                const messageUpdateData = conversationEvent.data as MessageUpdateEvent;
+                                console.log('Message update:', messageUpdateData.message_id, messageUpdateData.message_type, messageUpdateData.is_done);
+                                
+                                const streamEvent: StreamEvent = {
+                                    message_id: messageUpdateData.message_id,
+                                    message_type: messageUpdateData.message_type as any,
+                                    content: messageUpdateData.content,
+                                    is_done: messageUpdateData.is_done,
+                                };
+                                
+                                if (messageUpdateData.is_done) {
+                                    (updateContent as any).flush?.();
+                                    setAiIsResponsing(false);
                                 } else {
-                                    // 旧格式兼容：字符串
-                                    const payload = event.payload as string;
-                                    if (payload !== "Tea::Event::MessageFinish") {
-                                        // 构造兼容的StreamEvent对象
-                                        const streamEvent: StreamEvent = {
-                                            message_id: res.add_message_id,
-                                            message_type: 'response',
-                                            content: payload,
-                                            is_done: false,
-                                        };
-                                        setStreamingMessages((prev) => {
-                                            const newMap = new Map(prev);
-                                            newMap.set(streamEvent.message_id, streamEvent);
-                                            return newMap;
-                                        });
-                                        scroll();
-                                    } else {
-                                        setAiIsResponsing(false);
-                                    }
+                                    updateContent(streamEvent);
                                 }
-                            },
-                        );
+                            }
+                        };
+
+                        unsubscribeRef.current = listen(`conversation_event_${res.conversation_id}`, handleConversationEvent);
                     });
                 } catch (error) {
                     toast.error("发送消息失败: " + error);
@@ -737,36 +692,42 @@ function ConversationUI({
     // 合并常规消息和流式消息，按时间排序显示
     const allDisplayMessages = useMemo(() => {
         const combinedMessages = [...messages];
+        console.log('allDisplayMessages - messages:', messages.length, 'streamingMessages:', streamingMessages.size);
         
         // 将流式消息添加到显示列表中
         streamingMessages.forEach((streamEvent) => {
-            // 创建一个临时的Message对象用于显示
-            const tempMessage: Message = {
-                id: streamEvent.message_id,
-                conversation_id: conversation?.id || 0,
-                message_type: streamEvent.message_type,
-                content: streamEvent.content,
-                llm_model_id: null,
-                created_time: new Date(),
-                token_count: 0,
-                regenerate: null,
-            };
+            console.log('Processing streamEvent:', streamEvent.message_id, streamEvent.message_type, streamEvent.content.substring(0, 50) + '...');
             
             // 检查是否已经存在同样ID的消息
             const existingIndex = combinedMessages.findIndex(msg => msg.id === streamEvent.message_id);
             if (existingIndex === -1) {
-                // 不存在则添加新消息
+                console.log('Creating new temporary message for ID:', streamEvent.message_id);
+                // 不存在则添加新消息，使用当前时间确保它出现在最后
+                const tempMessage: Message = {
+                    id: streamEvent.message_id,
+                    conversation_id: conversation?.id || 0,
+                    message_type: streamEvent.message_type,
+                    content: streamEvent.content,
+                    llm_model_id: null,
+                    created_time: new Date(), // 使用当前时间确保排序正确
+                    token_count: 0,
+                    regenerate: null,
+                };
                 combinedMessages.push(tempMessage);
             } else {
-                // 存在则更新消息内容（这是关键！）
+                console.log('Updating existing message for ID:', streamEvent.message_id);
+                // 存在则更新消息内容
                 combinedMessages[existingIndex] = {
                     ...combinedMessages[existingIndex],
                     content: streamEvent.content,
+                    message_type: streamEvent.message_type, // 确保消息类型也被更新
                 };
             }
         });
 
-        return combinedMessages.sort((a, b) => new Date(a.created_time).getTime() - new Date(b.created_time).getTime());
+        const sorted = combinedMessages.sort((a, b) => new Date(a.created_time).getTime() - new Date(b.created_time).getTime());
+        console.log('Final combined messages count:', sorted.length);
+        return sorted;
     }, [messages, streamingMessages, conversation?.id]);
 
     const filteredMessages = useMemo(
@@ -889,8 +850,8 @@ function ConversationUI({
                 });
 
                 console.log(
-                    "Listening for response",
-                    `message_${res.add_message_id}`,
+                    "Listening for conversation events",
+                    `conversation_event_${conversationId}`,
                 );
 
                 // 再生场景下也使用节流，防止高频 setState
@@ -934,37 +895,37 @@ function ConversationUI({
                     }
                 }, 50);
 
-                unsubscribeRef.current = listen(
-                    `message_${res.add_message_id}`,
-                    (event) => {
-                        if (typeof event.payload === 'object') {
-                            // 新格式：JSON 对象
-                            const streamEvent = event.payload as StreamEvent;
-                            if (streamEvent.is_done) {
-                                (updateRegenerateContent as any).flush?.();
-                                if (streamEvent.message_type === 'response') {
-                                    setAiIsResponsing(false);
-                                }
-                            } else {
-                                updateRegenerateContent(streamEvent);
-                            }
-                        } else {
-                            // 旧格式兼容：字符串
-                            const payload = event.payload as string;
-                            if (payload !== "Tea::Event::MessageFinish") {
-                                const streamEvent: StreamEvent = {
-                                    message_id: res.add_message_id,
-                                    message_type: 'response',
-                                    content: payload,
-                                    is_done: false,
-                                };
-                                updateRegenerateContent(streamEvent);
-                            } else {
-                                (updateRegenerateContent as any).flush?.();
+                const handleConversationEvent = (event: any) => {
+                    const conversationEvent = event.payload as ConversationEvent;
+                    
+                    if (conversationEvent.type === 'message_add') {
+                        const messageAddData = conversationEvent.data as MessageAddEvent;
+                        console.log('Message added:', messageAddData.message_id, messageAddData.message_type);
+                    } else if (conversationEvent.type === 'message_update') {
+                        const messageUpdateData = conversationEvent.data as MessageUpdateEvent;
+                        console.log('Message update:', messageUpdateData.message_id, messageUpdateData.message_type, messageUpdateData.is_done);
+                        
+                        const streamEvent: StreamEvent = {
+                            message_id: messageUpdateData.message_id,
+                            message_type: messageUpdateData.message_type as any,
+                            content: messageUpdateData.content,
+                            is_done: messageUpdateData.is_done,
+                        };
+                        
+                        if (messageUpdateData.is_done) {
+                            (updateRegenerateContent as any).flush?.();
+                            if (messageUpdateData.message_type === 'response') {
                                 setAiIsResponsing(false);
                             }
+                        } else {
+                            updateRegenerateContent(streamEvent);
                         }
-                    },
+                    }
+                };
+
+                unsubscribeRef.current = listen(
+                    `conversation_event_${conversationId}`,
+                    handleConversationEvent
                 );
             });
         },

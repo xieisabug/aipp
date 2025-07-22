@@ -30,6 +30,28 @@ struct StreamEvent {
     is_done: bool,
 }
 
+/// Conversation事件数据结构
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ConversationEvent {
+    r#type: String,
+    data: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MessageAddEvent {
+    message_id: i64,
+    message_type: String,
+    temp_message_id: i64, // 用于取消操作的临时ID
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MessageUpdateEvent {
+    message_id: i64,
+    message_type: String,
+    content: String,
+    is_done: bool,
+}
+
 use futures::StreamExt;
 use genai::chat::{ChatMessage, ChatOptions, ChatRequest, ContentPart};
 use genai::Client;
@@ -360,6 +382,7 @@ async fn handle_stream_chat(
     cancel_token: &CancellationToken,
     conversation_db: &ConversationDatabase,
     tokens: &Arc<tokio::sync::Mutex<HashMap<i64, CancellationToken>>>,
+    window: &tauri::Window,
 ) -> Result<(), anyhow::Error> {
     match client
         .exec_chat_stream(model_name, chat_request, Some(chat_options))
@@ -406,6 +429,20 @@ async fn handle_stream_chat(
                                                 })
                                                 .unwrap();
                                             response_message_id = Some(new_message.id);
+                                            
+                                            // 发送消息添加事件
+                                            let add_event = ConversationEvent {
+                                                r#type: "message_add".to_string(),
+                                                data: serde_json::to_value(MessageAddEvent {
+                                                    message_id: new_message.id,
+                                                    message_type: "response".to_string(),
+                                                    temp_message_id: initial_message_id,
+                                                }).unwrap(),
+                                            };
+                                            let _ = window.emit(
+                                                format!("conversation_event_{}", conversation_id).as_str(),
+                                                add_event
+                                            );
                                         }
                                         
                                         // 更新消息内容
@@ -423,16 +460,20 @@ async fn handle_stream_chat(
                                                 .update(&message)
                                                 .unwrap();
                                             
-                                            // 发送事件到前端
-                                            if let Err(e) = tx.send(StreamEvent {
-                                                message_id: msg_id,
-                                                message_type: "response".to_string(),
-                                                content: response_content.clone(),
-                                                is_done: false,
-                                            }).await {
-                                                eprintln!("Failed to send response chunk: {}", e);
-                                                return Ok(());
-                                            }
+                                            // 发送消息更新事件
+                                            let update_event = ConversationEvent {
+                                                r#type: "message_update".to_string(),
+                                                data: serde_json::to_value(MessageUpdateEvent {
+                                                    message_id: msg_id,
+                                                    message_type: "response".to_string(),
+                                                    content: response_content.clone(),
+                                                    is_done: false,
+                                                }).unwrap(),
+                                            };
+                                            let _ = window.emit(
+                                                format!("conversation_event_{}", conversation_id).as_str(),
+                                                update_event
+                                            );
                                         }
                                     }
                                     ChatStreamEvent::ReasoningChunk(reasoning_chunk) => {
@@ -459,6 +500,20 @@ async fn handle_stream_chat(
                                                 })
                                                 .unwrap();
                                             reasoning_message_id = Some(new_message.id);
+                                            
+                                            // 发送消息添加事件
+                                            let add_event = ConversationEvent {
+                                                r#type: "message_add".to_string(),
+                                                data: serde_json::to_value(MessageAddEvent {
+                                                    message_id: new_message.id,
+                                                    message_type: "reasoning".to_string(),
+                                                    temp_message_id: initial_message_id,
+                                                }).unwrap(),
+                                            };
+                                            let _ = window.emit(
+                                                format!("conversation_event_{}", conversation_id).as_str(),
+                                                add_event
+                                            );
                                         }
                                         
                                         // 更新消息内容
@@ -476,16 +531,20 @@ async fn handle_stream_chat(
                                                 .update(&message)
                                                 .unwrap();
                                             
-                                            // 发送事件到前端
-                                            if let Err(e) = tx.send(StreamEvent {
-                                                message_id: msg_id,
-                                                message_type: "reasoning".to_string(),
-                                                content: reasoning_content.clone(),
-                                                is_done: false,
-                                            }).await {
-                                                eprintln!("Failed to send reasoning chunk: {}", e);
-                                                return Ok(());
-                                            }
+                                            // 发送消息更新事件
+                                            let update_event = ConversationEvent {
+                                                r#type: "message_update".to_string(),
+                                                data: serde_json::to_value(MessageUpdateEvent {
+                                                    message_id: msg_id,
+                                                    message_type: "reasoning".to_string(),
+                                                    content: reasoning_content.clone(),
+                                                    is_done: false,
+                                                }).unwrap(),
+                                            };
+                                            let _ = window.emit(
+                                                format!("conversation_event_{}", conversation_id).as_str(),
+                                                update_event
+                                            );
                                         }
                                     }
                                     ChatStreamEvent::ToolCallChunk(_tool_chunk) => {
@@ -500,12 +559,19 @@ async fn handle_stream_chat(
                                                 .update_finish_time(msg_id)
                                                 .unwrap();
                                             
-                                            tx.send(StreamEvent {
-                                                message_id: msg_id,
-                                                message_type: "reasoning".to_string(),
-                                                content: reasoning_content.clone(),
-                                                is_done: true,
-                                            }).await.unwrap();
+                                            let complete_event = ConversationEvent {
+                                                r#type: "message_update".to_string(),
+                                                data: serde_json::to_value(MessageUpdateEvent {
+                                                    message_id: msg_id,
+                                                    message_type: "reasoning".to_string(),
+                                                    content: reasoning_content.clone(),
+                                                    is_done: true,
+                                                }).unwrap(),
+                                            };
+                                            let _ = window.emit(
+                                                format!("conversation_event_{}", conversation_id).as_str(),
+                                                complete_event
+                                            );
                                         }
                                         
                                         if let Some(msg_id) = response_message_id {
@@ -515,12 +581,19 @@ async fn handle_stream_chat(
                                                 .update_finish_time(msg_id)
                                                 .unwrap();
                                             
-                                            tx.send(StreamEvent {
-                                                message_id: msg_id,
-                                                message_type: "response".to_string(),
-                                                content: response_content.clone(),
-                                                is_done: true,
-                                            }).await.unwrap();
+                                            let complete_event = ConversationEvent {
+                                                r#type: "message_update".to_string(),
+                                                data: serde_json::to_value(MessageUpdateEvent {
+                                                    message_id: msg_id,
+                                                    message_type: "response".to_string(),
+                                                    content: response_content.clone(),
+                                                    is_done: true,
+                                                }).unwrap(),
+                                            };
+                                            let _ = window.emit(
+                                                format!("conversation_event_{}", conversation_id).as_str(),
+                                                complete_event
+                                            );
                                         }
                                         
                                         return Ok(());
@@ -532,14 +605,21 @@ async fn handle_stream_chat(
                                 cleanup_token(tokens, initial_message_id).await;
                                 let err_msg = format!("Chat stream error: {}", e);
                                 
-                                // 发送错误到任一存在的消息
+                                // 发送错误事件到任一存在的消息
                                 if let Some(msg_id) = response_message_id.or(reasoning_message_id) {
-                                    tx.send(StreamEvent {
-                                        message_id: msg_id,
-                                        message_type: "error".to_string(),
-                                        content: err_msg,
-                                        is_done: true,
-                                    }).await.unwrap();
+                                    let error_event = ConversationEvent {
+                                        r#type: "message_update".to_string(),
+                                        data: serde_json::to_value(MessageUpdateEvent {
+                                            message_id: msg_id,
+                                            message_type: "error".to_string(),
+                                            content: err_msg,
+                                            is_done: true,
+                                        }).unwrap(),
+                                    };
+                                    let _ = window.emit(
+                                        format!("conversation_event_{}", conversation_id).as_str(),
+                                        error_event
+                                    );
                                 }
                                 
                                 return Err(anyhow::anyhow!("Stream error: {}", e));
@@ -553,12 +633,19 @@ async fn handle_stream_chat(
                                         .update_finish_time(msg_id)
                                         .unwrap();
                                     
-                                    tx.send(StreamEvent {
-                                        message_id: msg_id,
-                                        message_type: "reasoning".to_string(),
-                                        content: reasoning_content.clone(),
-                                        is_done: true,
-                                    }).await.unwrap();
+                                    let complete_event = ConversationEvent {
+                                        r#type: "message_update".to_string(),
+                                        data: serde_json::to_value(MessageUpdateEvent {
+                                            message_id: msg_id,
+                                            message_type: "reasoning".to_string(),
+                                            content: reasoning_content.clone(),
+                                            is_done: true,
+                                        }).unwrap(),
+                                    };
+                                    let _ = window.emit(
+                                        format!("conversation_event_{}", conversation_id).as_str(),
+                                        complete_event
+                                    );
                                 }
                                 
                                 if let Some(msg_id) = response_message_id {
@@ -568,12 +655,19 @@ async fn handle_stream_chat(
                                         .update_finish_time(msg_id)
                                         .unwrap();
                                     
-                                    tx.send(StreamEvent {
-                                        message_id: msg_id,
-                                        message_type: "response".to_string(),
-                                        content: response_content.clone(),
-                                        is_done: true,
-                                    }).await.unwrap();
+                                    let complete_event = ConversationEvent {
+                                        r#type: "message_update".to_string(),
+                                        data: serde_json::to_value(MessageUpdateEvent {
+                                            message_id: msg_id,
+                                            message_type: "response".to_string(),
+                                            content: response_content.clone(),
+                                            is_done: true,
+                                        }).unwrap(),
+                                    };
+                                    let _ = window.emit(
+                                        format!("conversation_event_{}", conversation_id).as_str(),
+                                        complete_event
+                                    );
                                 }
                                 
                                 return Ok(());
@@ -592,12 +686,19 @@ async fn handle_stream_chat(
             let err_msg = format!("Chat stream error: {}", e);
             
             // 发送错误事件
-            tx.send(StreamEvent {
-                message_id: initial_message_id,
-                message_type: "error".to_string(),
-                content: err_msg,
-                is_done: true,
-            }).await.unwrap();
+            let error_event = ConversationEvent {
+                r#type: "message_update".to_string(),
+                data: serde_json::to_value(MessageUpdateEvent {
+                    message_id: initial_message_id,
+                    message_type: "error".to_string(),
+                    content: err_msg,
+                    is_done: true,
+                }).unwrap(),
+            };
+            let _ = window.emit(
+                format!("conversation_event_{}", conversation_id).as_str(),
+                error_event
+            );
             eprintln!("Chat stream error: {}", e);
             return Err(anyhow::anyhow!("Chat stream error: {}", e));
         }
@@ -714,7 +815,7 @@ async fn handle_chat_response(
                 println!("Received data: id={}, type={}, content={}", 
                          stream_event.message_id, stream_event.message_type, stream_event.content);
                 
-                // 发送事件到前端，使用消息ID作为事件名
+                // 发送事件到前端，使用实际的message_id作为事件名
                 window
                     .emit(format!("message_{}", stream_event.message_id).as_str(), 
                          serde_json::json!({
@@ -739,7 +840,7 @@ async fn handle_chat_response(
                         
                         println!("Message finish: id={}", stream_event.message_id);
                         window
-                            .emit(format!("message_{}", stream_event.message_id).as_str(), MESSAGE_FINISH_EVENT)
+                            .emit(format!("message_{}", chat_context.message_id).as_str(), MESSAGE_FINISH_EVENT)
                             .map_err(|e| e.to_string())
                             .unwrap();
 
@@ -851,6 +952,7 @@ pub async fn ask_ai(
             .context("Failed to get LLM model detail")?;
 
         let tokens = message_token_manager.get_tokens();
+        let window_clone = window.clone(); // 在移动之前克隆
         tokio::spawn(async move {
             // 直接创建数据库连接（避免线程安全问题）
             let conversation_db = ConversationDatabase::new(&app_handle_clone).unwrap();
@@ -919,6 +1021,7 @@ pub async fn ask_ai(
                     &cancel_token,
                     &conversation_db,
                     &tokens,
+                    &window_clone,
                 )
                 .await?;
             } else {
@@ -1153,6 +1256,7 @@ pub async fn regenerate_ai(
         .context("Failed to get LLM model detail")?;
 
     let tokens = message_token_manager.get_tokens();
+    let window_clone = window.clone(); // 在移动之前克隆
     tokio::spawn(async move {
         // 直接创建数据库连接（避免线程安全问题）
         let conversation_db = ConversationDatabase::new(&app_handle_clone).unwrap();
@@ -1216,6 +1320,7 @@ pub async fn regenerate_ai(
                 &cancel_token,
                 &conversation_db,
                 &tokens,
+                &window_clone,
             )
             .await?;
         } else {
