@@ -58,14 +58,14 @@ const MessageItem = React.memo(
             const previewLines = lines.slice(-2); // 默认显示最后2行
 
             return (
-                <div className="my-2 p-3 bg-slate-50 border-l-4 border-indigo-500 rounded-r-lg max-w-[80%]">
+                <div className="my-2 p-3 bg-gray-50 border-l-4 border-gray-400 rounded-r-lg max-w-[80%]">
                     <div className="flex items-center gap-2 mb-2">
-                        <div className={`w-2 h-2 bg-indigo-500 rounded-full ${!isComplete ? 'animate-pulse' : ''}`}></div>
-                        <span className="text-sm font-medium text-indigo-700">
+                        <div className={`w-2 h-2 bg-gray-500 rounded-full ${!isComplete ? 'animate-pulse' : ''}`}></div>
+                        <span className="text-sm font-medium text-gray-700">
                             {isComplete ? '思考完成' : '思考中...'}
                         </span>
                     </div>
-                    <div className="text-sm text-gray-700 whitespace-pre-wrap font-mono">
+                    <div className="text-sm text-gray-600 whitespace-pre-wrap font-mono">
                         {isExpanded ? displayedContent : (
                             <>
                                 {lines.length > 2 && <div className="text-gray-400 text-xs mb-1">...</div>}
@@ -76,7 +76,7 @@ const MessageItem = React.memo(
                     {lines.length > 2 && (
                         <button
                             onClick={() => setIsExpanded(!isExpanded)}
-                            className="mt-2 text-xs text-indigo-600 hover:text-indigo-800 underline cursor-pointer"
+                            className="mt-2 text-xs text-gray-600 hover:text-gray-800 underline cursor-pointer"
                         >
                             {isExpanded ? '收起' : '展开思考'}
                         </button>
