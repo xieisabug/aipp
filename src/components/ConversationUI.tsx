@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Sparkles } from "lucide-react";
 
-import { Conversation, FileInfo, Message, StreamEvent, ConversationEvent, MessageAddEvent, MessageUpdateEvent } from "../data/Conversation";
+import { Conversation, FileInfo, Message, StreamEvent, ConversationEvent, MessageAddEvent, MessageUpdateEvent, MessageTypeEndEvent } from "../data/Conversation";
 import "katex/dist/katex.min.css";
 import { listen } from "@tauri-apps/api/event";
 import { throttle } from "lodash";
@@ -261,6 +261,29 @@ function ConversationUI({
                             } else {
                                 updateAssistantContent(streamEvent);
                             }
+                        } else if (conversationEvent.type === 'message_type_end') {
+                            const messageTypeEndData = conversationEvent.data as MessageTypeEndEvent;
+                            console.log('Message type end:', messageTypeEndData.message_id, messageTypeEndData.message_type, messageTypeEndData.duration_ms + 'ms');
+                            
+                            // 处理类型结束事件，可以更新UI状态
+                            if (messageTypeEndData.message_type === 'response') {
+                                setAiIsResponsing(false);
+                            }
+                            
+                            // 更新流式消息状态，保存后端提供的时间信息，而不是删除
+                            setStreamingMessages((prev) => {
+                                const newMap = new Map(prev);
+                                const existingMessage = newMap.get(messageTypeEndData.message_id);
+                                if (existingMessage) {
+                                    newMap.set(messageTypeEndData.message_id, {
+                                        ...existingMessage,
+                                        is_done: true,
+                                        duration_ms: messageTypeEndData.duration_ms,
+                                        end_time: new Date(messageTypeEndData.end_time)
+                                    });
+                                }
+                                return newMap;
+                            });
                         }
                     };
                     
@@ -488,6 +511,29 @@ function ConversationUI({
                             scroll();
                         }
                     }
+                } else if (conversationEvent.type === 'message_type_end') {
+                    const messageTypeEndData = conversationEvent.data as MessageTypeEndEvent;
+                    console.log('Message type end:', messageTypeEndData.message_id, messageTypeEndData.message_type, messageTypeEndData.duration_ms + 'ms');
+                    
+                    // 处理类型结束事件
+                    if (messageTypeEndData.message_type === 'response') {
+                        setAiIsResponsing(false);
+                    }
+                    
+                    // 更新流式消息状态，保存后端提供的时间信息
+                    setStreamingMessages((prev) => {
+                        const newMap = new Map(prev);
+                        const existingMessage = newMap.get(messageTypeEndData.message_id);
+                        if (existingMessage) {
+                            newMap.set(messageTypeEndData.message_id, {
+                                ...existingMessage,
+                                is_done: true,
+                                duration_ms: messageTypeEndData.duration_ms,
+                                end_time: new Date(messageTypeEndData.end_time)
+                            });
+                        }
+                        return newMap;
+                    });
                 }
             };
             
@@ -664,6 +710,29 @@ function ConversationUI({
                                 } else {
                                     updateContent(streamEvent);
                                 }
+                            } else if (conversationEvent.type === 'message_type_end') {
+                                const messageTypeEndData = conversationEvent.data as MessageTypeEndEvent;
+                                console.log('Message type end:', messageTypeEndData.message_id, messageTypeEndData.message_type, messageTypeEndData.duration_ms + 'ms');
+                                
+                                // 处理类型结束事件
+                                if (messageTypeEndData.message_type === 'response') {
+                                    setAiIsResponsing(false);
+                                }
+                                
+                                // 更新流式消息状态，保存后端提供的时间信息
+                                setStreamingMessages((prev) => {
+                                    const newMap = new Map(prev);
+                                    const existingMessage = newMap.get(messageTypeEndData.message_id);
+                                    if (existingMessage) {
+                                        newMap.set(messageTypeEndData.message_id, {
+                                            ...existingMessage,
+                                            is_done: true,
+                                            duration_ms: messageTypeEndData.duration_ms,
+                                            end_time: new Date(messageTypeEndData.end_time)
+                                        });
+                                    }
+                                    return newMap;
+                                });
                             }
                         };
 
@@ -715,7 +784,7 @@ function ConversationUI({
                     llm_model_id: null,
                     created_time: new Date(baseTime.getTime() + 1000), // 基于最后消息时间+1秒
                     start_time: streamEvent.message_type === 'reasoning' ? baseTime : null,
-                    finish_time: streamEvent.is_done ? new Date() : null,
+                    finish_time: streamEvent.is_done ? (streamEvent.end_time || new Date()) : null,
                     token_count: 0,
                     regenerate: null,
                 };
@@ -727,7 +796,7 @@ function ConversationUI({
                     ...combinedMessages[existingIndex],
                     content: streamEvent.content,
                     message_type: streamEvent.message_type, // 确保消息类型也被更新
-                    finish_time: streamEvent.is_done ? new Date() : combinedMessages[existingIndex].finish_time,
+                    finish_time: streamEvent.is_done ? (streamEvent.end_time || new Date()) : combinedMessages[existingIndex].finish_time,
                 };
             }
         });
@@ -741,17 +810,23 @@ function ConversationUI({
         () =>
             allDisplayMessages
                 .filter((m) => m.message_type !== "system")
-                .map((message) => (
-                    <MessageItem
-                        key={message.id} // 使用唯一的 id 作为 key，而不是索引
-                        message={message}
-                        onCodeRun={handleArtifact}
-                        onMessageRegenerate={() =>
-                            handleMessageRegenerate(message.id)
-                        }
-                    />
-                )),
-        [allDisplayMessages],
+                .map((message) => {
+                    // 查找对应的流式消息信息（如果存在）
+                    const streamEvent = streamingMessages.get(message.id);
+                    
+                    return (
+                        <MessageItem
+                            key={message.id} // 使用唯一的 id 作为 key，而不是索引
+                            message={message}
+                            streamEvent={streamEvent} // 传递流式消息信息
+                            onCodeRun={handleArtifact}
+                            onMessageRegenerate={() =>
+                                handleMessageRegenerate(message.id)
+                            }
+                        />
+                    );
+                }),
+        [allDisplayMessages, streamingMessages],
     );
 
     // 文件拖拽处理
@@ -929,6 +1004,29 @@ function ConversationUI({
                         } else {
                             updateRegenerateContent(streamEvent);
                         }
+                    } else if (conversationEvent.type === 'message_type_end') {
+                        const messageTypeEndData = conversationEvent.data as MessageTypeEndEvent;
+                        console.log('Message type end:', messageTypeEndData.message_id, messageTypeEndData.message_type, messageTypeEndData.duration_ms + 'ms');
+                        
+                        // 处理类型结束事件
+                        if (messageTypeEndData.message_type === 'response') {
+                            setAiIsResponsing(false);
+                        }
+                        
+                        // 更新流式消息状态，保存后端提供的时间信息
+                        setStreamingMessages((prev) => {
+                            const newMap = new Map(prev);
+                            const existingMessage = newMap.get(messageTypeEndData.message_id);
+                            if (existingMessage) {
+                                newMap.set(messageTypeEndData.message_id, {
+                                    ...existingMessage,
+                                    is_done: true,
+                                    duration_ms: messageTypeEndData.duration_ms,
+                                    end_time: new Date(messageTypeEndData.end_time)
+                                });
+                            }
+                            return newMap;
+                        });
                     }
                 };
 

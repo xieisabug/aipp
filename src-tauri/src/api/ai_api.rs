@@ -41,6 +41,14 @@ struct MessageUpdateEvent {
     is_done: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MessageTypeEndEvent {
+    message_id: i64,
+    message_type: String,
+    duration_ms: i64,
+    end_time: chrono::DateTime<chrono::Utc>,
+}
+
 use futures::StreamExt;
 use genai::chat::{ChatMessage, ChatOptions, ChatRequest, ContentPart};
 use genai::Client;
@@ -331,6 +339,58 @@ async fn cleanup_token(
     map.remove(&message_id);
 }
 
+/// 处理消息类型结束事件
+fn handle_message_type_end(
+    message_id: i64,
+    message_type: &str,
+    content: &str,
+    start_time: chrono::DateTime<chrono::Utc>,
+    conversation_db: &ConversationDatabase,
+    window: &tauri::Window,
+    conversation_id: i64,
+) -> Result<(), anyhow::Error> {
+    let end_time = chrono::Utc::now();
+    let duration_ms = end_time.timestamp_millis() - start_time.timestamp_millis();
+    
+    // 更新数据库的finish_time
+    conversation_db
+        .message_repo()
+        .unwrap()
+        .update_finish_time(message_id)?;
+    
+    // 发送类型结束事件
+    let type_end_event = ConversationEvent {
+        r#type: "message_type_end".to_string(),
+        data: serde_json::to_value(MessageTypeEndEvent {
+            message_id,
+            message_type: message_type.to_string(),
+            duration_ms,
+            end_time,
+        }).unwrap(),
+    };
+    let _ = window.emit(
+        format!("conversation_event_{}", conversation_id).as_str(),
+        type_end_event
+    );
+    
+    // 发送最终的更新事件，标记为完成
+    let final_update_event = ConversationEvent {
+        r#type: "message_update".to_string(),
+        data: serde_json::to_value(MessageUpdateEvent {
+            message_id,
+            message_type: message_type.to_string(),
+            content: content.to_string(),
+            is_done: true,
+        }).unwrap(),
+    };
+    let _ = window.emit(
+        format!("conversation_event_{}", conversation_id).as_str(),
+        final_update_event
+    );
+    
+    Ok(())
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AiRequest {
     conversation_id: String,
@@ -374,6 +434,11 @@ async fn handle_stream_chat(
             let mut response_content = String::new();
             let mut reasoning_message_id: Option<i64> = None;
             let mut response_message_id: Option<i64> = None;
+            
+            // 状态跟踪变量
+            let mut current_output_type: Option<String> = None;
+            let mut reasoning_start_time: Option<chrono::DateTime<chrono::Utc>> = None;
+            let mut response_start_time: Option<chrono::DateTime<chrono::Utc>> = None;
 
             loop {
                 tokio::select! {
@@ -386,11 +451,36 @@ async fn handle_stream_chat(
                                         // 流开始，暂时不做处理
                                     }
                                     ChatStreamEvent::Chunk(chunk) => {
+                                        // 检查是否需要结束reasoning状态
+                                        if current_output_type == Some("reasoning".to_string()) {
+                                            if let (Some(msg_id), Some(start_time)) = (reasoning_message_id, reasoning_start_time) {
+                                                handle_message_type_end(
+                                                    msg_id,
+                                                    "reasoning",
+                                                    &reasoning_content,
+                                                    start_time,
+                                                    &conversation_db,
+                                                    &window,
+                                                    conversation_id,
+                                                ).unwrap_or_else(|e| {
+                                                    eprintln!("Failed to handle reasoning type end: {}", e);
+                                                });
+                                            }
+                                        }
+                                        
+                                        // 切换到response状态
+                                        if current_output_type != Some("response".to_string()) {
+                                            current_output_type = Some("response".to_string());
+                                        }
+                                        
                                         // 处理正常回答内容
                                         response_content.push_str(&chunk.content);
                                         
                                         // 如果还没有创建 response 消息，创建一个
                                         if response_message_id.is_none() {
+                                            let now = chrono::Utc::now();
+                                            response_start_time = Some(now);
+                                            
                                             let new_message = conversation_db
                                                 .message_repo()
                                                 .unwrap()
@@ -402,8 +492,8 @@ async fn handle_stream_chat(
                                                     content: response_content.clone(),
                                                     llm_model_id: None,
                                                     llm_model_name: None,
-                                                    created_time: chrono::Utc::now(),
-                                                    start_time: Some(chrono::Utc::now()),
+                                                    created_time: now,
+                                                    start_time: Some(now),
                                                     finish_time: None,
                                                     token_count: 0,
                                                 })
@@ -457,11 +547,19 @@ async fn handle_stream_chat(
                                         }
                                     }
                                     ChatStreamEvent::ReasoningChunk(reasoning_chunk) => {
+                                        // 切换到reasoning状态
+                                        if current_output_type != Some("reasoning".to_string()) {
+                                            current_output_type = Some("reasoning".to_string());
+                                        }
+                                        
                                         // 处理推理内容
                                         reasoning_content.push_str(&reasoning_chunk.content);
                                         
                                         // 如果还没有创建 reasoning 消息，创建一个
                                         if reasoning_message_id.is_none() {
+                                            let now = chrono::Utc::now();
+                                            reasoning_start_time = Some(now);
+                                            
                                             let new_message = conversation_db
                                                 .message_repo()
                                                 .unwrap()
@@ -473,8 +571,8 @@ async fn handle_stream_chat(
                                                     content: reasoning_content.clone(),
                                                     llm_model_id: None,
                                                     llm_model_name: None,
-                                                    created_time: chrono::Utc::now(),
-                                                    start_time: Some(chrono::Utc::now()),
+                                                    created_time: now,
+                                                    start_time: Some(now),
                                                     finish_time: None,
                                                     token_count: 0,
                                                 })
@@ -531,51 +629,51 @@ async fn handle_stream_chat(
                                         // 工具调用块，暂时忽略
                                     }
                                     ChatStreamEvent::End(_stream_end) => {
-                                        // 流结束，标记所有消息为完成状态
-                                        if let Some(msg_id) = reasoning_message_id {
-                                            conversation_db
-                                                .message_repo()
-                                                .unwrap()
-                                                .update_finish_time(msg_id)
-                                                .unwrap();
-                                            
-                                            let complete_event = ConversationEvent {
-                                                r#type: "message_update".to_string(),
-                                                data: serde_json::to_value(MessageUpdateEvent {
-                                                    message_id: msg_id,
-                                                    message_type: "reasoning".to_string(),
-                                                    content: reasoning_content.clone(),
-                                                    is_done: true,
-                                                }).unwrap(),
-                                            };
-                                            let _ = window.emit(
-                                                format!("conversation_event_{}", conversation_id).as_str(),
-                                                complete_event
-                                            );
+                                        // 流结束，处理当前活跃的消息类型
+                                        match current_output_type.as_deref() {
+                                            Some("reasoning") => {
+                                                if let (Some(msg_id), Some(start_time)) = (reasoning_message_id, reasoning_start_time) {
+                                                    handle_message_type_end(
+                                                        msg_id,
+                                                        "reasoning",
+                                                        &reasoning_content,
+                                                        start_time,
+                                                        &conversation_db,
+                                                        &window,
+                                                        conversation_id,
+                                                    ).unwrap_or_else(|e| {
+                                                        eprintln!("Failed to handle reasoning type end: {}", e);
+                                                    });
+                                                }
+                                            }
+                                            Some("response") => {
+                                                if let (Some(msg_id), Some(start_time)) = (response_message_id, response_start_time) {
+                                                    handle_message_type_end(
+                                                        msg_id,
+                                                        "response",
+                                                        &response_content,
+                                                        start_time,
+                                                        &conversation_db,
+                                                        &window,
+                                                        conversation_id,
+                                                    ).unwrap_or_else(|e| {
+                                                        eprintln!("Failed to handle response type end: {}", e);
+                                                    });
+                                                }
+                                            }
+                                            _ => {
+                                                // 没有活跃的消息类型，使用原有逻辑
+                                                return finish_stream_messages(
+                                                    &conversation_db,
+                                                    reasoning_message_id,
+                                                    response_message_id,
+                                                    &reasoning_content,
+                                                    &response_content,
+                                                    &window,
+                                                    conversation_id,
+                                                );
+                                            }
                                         }
-                                        
-                                        if let Some(msg_id) = response_message_id {
-                                            conversation_db
-                                                .message_repo()
-                                                .unwrap()
-                                                .update_finish_time(msg_id)
-                                                .unwrap();
-                                            
-                                            let complete_event = ConversationEvent {
-                                                r#type: "message_update".to_string(),
-                                                data: serde_json::to_value(MessageUpdateEvent {
-                                                    message_id: msg_id,
-                                                    message_type: "response".to_string(),
-                                                    content: response_content.clone(),
-                                                    is_done: true,
-                                                }).unwrap(),
-                                            };
-                                            let _ = window.emit(
-                                                format!("conversation_event_{}", conversation_id).as_str(),
-                                                complete_event
-                                            );
-                                        }
-                                        
                                         return Ok(());
                                     }
                                 }
@@ -605,51 +703,51 @@ async fn handle_stream_chat(
                                 return Err(anyhow::anyhow!("Stream error: {}", e));
                             },
                             None => {
-                                // 流结束，标记所有消息为完成状态
-                                if let Some(msg_id) = reasoning_message_id {
-                                    conversation_db
-                                        .message_repo()
-                                        .unwrap()
-                                        .update_finish_time(msg_id)
-                                        .unwrap();
-                                    
-                                    let complete_event = ConversationEvent {
-                                        r#type: "message_update".to_string(),
-                                        data: serde_json::to_value(MessageUpdateEvent {
-                                            message_id: msg_id,
-                                            message_type: "reasoning".to_string(),
-                                            content: reasoning_content.clone(),
-                                            is_done: true,
-                                        }).unwrap(),
-                                    };
-                                    let _ = window.emit(
-                                        format!("conversation_event_{}", conversation_id).as_str(),
-                                        complete_event
-                                    );
+                                // 流结束，处理当前活跃的消息类型
+                                match current_output_type.as_deref() {
+                                    Some("reasoning") => {
+                                        if let (Some(msg_id), Some(start_time)) = (reasoning_message_id, reasoning_start_time) {
+                                            handle_message_type_end(
+                                                msg_id,
+                                                "reasoning",
+                                                &reasoning_content,
+                                                start_time,
+                                                &conversation_db,
+                                                &window,
+                                                conversation_id,
+                                            ).unwrap_or_else(|e| {
+                                                eprintln!("Failed to handle reasoning type end: {}", e);
+                                            });
+                                        }
+                                    }
+                                    Some("response") => {
+                                        if let (Some(msg_id), Some(start_time)) = (response_message_id, response_start_time) {
+                                            handle_message_type_end(
+                                                msg_id,
+                                                "response",
+                                                &response_content,
+                                                start_time,
+                                                &conversation_db,
+                                                &window,
+                                                conversation_id,
+                                            ).unwrap_or_else(|e| {
+                                                eprintln!("Failed to handle response type end: {}", e);
+                                            });
+                                        }
+                                    }
+                                    _ => {
+                                        // 没有活跃的消息类型，使用原有逻辑
+                                        return finish_stream_messages(
+                                            &conversation_db,
+                                            reasoning_message_id,
+                                            response_message_id,
+                                            &reasoning_content,
+                                            &response_content,
+                                            &window,
+                                            conversation_id,
+                                        );
+                                    }
                                 }
-                                
-                                if let Some(msg_id) = response_message_id {
-                                    conversation_db
-                                        .message_repo()
-                                        .unwrap()
-                                        .update_finish_time(msg_id)
-                                        .unwrap();
-                                    
-                                    let complete_event = ConversationEvent {
-                                        r#type: "message_update".to_string(),
-                                        data: serde_json::to_value(MessageUpdateEvent {
-                                            message_id: msg_id,
-                                            message_type: "response".to_string(),
-                                            content: response_content.clone(),
-                                            is_done: true,
-                                        }).unwrap(),
-                                    };
-                                    let _ = window.emit(
-                                        format!("conversation_event_{}", conversation_id).as_str(),
-                                        complete_event
-                                    );
-                                }
-                                
                                 return Ok(());
                             }
                         }
@@ -1620,5 +1718,66 @@ pub async fn regenerate_conversation_title(
     )
     .await?;
 
+    Ok(())
+}
+
+/// 完成流式消息处理的统一函数
+fn finish_stream_messages(
+    conversation_db: &ConversationDatabase,
+    reasoning_message_id: Option<i64>,
+    response_message_id: Option<i64>,
+    reasoning_content: &str,
+    response_content: &str,
+    window: &tauri::Window,
+    conversation_id: i64,
+) -> Result<(), Error> {
+    // 如果只有 reasoning 没有 response，则结束 reasoning
+    if let Some(msg_id) = reasoning_message_id {
+        if response_message_id.is_none() {
+            conversation_db
+                .message_repo()
+                .unwrap()
+                .update_finish_time(msg_id)
+                .unwrap();
+            
+            let complete_event = ConversationEvent {
+                r#type: "message_update".to_string(),
+                data: serde_json::to_value(MessageUpdateEvent {
+                    message_id: msg_id,
+                    message_type: "reasoning".to_string(),
+                    content: reasoning_content.to_string(),
+                    is_done: true,
+                }).unwrap(),
+            };
+            let _ = window.emit(
+                format!("conversation_event_{}", conversation_id).as_str(),
+                complete_event
+            );
+        }
+    }
+    
+    // 结束 response 消息
+    if let Some(msg_id) = response_message_id {
+        conversation_db
+            .message_repo()
+            .unwrap()
+            .update_finish_time(msg_id)
+            .unwrap();
+        
+        let complete_event = ConversationEvent {
+            r#type: "message_update".to_string(),
+            data: serde_json::to_value(MessageUpdateEvent {
+                message_id: msg_id,
+                message_type: "response".to_string(),
+                content: response_content.to_string(),
+                is_done: true,
+            }).unwrap(),
+        };
+        let _ = window.emit(
+            format!("conversation_event_{}", conversation_id).as_str(),
+            complete_event
+        );
+    }
+    
     Ok(())
 }
