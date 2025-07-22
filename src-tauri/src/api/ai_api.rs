@@ -14,21 +14,10 @@ use anyhow::Error;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Duration;
 use tauri::Emitter;
 use tauri::State;
-use tokio::sync::mpsc;
-use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
-/// 流式事件数据结构
-#[derive(Debug, Clone)]
-struct StreamEvent {
-    message_id: i64,
-    message_type: String,
-    content: String,
-    is_done: bool,
-}
 
 /// Conversation事件数据结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,7 +48,7 @@ use genai::Client;
 use super::assistant_api::AssistantDetail;
 
 // 事件名称常量
-const MESSAGE_FINISH_EVENT: &str = "Tea::Event::MessageFinish";
+const _MESSAGE_FINISH_EVENT: &str = "Tea::Event::MessageFinish";
 const TITLE_CHANGE_EVENT: &str = "title_change";
 const ERROR_NOTIFICATION_EVENT: &str = "conversation-window-error-notification";
 
@@ -72,14 +61,6 @@ struct ChatConfig {
     client: Client,
 }
 
-/// 聊天上下文
-#[derive(Debug)]
-struct ChatContext {
-    conversation_id: i64,
-    message_id: i64,
-    need_generate_title: bool,
-    request_prompt_result: String,
-}
 
 /// 配置构建器
 struct ConfigBuilder;
@@ -378,7 +359,6 @@ async fn handle_stream_chat(
     chat_options: &ChatOptions,
     conversation_id: i64,
     initial_message_id: i64,
-    tx: &mpsc::Sender<StreamEvent>,
     cancel_token: &CancellationToken,
     conversation_db: &ConversationDatabase,
     tokens: &Arc<tokio::sync::Mutex<HashMap<i64, CancellationToken>>>,
@@ -550,7 +530,7 @@ async fn handle_stream_chat(
                                     ChatStreamEvent::ToolCallChunk(_tool_chunk) => {
                                         // 工具调用块，暂时忽略
                                     }
-                                    ChatStreamEvent::End(stream_end) => {
+                                    ChatStreamEvent::End(_stream_end) => {
                                         // 流结束，标记所有消息为完成状态
                                         if let Some(msg_id) = reasoning_message_id {
                                             conversation_db
@@ -713,10 +693,10 @@ async fn handle_non_stream_chat(
     chat_options: &ChatOptions,
     conversation_id: i64,
     initial_message_id: i64,
-    tx: &mpsc::Sender<StreamEvent>,
     cancel_token: &CancellationToken,
     conversation_db: &ConversationDatabase,
     tokens: &Arc<tokio::sync::Mutex<HashMap<i64, CancellationToken>>>,
+    window: &tauri::Window,
 ) -> Result<(), anyhow::Error> {
     // 创建一个 response 类型的消息
     let response_message = conversation_db
@@ -737,6 +717,20 @@ async fn handle_non_stream_chat(
         })
         .unwrap();
     let response_message_id = response_message.id;
+
+    // 发送消息添加事件
+    let add_event = ConversationEvent {
+        r#type: "message_add".to_string(),
+        data: serde_json::to_value(MessageAddEvent {
+            message_id: response_message_id,
+            message_type: "response".to_string(),
+            temp_message_id: initial_message_id,
+        }).unwrap(),
+    };
+    let _ = window.emit(
+        format!("conversation_event_{}", conversation_id).as_str(),
+        add_event
+    );
 
     let chat_result = tokio::select! {
         result = client.exec_chat(model_name, chat_request, Some(chat_options)) => result,
@@ -770,13 +764,21 @@ async fn handle_non_stream_chat(
                 .unwrap()
                 .update_finish_time(response_message_id)
                 .unwrap();
-                
-            tx.send(StreamEvent {
-                message_id: response_message_id,
-                message_type: "response".to_string(),
-                content: content.clone(),
-                is_done: true,
-            }).await.unwrap();
+            
+            // 发送消息更新事件（完成状态）
+            let update_event = ConversationEvent {
+                r#type: "message_update".to_string(),
+                data: serde_json::to_value(MessageUpdateEvent {
+                    message_id: response_message_id,
+                    message_type: "response".to_string(),
+                    content: content.clone(),
+                    is_done: true,
+                }).unwrap(),
+            };
+            let _ = window.emit(
+                format!("conversation_event_{}", conversation_id).as_str(),
+                update_event
+            );
             
             Ok(())
         }
@@ -784,12 +786,20 @@ async fn handle_non_stream_chat(
             cleanup_token(tokens, initial_message_id).await;
             let err_msg = format!("Chat error: {}", e);
             
-            tx.send(StreamEvent {
-                message_id: response_message_id,
-                message_type: "error".to_string(),
-                content: err_msg,
-                is_done: true,
-            }).await.unwrap();
+            // 发送错误事件
+            let error_event = ConversationEvent {
+                r#type: "message_update".to_string(),
+                data: serde_json::to_value(MessageUpdateEvent {
+                    message_id: response_message_id,
+                    message_type: "error".to_string(),
+                    content: err_msg,
+                    is_done: true,
+                }).unwrap(),
+            };
+            let _ = window.emit(
+                format!("conversation_event_{}", conversation_id).as_str(),
+                error_event
+            );
             
             eprintln!("Chat error: {}", e);
             Err(anyhow::anyhow!("Chat error: {}", e))
@@ -797,86 +807,6 @@ async fn handle_non_stream_chat(
     }
 }
 
-/// 处理聊天响应消息
-async fn handle_chat_response(
-    app_handle: tauri::AppHandle,
-    window: tauri::Window,
-    chat_context: ChatContext,
-    config_feature_map: HashMap<String, HashMap<String, FeatureConfig>>,
-    tokens: Arc<tokio::sync::Mutex<HashMap<i64, CancellationToken>>>,
-    mut rx: mpsc::Receiver<StreamEvent>,
-) {
-    let mut response_content = String::new();
-    let mut has_finished_messages = false;
-    
-    loop {
-        match timeout(Duration::from_secs(600), rx.recv()).await {
-            Ok(Some(stream_event)) => {
-                println!("Received data: id={}, type={}, content={}", 
-                         stream_event.message_id, stream_event.message_type, stream_event.content);
-                
-                // 发送事件到前端，使用实际的message_id作为事件名
-                window
-                    .emit(format!("message_{}", stream_event.message_id).as_str(), 
-                         serde_json::json!({
-                             "message_id": stream_event.message_id,
-                             "message_type": stream_event.message_type,
-                             "content": stream_event.content,
-                             "is_done": stream_event.is_done
-                         }))
-                    .map_err(|e| e.to_string())
-                    .unwrap();
-
-                if stream_event.is_done {
-                    // 如果这是一个 response 类型的消息完成，收集内容用于生成标题
-                    if stream_event.message_type == "response" {
-                        response_content = stream_event.content.clone();
-                    }
-                    
-                    // 检查是否所有消息都已完成
-                    // 这里简化处理：收到任何一个完成的消息就认为这轮对话结束
-                    if !has_finished_messages {
-                        has_finished_messages = true;
-                        
-                        println!("Message finish: id={}", stream_event.message_id);
-                        window
-                            .emit(format!("message_{}", chat_context.message_id).as_str(), MESSAGE_FINISH_EVENT)
-                            .map_err(|e| e.to_string())
-                            .unwrap();
-
-                        // 如果需要生成标题，使用 response 内容
-                        if chat_context.need_generate_title && !response_content.is_empty() {
-                            generate_title(
-                                &app_handle,
-                                chat_context.conversation_id,
-                                chat_context.request_prompt_result.clone(),
-                                response_content.clone(),
-                                config_feature_map.clone(),
-                                window.clone(),
-                            )
-                            .await
-                            .map_err(|e| e.to_string())
-                            .unwrap();
-                        }
-                        
-                        cleanup_token(&tokens, chat_context.message_id).await;
-                        break;
-                    }
-                }
-            }
-            Ok(None) => {
-                cleanup_token(&tokens, chat_context.message_id).await;
-                println!("Channel closed");
-                break;
-            }
-            Err(err) => {
-                cleanup_token(&tokens, chat_context.message_id).await;
-                println!("Timeout waiting for data from channel: {:?}", err);
-                break;
-            }
-        }
-    }
-}
 
 #[tauri::command]
 pub async fn ask_ai(
@@ -896,7 +826,6 @@ pub async fn ask_ai(
     );
     let template_engine = TemplateEngine::new();
     let mut template_context = HashMap::new();
-    let (tx, rx) = mpsc::channel::<StreamEvent>(100);
 
     let selected_text = state.inner().selected_text.lock().await.clone();
     template_context.insert("selected_text".to_string(), selected_text);
@@ -913,13 +842,13 @@ pub async fn ask_ai(
         return Err(AppError::NoModelFound);
     }
 
-    let need_generate_title = request.conversation_id.is_empty();
+    let _need_generate_title = request.conversation_id.is_empty();
     let request_prompt_result = template_engine
         .parse(&request.prompt, &template_context)
         .await;
 
     let app_handle_clone = app_handle.clone();
-    let (conversation_id, new_message_id, request_prompt_result_with_context, init_message_list) =
+    let (conversation_id, _new_message_id, request_prompt_result_with_context, init_message_list) =
         initialize_conversation(
             &app_handle_clone,
             &request,
@@ -931,8 +860,8 @@ pub async fn ask_ai(
         .await?;
 
     // 总是启动流式处理，即使没有预先创建消息
-    let config_feature_map = feature_config_state.config_feature_map.lock().await.clone();
-    let request_prompt_result_with_context_clone = request_prompt_result_with_context.clone();
+    let _config_feature_map = feature_config_state.config_feature_map.lock().await.clone();
+    let _request_prompt_result_with_context_clone = request_prompt_result_with_context.clone();
 
     let app_handle_clone = app_handle.clone();
 
@@ -1017,7 +946,6 @@ pub async fn ask_ai(
                     &chat_config.chat_options,
                     conversation_id,
                     temp_message_id,
-                    &tx,
                     &cancel_token,
                     &conversation_db,
                     &tokens,
@@ -1033,10 +961,10 @@ pub async fn ask_ai(
                     &chat_config.chat_options,
                     conversation_id,
                     temp_message_id,
-                    &tx,
                     &cancel_token,
                     &conversation_db,
                     &tokens,
+                    &window_clone,
                 )
                 .await?;
             }
@@ -1044,29 +972,6 @@ pub async fn ask_ai(
             Ok::<(), Error>(())
         });
 
-        let app_handle_clone = app_handle.clone();
-        let tokens = message_token_manager.get_tokens();
-        let window_clone = window.clone();
-
-        // 创建 ChatContext
-        let chat_context = ChatContext {
-            conversation_id,
-            message_id: temp_message_id, // 使用临时 message_id
-            need_generate_title,
-            request_prompt_result: request_prompt_result_with_context_clone,
-        };
-
-        tokio::spawn(async move {
-            handle_chat_response(
-                app_handle_clone,
-                window_clone,
-                chat_context,
-                config_feature_map.clone(),
-                tokens,
-                rx,
-            )
-            .await;
-        });
 
     println!("================================ Ask AI End ===============================================");
 
@@ -1225,7 +1130,6 @@ pub async fn regenerate_ai(
         return Err(AppError::NoModelFound);
     }
 
-    let (tx, rx) = mpsc::channel::<StreamEvent>(100);
 
     let app_handle_clone = app_handle.clone();
     let new_message = add_message(
@@ -1316,7 +1220,6 @@ pub async fn regenerate_ai(
                 &chat_config.chat_options,
                 conversation_id,
                 new_message_id,
-                &tx,
                 &cancel_token,
                 &conversation_db,
                 &tokens,
@@ -1332,10 +1235,10 @@ pub async fn regenerate_ai(
                 &chat_config.chat_options,
                 conversation_id,
                 new_message_id,
-                &tx,
                 &cancel_token,
                 &conversation_db,
                 &tokens,
+                &window_clone,
             )
             .await?;
         }
@@ -1343,29 +1246,6 @@ pub async fn regenerate_ai(
         Ok::<(), Error>(())
     });
 
-    let app_handle_clone = app_handle.clone();
-    let tokens = message_token_manager.get_tokens();
-    let window_clone = window.clone();
-
-    // 创建 ChatContext
-    let chat_context = ChatContext {
-        conversation_id,
-        message_id: new_message_id,
-        need_generate_title: false,
-        request_prompt_result: String::new(),
-    };
-
-    tokio::spawn(async move {
-        handle_chat_response(
-            app_handle_clone,
-            window_clone,
-            chat_context,
-            HashMap::new(),
-            tokens,
-            rx,
-        )
-        .await;
-    });
     println!("================================ Regenerate AI End ===============================================");
 
     Ok(AiResponse {
