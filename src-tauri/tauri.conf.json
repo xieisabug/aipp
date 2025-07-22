@@ -31,7 +31,15 @@
             "iconPath": "icons/favicon.ico"
         },
         "security": {
-            "csp": "default-src 'self'; script-src 'self' 'unsafe-eval'; connect-src ipc: http://ipc.localhost 'self' http://localhost:8097",
+            "csp": {
+                "default-src": "'self'",
+                "frame-src": "'self' http://localhost:* https://localhost:*",
+                "connect-src": "'self' http://localhost:* https://localhost:* ipc: http://ipc.localhost",
+                "style-src": "'self' 'unsafe-inline'",
+                "font-src": "'self' data:",
+                "img-src": "'self' asset:",
+                "script-src": "'self' 'unsafe-eval'"
+            },
             "assetProtocol": {
                 "scope": [
                     "**"
