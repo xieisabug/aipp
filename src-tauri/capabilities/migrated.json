@@ -15,9 +15,9 @@
     "config",
     "chat_ui",
     "plugin",
-    "preview_html",
     "preview_react",
-    "preview_vue"
+    "preview_vue",
+    "artifact_preview"
   ],
   "permissions": [
     "core:default",
@@ -43,6 +43,7 @@
     "core:window:allow-show",
     "core:window:allow-hide",
     "core:window:allow-close",
+    "core:window:allow-destroy",
     "core:window:allow-start-dragging",
     "shell:allow-open",
     "dialog:allow-open",

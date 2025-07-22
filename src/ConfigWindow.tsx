@@ -22,13 +22,6 @@ const contentMap: Record<string, React.ComponentType<any>> = {
     'feature-assistant-config': FeatureAssistantConfig,
 }
 
-// 配置标题映射
-const titleMap: Record<string, string> = {
-    'llm-provider-config': '大模型配置',
-    'assistant-config': '个人助手配置',
-    'feature-assistant-config': '程序助手配置',
-}
-
 function ConfigWindow() {
     const menuList: Array<MenuItem> = [
         {

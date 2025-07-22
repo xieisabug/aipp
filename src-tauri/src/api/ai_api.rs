@@ -32,6 +32,10 @@ const MESSAGE_FINISH_EVENT: &str = "Tea::Event::MessageFinish";
 const TITLE_CHANGE_EVENT: &str = "title_change";
 const ERROR_NOTIFICATION_EVENT: &str = "conversation-window-error-notification";
 
+// Reasoning 标签常量
+const REASONING_START_TAG: &str = "<think>";
+const REASONING_END_TAG: &str = "</think>";
+
 /// AI聊天配置
 #[derive(Debug, Clone)]
 struct ChatConfig {
@@ -345,6 +349,7 @@ async fn handle_stream_chat(
         Ok(chat_stream_response) => {
             let mut chat_stream = chat_stream_response.stream;
             let mut full_content = String::new();
+            let mut in_reasoning = false;
 
             loop {
                 tokio::select! {
@@ -361,6 +366,11 @@ async fn handle_stream_chat(
                                             .unwrap();
                                     }
                                     ChatStreamEvent::Chunk(chunk) => {
+                                        if in_reasoning {
+                                            // 如果之前在reasoning中，现在收到普通chunk，说明reasoning结束
+                                            full_content.push_str(&format!("\n{}\n", REASONING_END_TAG));
+                                            in_reasoning = false;
+                                        }
                                         full_content.push_str(&chunk.content);
                                                                             if let Err(e) = tx.send((message_id, full_content.clone(), false)).await {
                                         eprintln!("Failed to send chunk: {}", e);
@@ -368,6 +378,11 @@ async fn handle_stream_chat(
                                     }
                                     }
                                     ChatStreamEvent::ReasoningChunk(reasoning_chunk) => {
+                                        if !in_reasoning {
+                                            // 第一次进入reasoning，添加开始标签
+                                            full_content.push_str(&format!("{}\n", REASONING_START_TAG));
+                                            in_reasoning = true;
+                                        }
                                         full_content.push_str(&reasoning_chunk.content);
                                                                             if let Err(e) = tx.send((message_id, full_content.clone(), false)).await {
                                         eprintln!("Failed to send reasoning chunk: {}", e);
@@ -378,6 +393,12 @@ async fn handle_stream_chat(
                                         // 工具调用块，暂时忽略
                                     }
                                     ChatStreamEvent::End(stream_end) => {
+                                        if in_reasoning {
+                                            // 如果流结束时还在reasoning中，添加结束标签
+                                            full_content.push_str(&format!("\n{}\n", REASONING_END_TAG));
+                                            in_reasoning = false;
+                                        }
+
                                         if let Some(captured_text) = stream_end.captured_first_text() {
                                             full_content = captured_text.to_string();
                                         }
@@ -401,6 +422,11 @@ async fn handle_stream_chat(
                                 return Err(anyhow::anyhow!("Stream error: {}", e));
                             },
                             None => {
+                                if in_reasoning {
+                                    // 如果流中断时还在reasoning中，添加结束标签
+                                    full_content.push_str(&format!("\n{}\n", REASONING_END_TAG));
+                                }
+
                                 conversation_db
                                     .message_repo()
                                     .unwrap()
@@ -665,7 +691,7 @@ pub async fn ask_ai(
             let chat_config = ChatConfig {
                 model_name,
                 stream,
-                chat_options,
+                chat_options: chat_options.with_normalize_reasoning_content(true),
                 client,
             };
 

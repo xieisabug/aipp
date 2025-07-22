@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import ConfigForm from "../ConfigForm";
 import { MessageSquare, Eye, FolderOpen, Settings } from "lucide-react";
 import { toast } from 'sonner';
@@ -181,59 +182,136 @@ const FeatureAssistantConfig: React.FC = () => {
     });
 
     // 预览相关表单
-    const handleSavePreview = useCallback(() => {
-        const values = previewFormReturnData.getValues();
-        if (!values.preview_type) {
-            toast.error("请选择一个部署方式");
-            return;
-        }
+    const [bunVersion, setBunVersion] = useState<string>("");
+    const [isInstallingBun, setIsInstallingBun] = useState(false);
+    const [bunInstallLog, setBunInstallLog] = useState("");
 
-        invoke("save_feature_config", {
-            featureCode: "preview",
-            config: values
-        }).then(() => {
-            toast.success('保存成功');
+    const checkBunVersion = useCallback(() => {
+        invoke("check_bun_version").then((version) => {
+            setBunVersion(version as string);
         });
     }, []);
 
+    const [uvVersion, setUvVersion] = useState<string>("");
+    const [isInstallingUv, setIsInstallingUv] = useState(false);
+    const [uvInstallLog, setUvInstallLog] = useState("");
+
+    const checkUvVersion = useCallback(() => {
+        invoke("check_uv_version").then((version) => {
+            setUvVersion(version as string);
+        });
+    }, []);
+
+    useEffect(() => {
+        checkBunVersion();
+        checkUvVersion();
+
+        const unlistenBunLog = listen('bun-install-log', (event) => {
+            setBunInstallLog(prev => prev + "\n" + event.payload);
+        });
+
+        const unlistenBunFinished = listen('bun-install-finished', (event) => {
+            setTimeout(() => {
+                setIsInstallingBun(false);
+            }, 1000);
+            if (event.payload) {
+                toast.success("Bun 安装成功");
+                checkBunVersion();
+            } else {
+                toast.error("Bun 安装失败");
+            }
+        });
+
+        const unlistenUvLog = listen('uv-install-log', (event) => {
+            setUvInstallLog(prev => prev + "\n" + event.payload);
+        });
+
+        const unlistenUvFinished = listen('uv-install-finished', (event) => {
+            setTimeout(() => {
+                setIsInstallingUv(false);
+            }, 1000);
+            if (event.payload) {
+                toast.success("uv 安装成功");
+                checkUvVersion();
+            } else {
+                toast.error("uv 安装失败");
+            }
+        });
+
+        return () => {
+            unlistenBunLog.then(f => f());
+            unlistenBunFinished.then(f => f());
+            unlistenUvLog.then(f => f());
+            unlistenUvFinished.then(f => f());
+        };
+    }, [checkBunVersion, checkUvVersion]);
+
     const PREVIEW_FORM_CONFIG = useMemo(() => [
+        bunVersion === "Not Installed" ?
+            {
+                key: "bun_install",
+                config: {
+                    type: "button" as const,
+                    label: "安装 Bun",
+                    value: isInstallingBun ? "安装中..." : "安装",
+                    onClick: () => {
+                        setIsInstallingBun(true);
+                        setBunInstallLog("开始进行 Bun 安装...");
+                        invoke("install_bun");
+                    },
+                    disabled: isInstallingBun,
+                }
+            } :
+            {
+                key: "bun_version",
+                config: {
+                    type: "static" as const,
+                    label: "Bun 版本",
+                    value: bunVersion,
+                }
+            },
         {
-            key: "preview_type",
+            key: "bun_log",
             config: {
-                type: "radio" as const,
-                label: "部署方式",
-                options: [
-                    { value: "local", label: "本地" },
-                    { value: "remote", label: "远程" },
-                    { value: "service", label: "使用服务" },
-                ],
+                type: "static" as const,
+                label: "Bun 安装日志",
+                value: bunInstallLog || "",
+                hidden: !isInstallingBun,
             }
         },
+        uvVersion === "Not Installed" ?
+            {
+                key: "uv_install",
+                config: {
+                    type: "button" as const,
+                    label: "安装 UV",
+                    value: isInstallingUv ? "安装中..." : "安装",
+                    onClick: () => {
+                        setIsInstallingUv(true);
+                        setUvInstallLog("Starting uv installation...");
+                        invoke("install_uv");
+                    },
+                    disabled: isInstallingUv,
+                }
+            } :
+            {
+                key: "uv_version",
+                config: {
+                    type: "static" as const,
+                    label: "UV 版本",
+                    value: uvVersion,
+                }
+            },
         {
-            key: "nextjs_port",
+            key: "uv_log",
             config: {
-                type: "input" as const,
-                label: "Next.js端口",
-                value: "",
-            }
-        },
-        {
-            key: "nuxtjs_port",
-            config: {
-                type: "input" as const,
-                label: "Nuxt.js端口",
-                value: "",
-            }
-        },
-        {
-            key: "auth_token",
-            config: {
-                type: "input" as const,
-                label: "Auth token",
-                value: "",
+                type: "static" as const,
+                label: "UV 安装日志",
+                value: uvInstallLog || "",
+                hidden: !isInstallingUv,
             }
         }
-    ], []);
+    ], [bunVersion, uvVersion, isInstallingBun, isInstallingUv, bunInstallLog, uvInstallLog]);
 
     const previewFormReturnData = useForm<{
         preview_type: string;
@@ -327,8 +405,8 @@ const FeatureAssistantConfig: React.FC = () => {
                         config={SUMMARY_FORM_CONFIG}
                         layout="prompt"
                         classNames="bottom-space"
-                        onSave={handleSaveSummary}
                         useFormReturn={summaryFormReturnData}
+                        onSave={handleSaveSummary}
                     />
                 );
             case 'preview':
@@ -339,7 +417,6 @@ const FeatureAssistantConfig: React.FC = () => {
                         config={PREVIEW_FORM_CONFIG}
                         layout="default"
                         classNames="bottom-space"
-                        onSave={handleSavePreview}
                         useFormReturn={previewFormReturnData}
                     />
                 );
