@@ -575,6 +575,8 @@ function ConversationUI({
                         token_count: 0,
                         message_type: "user",
                         created_time: new Date(),
+                        start_time: null,
+                        finish_time: null,
                         attachment_list: [],
                         regenerate: null,
                     };
@@ -712,6 +714,8 @@ function ConversationUI({
                     content: streamEvent.content,
                     llm_model_id: null,
                     created_time: new Date(baseTime.getTime() + 1000), // 基于最后消息时间+1秒
+                    start_time: streamEvent.message_type === 'reasoning' ? baseTime : null,
+                    finish_time: streamEvent.is_done ? new Date() : null,
                     token_count: 0,
                     regenerate: null,
                 };
@@ -723,6 +727,7 @@ function ConversationUI({
                     ...combinedMessages[existingIndex],
                     content: streamEvent.content,
                     message_type: streamEvent.message_type, // 确保消息类型也被更新
+                    finish_time: streamEvent.is_done ? new Date() : combinedMessages[existingIndex].finish_time,
                 };
             }
         });
@@ -823,6 +828,8 @@ function ConversationUI({
                     token_count: 0,
                     message_type: "assistant",
                     created_time: new Date(),
+                    start_time: null,
+                    finish_time: null,
                     attachment_list: [],
                     regenerate: null,
                 };

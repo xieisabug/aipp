@@ -13,6 +13,8 @@ export interface Message {
     content: string;
     llm_model_id: number | null;
     created_time: Date;
+    start_time: Date | null;
+    finish_time: Date | null;
     token_count: number;
     regenerate: Array<Message> | null;
 }

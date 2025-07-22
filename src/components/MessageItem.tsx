@@ -44,41 +44,87 @@ const MessageItem = React.memo(
 
         // 如果是 reasoning 类型消息，使用特殊的渲染逻辑
         if (message.message_type === "reasoning") {
-            const [isExpanded, setIsExpanded] = useState(false); // 默认折叠
+            const [isExpanded, setIsExpanded] = useState(false);
             
-            // 检查内容是否完整（基于是否以句号等结束符结尾判断）
-            const isComplete = displayedContent.trim().endsWith('.') || 
-                             displayedContent.trim().endsWith('。') || 
-                             displayedContent.trim().endsWith('!') || 
-                             displayedContent.trim().endsWith('！') ||
-                             displayedContent.trim().endsWith('?') ||
-                             displayedContent.trim().endsWith('？');
+            // 使用 start_time 和 finish_time 来判断思考状态
+            const isComplete = message.finish_time !== null;
+            const isThinking = message.start_time !== null && !isComplete;
+
+            // 计算思考时间
+            const calculateThinkingTime = () => {
+                if (!message.start_time) return '';
+                const endTime = message.finish_time || new Date();
+                const startTime = new Date(message.start_time);
+                const diffMs = endTime.getTime() - startTime.getTime();
+                const seconds = Math.floor(diffMs / 1000);
+                if (seconds < 60) return `${seconds}秒`;
+                const minutes = Math.floor(seconds / 60);
+                const remainingSeconds = seconds % 60;
+                return `${minutes}分${remainingSeconds}秒`;
+            };
+
+            // 格式化状态文本
+            const formatStatusText = (baseText: string) => {
+                const timeStr = calculateThinkingTime();
+                return timeStr ? `${baseText}(${baseText === '思考中...' ? '已' : ''}思考 ${timeStr})` : baseText;
+            };
 
             const lines = displayedContent.split('\n');
-            const previewLines = lines.slice(-2); // 默认显示最后2行
+            const previewLines = lines.slice(-3); // 思考中时显示最后3行
 
+            // 思考完成时的小模块展示
+            if (isComplete && !isExpanded) {
+                return (
+                    <div 
+                        className="my-2 p-2 bg-gray-50 border-l-4 border-gray-400 rounded-r-lg w-80 max-w-[60%] cursor-pointer hover:bg-gray-100 transition-colors"
+                        onClick={() => setIsExpanded(true)}
+                    >
+                        <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 bg-gray-500 rounded-full"></div>
+                            <span className="text-sm font-medium text-gray-700">
+                                {formatStatusText('思考完成')}
+                            </span>
+                            <span className="text-xs text-gray-400 ml-auto">点击展开</span>
+                        </div>
+                    </div>
+                );
+            }
+
+            // 完整展示（思考完成展开或思考中）
             return (
                 <div className="my-2 p-3 bg-gray-50 border-l-4 border-gray-400 rounded-r-lg max-w-[80%]">
                     <div className="flex items-center gap-2 mb-2">
-                        <div className={`w-2 h-2 bg-gray-500 rounded-full ${!isComplete ? 'animate-pulse' : ''}`}></div>
+                        <div className={`w-2 h-2 bg-gray-500 rounded-full ${isThinking ? 'animate-pulse' : ''}`}></div>
                         <span className="text-sm font-medium text-gray-700">
-                            {isComplete ? '思考完成' : '思考中...'}
+                            {formatStatusText(isComplete ? '思考完成' : '思考中...')}
                         </span>
                     </div>
                     <div className="text-sm text-gray-600 whitespace-pre-wrap font-mono">
-                        {isExpanded ? displayedContent : (
+                        {isThinking && lines.length > 3 ? (
                             <>
-                                {lines.length > 2 && <div className="text-gray-400 text-xs mb-1">...</div>}
+                                <div className="text-gray-400 text-xs mb-1">...</div>
                                 {previewLines.join('\n')}
                             </>
+                        ) : (
+                            displayedContent
                         )}
                     </div>
-                    {lines.length > 2 && (
+                    {/* 思考中时的展开按钮 */}
+                    {isThinking && lines.length > 3 && (
                         <button
-                            onClick={() => setIsExpanded(!isExpanded)}
+                            onClick={() => setIsExpanded(true)}
                             className="mt-2 text-xs text-gray-600 hover:text-gray-800 underline cursor-pointer"
                         >
-                            {isExpanded ? '收起' : '展开思考'}
+                            展开思考
+                        </button>
+                    )}
+                    {/* 思考完成时的收起按钮 */}
+                    {isComplete && (
+                        <button
+                            onClick={() => setIsExpanded(false)}
+                            className="mt-2 text-xs text-gray-600 hover:text-gray-800 underline cursor-pointer"
+                        >
+                            收起
                         </button>
                     )}
                 </div>
