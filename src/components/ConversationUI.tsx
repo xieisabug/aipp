@@ -702,14 +702,16 @@ function ConversationUI({
             const existingIndex = combinedMessages.findIndex(msg => msg.id === streamEvent.message_id);
             if (existingIndex === -1) {
                 console.log('Creating new temporary message for ID:', streamEvent.message_id);
-                // 不存在则添加新消息，使用当前时间确保它出现在最后
+                // 推断合理的时间戳：基于最后一条消息的时间稍微往后一点
+                const lastMessage = combinedMessages[combinedMessages.length - 1];
+                const baseTime = lastMessage ? new Date(lastMessage.created_time) : new Date();
                 const tempMessage: Message = {
                     id: streamEvent.message_id,
                     conversation_id: conversation?.id || 0,
                     message_type: streamEvent.message_type,
                     content: streamEvent.content,
                     llm_model_id: null,
-                    created_time: new Date(), // 使用当前时间确保排序正确
+                    created_time: new Date(baseTime.getTime() + 1000), // 基于最后消息时间+1秒
                     token_count: 0,
                     regenerate: null,
                 };
