@@ -18,7 +18,6 @@ import MessageFileAttachment from "./MessageFileAttachment";
 import MessageWebContent from "./conversation/MessageWebContent";
 
 interface CustomComponents extends Components {
-    think: React.ElementType;
     fileattachment: React.ElementType;
     bangwebtomarkdown: React.ElementType;
     bangweb: React.ElementType;
@@ -42,6 +41,49 @@ const MessageItem = React.memo(
             }
             return message.content;
         }, [message.content, message.regenerate, currentMessageIndex]);
+
+        // 如果是 reasoning 类型消息，使用特殊的渲染逻辑
+        if (message.message_type === "reasoning") {
+            const [isExpanded, setIsExpanded] = useState(false); // 默认折叠
+            
+            // 检查内容是否完整（基于是否以句号等结束符结尾判断）
+            const isComplete = displayedContent.trim().endsWith('.') || 
+                             displayedContent.trim().endsWith('。') || 
+                             displayedContent.trim().endsWith('!') || 
+                             displayedContent.trim().endsWith('！') ||
+                             displayedContent.trim().endsWith('?') ||
+                             displayedContent.trim().endsWith('？');
+
+            const lines = displayedContent.split('\n');
+            const previewLines = lines.slice(-2); // 默认显示最后2行
+
+            return (
+                <div className="my-2 p-3 bg-slate-50 border-l-4 border-indigo-500 rounded-r-lg max-w-[80%]">
+                    <div className="flex items-center gap-2 mb-2">
+                        <div className={`w-2 h-2 bg-indigo-500 rounded-full ${!isComplete ? 'animate-pulse' : ''}`}></div>
+                        <span className="text-sm font-medium text-indigo-700">
+                            {isComplete ? '思考完成' : '思考中...'}
+                        </span>
+                    </div>
+                    <div className="text-sm text-gray-700 whitespace-pre-wrap font-mono">
+                        {isExpanded ? displayedContent : (
+                            <>
+                                {lines.length > 2 && <div className="text-gray-400 text-xs mb-1">...</div>}
+                                {previewLines.join('\n')}
+                            </>
+                        )}
+                    </div>
+                    {lines.length > 2 && (
+                        <button
+                            onClick={() => setIsExpanded(!isExpanded)}
+                            className="mt-2 text-xs text-indigo-600 hover:text-indigo-800 underline cursor-pointer"
+                        >
+                            {isExpanded ? '收起' : '展开思考'}
+                        </button>
+                    )}
+                </div>
+            );
+        }
 
         const handleCopy = useCallback(() => {
             writeText(displayedContent);
@@ -79,7 +121,7 @@ const MessageItem = React.memo(
             [currentMessageIndex, message.regenerate],
         );
 
-        // 自定义解析器来处理自定义标签
+        // 自定义解析器来处理自定义标签（移除了 think 标签处理）
         const customParser = (
             markdown: string,
             customTags: { [key: string]: (match: RegExpExecArray) => string },
@@ -87,7 +129,7 @@ const MessageItem = React.memo(
             let result = markdown;
 
             Object.keys(customTags).forEach((tag) => {
-                // 首先尝试匹配完整的标签对
+                // 匹配完整的标签对
                 const completeRegex = new RegExp(
                     `<${tag}([^>]*)>([\\s\\S]*?)<\\/${tag}>`,
                     "g",
@@ -97,38 +139,12 @@ const MessageItem = React.memo(
                     const replacement = customTags[tag](match);
                     result = result.replace(match[0], replacement);
                 }
-
-                // 如果是 think 标签，还要处理未闭合的情况（流式输出中）
-                if (tag === 'think') {
-                    const incompleteRegex = new RegExp(
-                        `<${tag}([^>]*)>([\\s\\S]*?)$`,
-                        "g",
-                    );
-                    // 重置正则表达式的 lastIndex
-                    incompleteRegex.lastIndex = 0;
-                    
-                    let incompleteMatch;
-                    while ((incompleteMatch = incompleteRegex.exec(markdown)) !== null) {
-                        // 检查是否已经有完整的闭合标签，如果有就跳过
-                        const hasClosingTag = incompleteMatch[0].includes(`</${tag}>`);
-                        if (!hasClosingTag) {
-                            const replacement = customTags[tag](incompleteMatch);
-                            result = result.replace(incompleteMatch[0], replacement);
-                        }
-                    }
-                }
             });
 
             return result;
         };
 
         const customTags = {
-            think: (match: RegExpExecArray) => {
-                // 使用 Base64 编码避免引号问题
-                const thinkContent = match[2];
-                const encodedContent = btoa(unescape(encodeURIComponent(thinkContent)));
-                return `\n<think data-content-encoded="${encodedContent}"></think>\n`;
-            },
             fileattachment: (match: RegExpExecArray) =>
                 `\n<fileattachment ${match[1]}></fileattachment>\n`,
             bangwebtomarkdown: (match: RegExpExecArray) =>
@@ -147,14 +163,12 @@ const MessageItem = React.memo(
             ...defaultSchema,
             tagNames: [
                 ...(defaultSchema.tagNames || []),
-                "think",
                 "fileattachment",
                 "bangwebtomarkdown",
                 "bangweb",
             ],
             attributes: {
                 ...(defaultSchema.attributes || {}),
-                think: ["data-content-encoded", "dataContentEncoded"],
                 fileattachment: [
                     ...(defaultSchema.attributes?.fileattachment || []),
                     "attachment_id",
@@ -209,55 +223,6 @@ const MessageItem = React.memo(
                                 </code>
                             );
                         },
-                        think: (props: any) => {
-                            const [isExpanded, setIsExpanded] = useState(false);
-
-                            // 从 data-content-encoded 属性解码内容
-                            const encodedContent = props['data-content-encoded'] || props.dataContentEncoded || '';
-                            let content = '';
-                            let isIncomplete = false;
-                            
-                            try {
-                                content = decodeURIComponent(escape(atob(encodedContent)));
-                                // 检查内容是否以流式输出的方式结束（没有明显的结尾）
-                                isIncomplete = !content.trim().endsWith('.') && !content.trim().endsWith('。') && !content.trim().endsWith('!') && !content.trim().endsWith('！');
-                            } catch (e) {
-                                content = '解析思考内容时出错';
-                            }
-
-                            const lines = content.split('\n');
-                            const previewLines = lines.slice(-3); // 默认显示最后3行
-
-                            return (
-                                <div className="my-2 p-3 bg-slate-50 border-l-4 border-indigo-500 rounded-r-lg">
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <div className="w-2 h-2 bg-indigo-500 rounded-full"></div>
-                                        <span className="text-sm font-medium text-indigo-700">
-                                            {isIncomplete ? '思考中...' : '思考完成'}
-                                        </span>
-                                        {isIncomplete && (
-                                            <span className="text-xs text-gray-500">正在输出</span>
-                                        )}
-                                    </div>
-                                    <div className="text-sm text-gray-700 whitespace-pre-wrap font-mono">
-                                        {isExpanded ? content : (
-                                            <>
-                                                {lines.length > 3 && <div className="text-gray-400 text-xs mb-1">...</div>}
-                                                {previewLines.join('\n')}
-                                            </>
-                                        )}
-                                    </div>
-                                    {lines.length > 3 && (
-                                        <button
-                                            onClick={() => setIsExpanded(!isExpanded)}
-                                            className="mt-2 text-xs text-indigo-600 hover:text-indigo-800 underline cursor-pointer"
-                                        >
-                                            {isExpanded ? '收起' : '展开'}
-                                        </button>
-                                    )}
-                                </div>
-                            );
-                        },
                         fileattachment: MessageFileAttachment,
                         bangwebtomarkdown: MessageWebContent,
                         bangweb: MessageWebContent,
@@ -307,7 +272,7 @@ const MessageItem = React.memo(
                 ) : null}
 
                 <div className="prose prose-sm max-w-none">{markdownElement}</div>
-                {message.attachment_list.filter(
+                {message.attachment_list?.filter(
                     (a: any) => a.attachment_type === "Image",
                 ).length ? (
                     <div
@@ -330,7 +295,7 @@ const MessageItem = React.memo(
                 ) : null}
 
                 <div className={`hidden group-hover:flex items-center absolute -bottom-9 py-3 px-4 box-border h-10 rounded-[21px] border border-border bg-background ${message.message_type === "user" ? "right-0" : "left-0"}`}>
-                    {message.message_type === "assistant" ? (
+                    {(message.message_type === "assistant" || message.message_type === "response") ? (
                         <IconButton
                             icon={<Refresh fill="black" />}
                             onClick={onMessageRegenerate}

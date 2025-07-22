@@ -17,6 +17,17 @@ export interface Message {
     regenerate: Array<Message> | null;
 }
 
+// 流式事件数据类型
+export interface StreamEvent {
+    message_id: number;
+    message_type: 'reasoning' | 'response' | 'error';
+    content: string;
+    is_done: boolean;
+}
+
+// 消息类型枚举
+export type MessageType = 'system' | 'user' | 'assistant' | 'reasoning' | 'response' | 'error';
+
 export interface AddAttachmentResponse {
     attachment_id: number;
 }
