@@ -59,10 +59,12 @@
 *   **构建前端:**
     *   `npm run build`
     *   此命令会首先进行TypeScript的类型检查 (`tsc`)，然后使用Vite将前端代码打包成生产环境的静态资源。
+    *   **注意：** 这个前端项目不用启动 `npm run dev` 来试图获取调试信息，这里的调试信息都在浏览器你看不到
 
 *   **构建Rust端:**
     *   `cargo check`
     *   此命令要进入 src-tauri 文件夹执行，如果是 mac 直接执行 `cd src-tauri && cargo check`，如果是 Windows 执行 `cd src-tarui; cargo check`
+    *   **注意:** 不要 cd src-tauri 来执行 cargo check, 直接执行 `cargo check --manifest-path src-tauri/Cargo.toml`
 
 ## 5. 编码注意事项
 

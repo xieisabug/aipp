@@ -13,9 +13,51 @@ export interface Message {
     content: string;
     llm_model_id: number | null;
     created_time: Date;
+    start_time: Date | null;
+    finish_time: Date | null;
     token_count: number;
     regenerate: Array<Message> | null;
+    attachment_list?: Array<any>; // 添加附件列表字段
 }
+
+// 流式事件数据类型
+export interface StreamEvent {
+    message_id: number;
+    message_type: 'reasoning' | 'response' | 'error';
+    content: string;
+    is_done: boolean;
+    duration_ms?: number; // 后端提供的持续时间
+    end_time?: Date; // 后端提供的结束时间
+}
+
+// 新增：Conversation 事件类型
+export interface ConversationEvent {
+    type: string;
+    data: any;
+}
+
+export interface MessageAddEvent {
+    message_id: number;
+    message_type: string;
+    temp_message_id: number; // 用于取消操作的临时ID
+}
+
+export interface MessageUpdateEvent {
+    message_id: number;
+    message_type: string;
+    content: string;
+    is_done: boolean;
+}
+
+export interface MessageTypeEndEvent {
+    message_id: number;
+    message_type: string;
+    duration_ms: number;
+    end_time: Date;
+}
+
+// 消息类型枚举
+export type MessageType = 'system' | 'user' | 'assistant' | 'reasoning' | 'response' | 'error';
 
 export interface AddAttachmentResponse {
     attachment_id: number;

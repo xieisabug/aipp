@@ -102,6 +102,8 @@ pub async fn get_conversation_with_messages(
             content: message.content,
             llm_model_id: message.llm_model_id,
             created_time: message.created_time,
+            start_time: message.start_time,
+            finish_time: message.finish_time,
             token_count: message.token_count,
             attachment_list,
             regenerate: Vec::new(),

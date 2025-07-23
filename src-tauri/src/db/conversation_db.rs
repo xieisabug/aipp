@@ -72,6 +72,8 @@ pub struct MessageDetail {
     pub content: String,
     pub llm_model_id: Option<i64>,
     pub created_time: DateTime<Utc>,
+    pub start_time: Option<DateTime<Utc>>,
+    pub finish_time: Option<DateTime<Utc>>,
     pub token_count: i32,
     pub attachment_list: Vec<MessageAttachment>,
     pub regenerate: Vec<MessageDetail>,
