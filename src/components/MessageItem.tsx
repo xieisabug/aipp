@@ -3,6 +3,7 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import ReactMarkdown, { Components } from "react-markdown";
 import remarkMath from "remark-math";
 import remarkBreaks from "remark-breaks";
+import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeKatex from "rehype-katex";
 import rehypeHighlight from "rehype-highlight";
@@ -284,6 +285,7 @@ const MessageItem = React.memo(
                     remarkPlugins={[
                         remarkMath,
                         remarkBreaks,
+                        remarkGfm,
                         remarkCustomCompenent,
                     ]}
                     rehypePlugins={[
