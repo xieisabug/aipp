@@ -423,6 +423,10 @@ async fn handle_stream_chat(
     conversation_db: &ConversationDatabase,
     tokens: &Arc<tokio::sync::Mutex<HashMap<i64, CancellationToken>>>,
     window: &tauri::Window,
+    app_handle: &tauri::AppHandle,
+    need_generate_title: bool,
+    user_prompt: String,
+    config_feature_map: HashMap<String, HashMap<String, FeatureConfig>>,
 ) -> Result<(), anyhow::Error> {
     match client
         .exec_chat_stream(model_name, chat_request, Some(chat_options))
@@ -659,6 +663,28 @@ async fn handle_stream_chat(
                                                     ).unwrap_or_else(|e| {
                                                         eprintln!("Failed to handle response type end: {}", e);
                                                     });
+                                                    
+                                                    // 在 response 完成后自动生成标题
+                                                    if need_generate_title && !response_content.is_empty() {
+                                                        let app_handle_clone = app_handle.clone();
+                                                        let user_prompt_clone = user_prompt.clone();
+                                                        let response_content_clone = response_content.clone();
+                                                        let config_feature_map_clone = config_feature_map.clone();
+                                                        let window_clone = window.clone();
+                                                        
+                                                        tokio::spawn(async move {
+                                                            if let Err(e) = generate_title(
+                                                                &app_handle_clone,
+                                                                conversation_id,
+                                                                user_prompt_clone,
+                                                                response_content_clone,
+                                                                config_feature_map_clone,
+                                                                window_clone,
+                                                            ).await {
+                                                                eprintln!("Failed to generate title: {}", e);
+                                                            }
+                                                        });
+                                                    }
                                                 }
                                             }
                                             _ => {
@@ -733,6 +759,28 @@ async fn handle_stream_chat(
                                             ).unwrap_or_else(|e| {
                                                 eprintln!("Failed to handle response type end: {}", e);
                                             });
+                                            
+                                            // 在 response 完成后自动生成标题
+                                            if need_generate_title && !response_content.is_empty() {
+                                                let app_handle_clone = app_handle.clone();
+                                                let user_prompt_clone = user_prompt.clone();
+                                                let response_content_clone = response_content.clone();
+                                                let config_feature_map_clone = config_feature_map.clone();
+                                                let window_clone = window.clone();
+                                                
+                                                tokio::spawn(async move {
+                                                    if let Err(e) = generate_title(
+                                                        &app_handle_clone,
+                                                        conversation_id,
+                                                        user_prompt_clone,
+                                                        response_content_clone,
+                                                        config_feature_map_clone,
+                                                        window_clone,
+                                                    ).await {
+                                                        eprintln!("Failed to generate title: {}", e);
+                                                    }
+                                                });
+                                            }
                                         }
                                     }
                                     _ => {
@@ -795,6 +843,10 @@ async fn handle_non_stream_chat(
     conversation_db: &ConversationDatabase,
     tokens: &Arc<tokio::sync::Mutex<HashMap<i64, CancellationToken>>>,
     window: &tauri::Window,
+    app_handle: &tauri::AppHandle,
+    need_generate_title: bool,
+    user_prompt: String,
+    config_feature_map: HashMap<String, HashMap<String, FeatureConfig>>,
 ) -> Result<(), anyhow::Error> {
     // 创建一个 response 类型的消息
     let response_message = conversation_db
@@ -877,6 +929,28 @@ async fn handle_non_stream_chat(
                 format!("conversation_event_{}", conversation_id).as_str(),
                 update_event
             );
+            
+            // 在非流式消息完成后自动生成标题
+            if need_generate_title && !content.is_empty() {
+                let app_handle_clone = app_handle.clone();
+                let user_prompt_clone = user_prompt.clone();
+                let content_clone = content.clone();
+                let config_feature_map_clone = config_feature_map.clone();
+                let window_clone = window.clone();
+                
+                tokio::spawn(async move {
+                    if let Err(e) = generate_title(
+                        &app_handle_clone,
+                        conversation_id,
+                        user_prompt_clone,
+                        content_clone,
+                        config_feature_map_clone,
+                        window_clone,
+                    ).await {
+                        eprintln!("Failed to generate title: {}", e);
+                    }
+                });
+            }
             
             Ok(())
         }
@@ -1048,6 +1122,10 @@ pub async fn ask_ai(
                     &conversation_db,
                     &tokens,
                     &window_clone,
+                    &app_handle_clone,
+                    _need_generate_title,
+                    request.prompt.clone(),
+                    _config_feature_map.clone(),
                 )
                 .await?;
             } else {
@@ -1063,6 +1141,10 @@ pub async fn ask_ai(
                     &conversation_db,
                     &tokens,
                     &window_clone,
+                    &app_handle_clone,
+                    _need_generate_title,
+                    request.prompt.clone(),
+                    _config_feature_map.clone(),
                 )
                 .await?;
             }
@@ -1322,6 +1404,10 @@ pub async fn regenerate_ai(
                 &conversation_db,
                 &tokens,
                 &window_clone,
+                &app_handle_clone,
+                false, // regenerate 不需要生成标题
+                String::new(), // regenerate 不需要用户提示
+                HashMap::new(), // regenerate 不需要配置
             )
             .await?;
         } else {
@@ -1337,6 +1423,10 @@ pub async fn regenerate_ai(
                 &conversation_db,
                 &tokens,
                 &window_clone,
+                &app_handle_clone,
+                false, // regenerate 不需要生成标题
+                String::new(), // regenerate 不需要用户提示
+                HashMap::new(), // regenerate 不需要配置
             )
             .await?;
         }
