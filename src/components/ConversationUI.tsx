@@ -119,14 +119,70 @@ function ConversationUI({
     
     // 滚动相关状态和逻辑
     const messagesEndRef = useRef<HTMLDivElement | null>(null);
-    const [isUserScrolling, setIsUserScrolling] = useState(true);
+    const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+    const isUserScrolledUpRef = useRef(false); // 使用 Ref 来跟踪滚动状态，避免闭包问题
+    const isAutoScrolling = useRef(false);
+    const resizeObserverRef = useRef<ResizeObserver | null>(null);
     
-    // 节流的滚动函数，避免频繁滚动
-    const scroll = throttle(() => {
-        if (!isUserScrolling && messagesEndRef.current) {
-            messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    // 处理用户滚动事件
+    const handleScroll = useCallback(() => {
+        // 如果是程序触发的自动滚动，则忽略此次事件
+        if (isAutoScrolling.current) {
+            return;
         }
-    }, 300);
+
+        const container = scrollContainerRef.current;
+        if (container) {
+            const { scrollTop, scrollHeight, clientHeight } = container;
+            // 判断是否滚动到了底部，留出 10px 的容差
+            const atBottom = scrollHeight - scrollTop - clientHeight < 10;
+
+            // 直接更新 Ref 的值
+            isUserScrolledUpRef.current = !atBottom;
+        }
+    }, []); // 依赖项为空，函数是稳定的
+
+    // 智能滚动函数
+    const smartScroll = useCallback(() => {
+        // 从 Ref 读取状态，这总是最新的值
+        if (isUserScrolledUpRef.current) {
+            return;
+        }
+
+        const container = scrollContainerRef.current;
+        if (!container) return;
+
+        // 清理之前的观察器
+        if (resizeObserverRef.current) {
+            resizeObserverRef.current.disconnect();
+        }
+
+        resizeObserverRef.current = new ResizeObserver(() => {
+            // 再次从 Ref 检查，确保万无一失
+            if (isUserScrolledUpRef.current || !scrollContainerRef.current) {
+                if (resizeObserverRef.current) {
+                    resizeObserverRef.current.disconnect();
+                }
+                return;
+            }
+
+            isAutoScrolling.current = true;
+            scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+
+            if (resizeObserverRef.current) {
+                resizeObserverRef.current.disconnect();
+            }
+
+            setTimeout(() => {
+                isAutoScrolling.current = false;
+            }, 100);
+        });
+
+        const lastMessageElement = container.lastElementChild;
+        if (lastMessageElement) {
+            resizeObserverRef.current.observe(lastMessageElement);
+        }
+    }, []); // 依赖项为空，函数是稳定的
     
     // 选中文本相关状态和逻辑
     const [selectedText, setSelectedText] = useState<string>("");
@@ -309,7 +365,7 @@ function ConversationUI({
                                     newMap.set(streamEvent.message_id, streamEvent);
                                     return newMap;
                                 });
-                                scroll();
+                                smartScroll();
                             }
                         }
                     };
@@ -354,7 +410,7 @@ function ConversationUI({
                         ...newMessages[index],
                         content: newMessages[index].content + response,
                     };
-                    scroll();
+                    smartScroll();
                 }
                 return newMessages;
             });
@@ -371,7 +427,7 @@ function ConversationUI({
                         ...newMessages[index],
                         content: response,
                     };
-                    scroll();
+                    smartScroll();
                 }
                 return newMessages;
             });
@@ -398,41 +454,18 @@ function ConversationUI({
             });
     }, [pluginList]);
 
-    // 监听滚动事件，判断用户是否主动滚动
-    useEffect(() => {
-        let lastScrollTop = 0;
-
-        const handleScroll = () => {
-            if (messagesEndRef.current) {
-                const { scrollTop, scrollHeight, clientHeight } =
-                    messagesEndRef.current.parentElement!;
-                const isScrollingUp = scrollTop < lastScrollTop;
-
-                if (isScrollingUp) {
-                    setIsUserScrolling(true);
-                }
-
-                const isAtBottom = scrollHeight - scrollTop === clientHeight;
-                if (isAtBottom) {
-                    setIsUserScrolling(false);
-                }
-
-                lastScrollTop = scrollTop <= 0 ? 0 : scrollTop;
-            }
-        };
-
-        const messagesContainer = messagesEndRef.current?.parentElement;
-        messagesContainer?.addEventListener("scroll", handleScroll);
-
-        return () => {
-            messagesContainer?.removeEventListener("scroll", handleScroll);
-        };
-    }, []);
-    
     // 当消息变化时自动滚动到底部
     useEffect(() => {
-        scroll();
-    }, [messages, streamingMessages]);
+        smartScroll();
+
+        // 返回一个清理函数，在组件卸载或依赖变化时，清理最后的观察器
+        return () => {
+            if (resizeObserverRef.current) {
+                resizeObserverRef.current.disconnect();
+                resizeObserverRef.current = null;
+            }
+        };
+    }, [messages, streamingMessages, smartScroll]); // smartScroll 是稳定的，但按规则写入依赖
 
     // 获取选中文本
     useEffect(() => {
@@ -529,7 +562,7 @@ function ConversationUI({
                             newMap.set(streamEvent.message_id, streamEvent);
                             return newMap;
                         });
-                        scroll();
+                        smartScroll();
                     }
                 }
             };
@@ -764,7 +797,7 @@ function ConversationUI({
                                     newMap.set(streamEvent.message_id, streamEvent);
                                     return newMap;
                                 });
-                                scroll();
+                                smartScroll();
                             }
                         }
                     };
@@ -858,7 +891,11 @@ function ConversationUI({
                 />
             ) : null}
 
-            <div className="h-full flex-1 overflow-y-auto flex flex-col p-6 box-border gap-4">
+            <div 
+                ref={scrollContainerRef}
+                onScroll={handleScroll}
+                className="h-full flex-1 overflow-y-auto flex flex-col p-6 box-border gap-4"
+            >
                 {conversationId ? (
                     filteredMessages
                 ) : (
