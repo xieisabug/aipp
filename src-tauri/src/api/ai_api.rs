@@ -52,6 +52,7 @@ struct MessageTypeEndEvent {
 use futures::StreamExt;
 use genai::chat::{ChatMessage, ChatOptions, ChatRequest, ContentPart};
 use genai::Client;
+use tokio::time::{sleep, Duration};
 
 use super::assistant_api::AssistantDetail;
 
@@ -59,6 +60,10 @@ use super::assistant_api::AssistantDetail;
 const _MESSAGE_FINISH_EVENT: &str = "Tea::Event::MessageFinish";
 const TITLE_CHANGE_EVENT: &str = "title_change";
 const ERROR_NOTIFICATION_EVENT: &str = "conversation-window-error-notification";
+
+/// 重试配置
+const MAX_RETRY_ATTEMPTS: u32 = 1;
+const RETRY_DELAY_MS: u64 = 1000;
 
 /// AI聊天配置
 #[derive(Debug, Clone)]
@@ -415,7 +420,7 @@ pub struct AiResponse {
 async fn handle_stream_chat(
     client: &Client,
     model_name: &str,
-    chat_request: ChatRequest,
+    chat_request: &ChatRequest,
     chat_options: &ChatOptions,
     conversation_id: i64,
     initial_message_id: i64,
@@ -428,10 +433,27 @@ async fn handle_stream_chat(
     user_prompt: String,
     config_feature_map: HashMap<String, HashMap<String, FeatureConfig>>,
 ) -> Result<(), anyhow::Error> {
-    match client
-        .exec_chat_stream(model_name, chat_request, Some(chat_options))
-        .await
-    {
+    // 添加重试逻辑
+    let mut attempts = 0;
+    let chat_stream_result = loop {
+        match client
+            .exec_chat_stream(model_name, chat_request.clone(), Some(chat_options))
+            .await
+        {
+            Ok(response) => break Ok(response),
+            Err(e) => {
+                attempts += 1;
+                if attempts > MAX_RETRY_ATTEMPTS {
+                    eprintln!("Chat stream failed after {} attempts: {}", attempts, e);
+                    break Err(e);
+                }
+                eprintln!("Chat stream attempt {} failed: {}, retrying...", attempts, e);
+                sleep(Duration::from_millis(RETRY_DELAY_MS)).await;
+            }
+        }
+    };
+
+    match chat_stream_result {
         Ok(chat_stream_response) => {
             let mut chat_stream = chat_stream_response.stream;
             let mut reasoning_content = String::new();
@@ -835,7 +857,7 @@ async fn handle_stream_chat(
 async fn handle_non_stream_chat(
     client: &Client,
     model_name: &str,
-    chat_request: ChatRequest,
+    chat_request: &ChatRequest,
     chat_options: &ChatOptions,
     conversation_id: i64,
     initial_message_id: i64,
@@ -883,7 +905,24 @@ async fn handle_non_stream_chat(
     );
 
     let chat_result = tokio::select! {
-        result = client.exec_chat(model_name, chat_request, Some(chat_options)) => result,
+        result = async {
+            // 添加重试逻辑
+            let mut attempts = 0;
+            loop {
+                match client.exec_chat(model_name, chat_request.clone(), Some(chat_options)).await {
+                    Ok(response) => break Ok(response),
+                    Err(e) => {
+                        attempts += 1;
+                        if attempts > MAX_RETRY_ATTEMPTS {
+                            eprintln!("Chat request failed after {} attempts: {}", attempts, e);
+                            break Err(e);
+                        }
+                        eprintln!("Chat request attempt {} failed: {}, retrying...", attempts, e);
+                        sleep(Duration::from_millis(RETRY_DELAY_MS)).await;
+                    }
+                }
+            }
+        } => result,
         _ = cancel_token.cancelled() => {
             cleanup_token(tokens, initial_message_id).await;
             return Err(anyhow::anyhow!("Request cancelled"));
@@ -1114,7 +1153,7 @@ pub async fn ask_ai(
                 handle_stream_chat(
                     &chat_config.client,
                     &chat_config.model_name,
-                    chat_request,
+                    &chat_request,
                     &chat_config.chat_options,
                     conversation_id,
                     temp_message_id,
@@ -1133,7 +1172,7 @@ pub async fn ask_ai(
                 handle_non_stream_chat(
                     &chat_config.client,
                     &chat_config.model_name,
-                    chat_request,
+                    &chat_request,
                     &chat_config.chat_options,
                     conversation_id,
                     temp_message_id,
@@ -1396,7 +1435,7 @@ pub async fn regenerate_ai(
             handle_stream_chat(
                 &chat_config.client,
                 &chat_config.model_name,
-                chat_request,
+                &chat_request,
                 &chat_config.chat_options,
                 conversation_id,
                 new_message_id,
@@ -1415,7 +1454,7 @@ pub async fn regenerate_ai(
             handle_non_stream_chat(
                 &chat_config.client,
                 &chat_config.model_name,
-                chat_request,
+                &chat_request,
                 &chat_config.chat_options,
                 conversation_id,
                 new_message_id,
@@ -1727,11 +1766,27 @@ async fn generate_title(
         // Use model code as model name
         let model_name = &model_detail.model.code;
 
-        let response = client
-            .exec_chat(model_name, chat_request, None)
-            .await
-            .map(|chat_response| chat_response.first_text().unwrap_or("").to_string())
-            .map_err(|e| e.to_string());
+        // 添加重试逻辑
+        let mut attempts = 0;
+        let response = loop {
+            match client
+                .exec_chat(model_name, chat_request.clone(), None)
+                .await
+            {
+                Ok(chat_response) => {
+                    break Ok(chat_response.first_text().unwrap_or("").to_string())
+                }
+                Err(e) => {
+                    attempts += 1;
+                    if attempts > MAX_RETRY_ATTEMPTS {
+                        eprintln!("Title generation failed after {} attempts: {}", attempts, e);
+                        break Err(e.to_string());
+                    }
+                    eprintln!("Title generation attempt {} failed: {}, retrying...", attempts, e);
+                    sleep(Duration::from_millis(RETRY_DELAY_MS)).await;
+                }
+            }
+        };
         match response {
             Err(e) => {
                 println!("Chat error: {}", e);
