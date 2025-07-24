@@ -12,6 +12,7 @@ import {
     DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { Button } from "./ui/button";
+import ConfirmDialog from "./ConfirmDialog";
 
 interface ConversationListProps {
     onSelectConversation: (conversation: string) => void;
@@ -87,15 +88,6 @@ function ConversationList({
         };
     }, [conversations]);
 
-    const handleDeleteConversation = useCallback(async (id: string) => {
-        await deleteConversation(id, {
-            onSuccess: async () => {
-                const conversations = await listConversations();
-                setConversations(conversations);
-            },
-        });
-    }, []);
-
     const [menuShow, setMenuShow] = useState(false);
     const [menuShowConversationId, setMenuShowConversationId] = useState("");
 
@@ -123,6 +115,20 @@ function ConversationList({
     }, []);
     const [formConversationTitle, setFormConversationTitle] =
         useState<string>("");
+
+    const [deleteDialogIsOpen, setDeleteDialogIsOpen] = useState<boolean>(false);
+    const [deleteConversationId, setDeleteConversationId] = useState<string>("");
+    const [deleteConversationName, setDeleteConversationName] = useState<string>("");
+    const openDeleteDialog = useCallback((id: string, name: string) => {
+        setDeleteConversationId(id);
+        setDeleteConversationName(name);
+        setDeleteDialogIsOpen(true);
+    }, []);
+    const closeDeleteDialog = useCallback(() => {
+        setDeleteDialogIsOpen(false);
+        setDeleteConversationId("");
+        setDeleteConversationName("");
+    }, []);
 
     const handleFormSubmit = useCallback(() => {
         if (
@@ -187,11 +193,13 @@ function ConversationList({
                                     修改标题
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
-                                    onClick={() =>
-                                        handleDeleteConversation(
+                                    onClick={() => {
+                                        setMenuShow(false);
+                                        openDeleteDialog(
                                             conversation.id.toString(),
-                                        )
-                                    }
+                                            conversation.name
+                                        );
+                                    }}
                                 >
                                     删除
                                 </DropdownMenuItem>
@@ -222,6 +230,22 @@ function ConversationList({
                     </div>
                 </form>
             </FormDialog>
+
+            <ConfirmDialog
+                title={"确认删除对话"}
+                confirmText={`确定要删除对话 "${deleteConversationName}" 吗？此操作无法撤销。`}
+                onConfirm={() => {
+                    deleteConversation(deleteConversationId, {
+                        onSuccess: async () => {
+                            const conversations = await listConversations();
+                            setConversations(conversations);
+                            closeDeleteDialog();
+                        },
+                    });
+                }}
+                onCancel={closeDeleteDialog}
+                isOpen={deleteDialogIsOpen}
+            />
         </div>
     );
 }

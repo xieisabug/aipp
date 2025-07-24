@@ -1,6 +1,5 @@
 import { useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { confirm } from '@tauri-apps/plugin-dialog';
 import { Conversation } from '../data/Conversation';
 
 interface DeleteConversationOptions {
@@ -18,14 +17,9 @@ function useConversationManager() {
     const {
       onSuccess,
       onError,
-      confirmMessage = '该动作不可逆，是否确认删除对话?',
-      confirmTitle = '删除对话'
     } = options;
 
     try {
-      const confirmed = await confirm(confirmMessage, { title: confirmTitle, kind: 'warning' });
-      if (!confirmed) return;
-
       await invoke("delete_conversation", { conversationId: +id });
 
       if (onSuccess) {
