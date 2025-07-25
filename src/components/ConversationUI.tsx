@@ -606,6 +606,20 @@ function ConversationUI({
         }
     }, [formDialogIsOpen, conversation?.name]);
 
+    // ============= Reasoning 展开状态管理 =============
+    
+    // 管理每个 reasoning 消息的展开状态
+    const [reasoningExpandStates, setReasoningExpandStates] = useState<Map<number, boolean>>(new Map());
+    
+    // 切换 reasoning 消息的展开状态
+    const toggleReasoningExpand = useCallback((messageId: number) => {
+        setReasoningExpandStates(prev => {
+            const newMap = new Map(prev);
+            newMap.set(messageId, !newMap.get(messageId));
+            return newMap;
+        });
+    }, []);
+
     // ============= 业务逻辑处理函数 =============
     
     // 对话管理相关操作
@@ -873,10 +887,13 @@ function ConversationUI({
                             onMessageRegenerate={() =>
                                 handleMessageRegenerate(message.id)
                             }
+                            // Reasoning 展开状态相关 props
+                            isReasoningExpanded={reasoningExpandStates.get(message.id) || false}
+                            onToggleReasoningExpand={() => toggleReasoningExpand(message.id)}
                         />
                     );
                 }),
-        [allDisplayMessages, streamingMessages],
+        [allDisplayMessages, streamingMessages, reasoningExpandStates, toggleReasoningExpand],
     );
 
     // ============= 组件渲染 =============

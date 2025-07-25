@@ -30,10 +30,13 @@ interface MessageItemProps {
     streamEvent?: StreamEvent;
     onCodeRun?: (lang: string, code: string) => void;
     onMessageRegenerate?: () => void;
+    // Reasoning 展开状态相关 props
+    isReasoningExpanded?: boolean;
+    onToggleReasoningExpand?: () => void;
 }
 
 const MessageItem = React.memo(
-    ({ message, streamEvent, onCodeRun, onMessageRegenerate }: MessageItemProps) => {
+    ({ message, streamEvent, onCodeRun, onMessageRegenerate, isReasoningExpanded = false, onToggleReasoningExpand }: MessageItemProps) => {
         const [copyIconState, setCopyIconState] = useState<"copy" | "ok">(
             "copy",
         );
@@ -53,7 +56,6 @@ const MessageItem = React.memo(
 
         // 如果是 reasoning 类型消息，使用特殊的渲染逻辑
         if (message.message_type === "reasoning") {
-            const [isExpanded, setIsExpanded] = useState(false);
             const [currentTime, setCurrentTime] = useState(new Date());
             
             // 使用 start_time 和 finish_time 来判断思考状态，也考虑 streamEvent 的状态
@@ -119,11 +121,11 @@ const MessageItem = React.memo(
             const previewLines = lines.slice(-3); // 思考中时显示最后3行
 
             // 思考完成时的小模块展示
-            if (isComplete && !isExpanded) {
+            if (isComplete && !isReasoningExpanded) {
                 return (
                     <div 
                         className="my-2 p-2 bg-gray-50 border-l-4 border-gray-400 rounded-r-lg w-80 max-w-[60%] cursor-pointer hover:bg-gray-100 transition-colors"
-                        onClick={() => setIsExpanded(true)}
+                        onClick={() => onToggleReasoningExpand?.()}
                     >
                         <div className="flex items-center gap-2">
                             <div className="w-2 h-2 bg-gray-500 rounded-full"></div>
@@ -146,7 +148,7 @@ const MessageItem = React.memo(
                         </span>
                     </div>
                     <div className="text-sm text-gray-600 whitespace-pre-wrap font-mono">
-                        {isThinking && lines.length > 3 ? (
+                        {isThinking && lines.length > 3 && !isReasoningExpanded ? (
                             <>
                                 <div className="text-gray-400 text-xs mb-1">...</div>
                                 {previewLines.join('\n')}
@@ -156,18 +158,18 @@ const MessageItem = React.memo(
                         )}
                     </div>
                     {/* 思考中时的展开按钮 */}
-                    {isThinking && lines.length > 3 && (
+                    {isThinking && lines.length > 3 && !isReasoningExpanded && (
                         <button
-                            onClick={() => setIsExpanded(true)}
+                            onClick={() => onToggleReasoningExpand?.()}
                             className="mt-2 text-xs text-gray-600 hover:text-gray-800 underline cursor-pointer"
                         >
                             展开思考
                         </button>
                     )}
-                    {/* 思考完成时的收起按钮 */}
-                    {isComplete && (
+                    {/* 思考完成时的收起按钮或思考中展开状态的收起按钮 */}
+                    {(isComplete || (isThinking && isReasoningExpanded)) && (
                         <button
-                            onClick={() => setIsExpanded(false)}
+                            onClick={() => onToggleReasoningExpand?.()}
                             className="mt-2 text-xs text-gray-600 hover:text-gray-800 underline cursor-pointer"
                         >
                             收起
