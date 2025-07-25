@@ -16,6 +16,8 @@ export interface Message {
     start_time: Date | null;
     finish_time: Date | null;
     token_count: number;
+    generation_group_id?: string | null;
+    parent_id?: number | null; // 添加 parent_id 字段
     regenerate: Array<Message> | null;
     attachment_list?: Array<any>; // 添加附件列表字段
 }

@@ -461,6 +461,9 @@ async fn handle_stream_chat(
             let mut reasoning_message_id: Option<i64> = None;
             let mut response_message_id: Option<i64> = None;
             
+            // 为这次生成创建唯一的组ID
+            let generation_group_id = uuid::Uuid::new_v4().to_string();
+            
             // 状态跟踪变量
             let mut current_output_type: Option<String> = None;
             let mut reasoning_start_time: Option<chrono::DateTime<chrono::Utc>> = None;
@@ -522,6 +525,7 @@ async fn handle_stream_chat(
                                                     start_time: Some(now),
                                                     finish_time: None,
                                                     token_count: 0,
+                                                    generation_group_id: Some(generation_group_id.clone()),
                                                 })
                                                 .unwrap();
                                             response_message_id = Some(new_message.id);
@@ -601,6 +605,7 @@ async fn handle_stream_chat(
                                                     start_time: Some(now),
                                                     finish_time: None,
                                                     token_count: 0,
+                                                    generation_group_id: Some(generation_group_id.clone()),
                                                 })
                                                 .unwrap();
                                             reasoning_message_id = Some(new_message.id);
@@ -870,6 +875,9 @@ async fn handle_non_stream_chat(
     user_prompt: String,
     config_feature_map: HashMap<String, HashMap<String, FeatureConfig>>,
 ) -> Result<(), anyhow::Error> {
+    // 为这次生成创建唯一的组ID
+    let generation_group_id = uuid::Uuid::new_v4().to_string();
+    
     // 创建一个 response 类型的消息
     let response_message = conversation_db
         .message_repo()
@@ -886,6 +894,7 @@ async fn handle_non_stream_chat(
             start_time: Some(chrono::Utc::now()),
             finish_time: None,
             token_count: 0,
+            generation_group_id: Some(generation_group_id),
         })
         .unwrap();
     let response_message_id = response_message.id;
@@ -1249,6 +1258,7 @@ fn init_conversation(
                 start_time: None,
                 finish_time: None,
                 token_count: 0,
+                generation_group_id: None, // 初始化消息不需要 generation_group_id
             })
             .map_err(AppError::from)?;
         for attachment in attachment_list {
@@ -1291,13 +1301,24 @@ pub async fn regenerate_ai(
         .unwrap()
         .list_by_conversation_id(conversation_id)?;
 
-    // 1. 仅保留在待重新生成消息之前的历史消息
-    let filtered_messages: Vec<(Message, Option<MessageAttachment>)> = messages
-        .into_iter()
-        .filter(|m| m.0.id < message_id)
-        .collect();
+    // 根据消息类型决定处理逻辑
+    let (filtered_messages, parent_message_id) = if message.message_type == "user" {
+        // 用户消息重发：包含当前用户消息和之前的所有消息，新生成的assistant消息以用户消息为parent
+        let filtered_messages: Vec<(Message, Option<MessageAttachment>)> = messages
+            .into_iter()
+            .filter(|m| m.0.id <= message_id)  // 包含当前消息
+            .collect();
+        (filtered_messages, Some(message_id)) // 用户消息作为parent
+    } else {
+        // AI消息重新生成：仅保留在待重新生成消息之前的历史消息，新消息与原消息有相同的parent
+        let filtered_messages: Vec<(Message, Option<MessageAttachment>)> = messages
+            .into_iter()
+            .filter(|m| m.0.id < message_id)
+            .collect();
+        (filtered_messages, message.parent_id) // 使用原消息的parent_id
+    };
 
-    // 2. 计算每个父消息最新的子消息（parent_id -> latest child）
+    // 计算每个父消息最新的子消息（parent_id -> latest child）
     let mut latest_children: HashMap<i64, (Message, Option<MessageAttachment>)> = HashMap::new();
     let mut child_ids: HashSet<i64> = HashSet::new();
 
@@ -1315,7 +1336,7 @@ pub async fn regenerate_ai(
         }
     }
 
-    // 3. 构建最终的消息列表：
+    // 构建最终的消息列表：
     //    - 对于没有子消息的根消息(包括 system / user / assistant)，直接保留
     //    - 对于有子消息的根消息，仅保留最新的子消息
     let mut init_message_list: Vec<(String, String, Vec<MessageAttachment>)> = Vec::new();
@@ -1339,9 +1360,7 @@ pub async fn regenerate_ai(
 
     println!("init_message_list (regenerate): {:?}", init_message_list);
 
-    // ----------------------------------------------------------------
-    // 4. 获取助手信息（在构建消息列表之后，以确保对话已确定）
-    // ----------------------------------------------------------------
+    // 获取助手信息（在构建消息列表之后，以确保对话已确定）
     let assistant_id = conversation.assistant_id.unwrap();
     let assistant_detail = get_assistant(app_handle.clone(), assistant_id).unwrap();
 
@@ -1349,11 +1368,10 @@ pub async fn regenerate_ai(
         return Err(AppError::NoModelFound);
     }
 
-
     let app_handle_clone = app_handle.clone();
     let new_message = add_message(
         &app_handle_clone,
-        Some(message_id),
+        parent_message_id,
         conversation_id,
         "assistant".to_string(),
         String::new(),
@@ -1362,6 +1380,7 @@ pub async fn regenerate_ai(
         None,
         None,
         0,
+        Some(uuid::Uuid::new_v4().to_string()),
     )?;
     let new_message_id = new_message.id;
 
@@ -1493,6 +1512,7 @@ fn add_message(
     start_time: Option<chrono::DateTime<chrono::Utc>>,
     finish_time: Option<chrono::DateTime<chrono::Utc>>,
     token_count: i32,
+    generation_group_id: Option<String>,
 ) -> Result<Message, AppError> {
     let db = ConversationDatabase::new(app_handle).map_err(AppError::from)?;
     let message = db
@@ -1510,6 +1530,7 @@ fn add_message(
             finish_time,
             created_time: chrono::Utc::now(),
             token_count,
+            generation_group_id,
         })
         .map_err(AppError::from)?;
     Ok(message.clone())
@@ -1660,6 +1681,7 @@ async fn initialize_conversation(
                 None,
                 None,
                 0,
+                None, // 用户消息不需要 generation_group_id
             )?;
             let mut updated_message_list = message_list;
             updated_message_list.push((

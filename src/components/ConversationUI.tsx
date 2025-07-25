@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, startTransition } from "react";
 import { toast } from "sonner";
 import { Sparkles } from "lucide-react";
 
@@ -649,6 +649,174 @@ function ConversationUI({
         }
     }, [formDialogIsOpen, conversation?.name]);
 
+    // ============= 数据计算和处理 =============
+
+    // 合并常规消息和流式消息，按时间排序显示
+    const allDisplayMessages = useMemo(() => {
+        const combinedMessages = [...messages];
+        
+        // 将流式消息添加到显示列表中
+        streamingMessages.forEach((streamEvent) => {
+            // 检查是否已经存在同样ID的消息
+            const existingIndex = combinedMessages.findIndex(msg => msg.id === streamEvent.message_id);
+            if (existingIndex === -1) {
+                // 推断合理的时间戳：基于最后一条消息的时间稍微往后一点
+                const lastMessage = combinedMessages[combinedMessages.length - 1];
+                const baseTime = lastMessage ? new Date(lastMessage.created_time) : new Date();
+                const tempMessage: Message = {
+                    id: streamEvent.message_id,
+                    conversation_id: conversation?.id || 0,
+                    message_type: streamEvent.message_type,
+                    content: streamEvent.content,
+                    llm_model_id: null,
+                    created_time: new Date(baseTime.getTime() + 1000), // 基于最后消息时间+1秒
+                    start_time: streamEvent.message_type === 'reasoning' ? baseTime : null,
+                    finish_time: streamEvent.is_done ? (streamEvent.end_time || new Date()) : null,
+                    token_count: 0,
+                    generation_group_id: null, // 流式消息暂时不设置generation_group_id
+                    regenerate: null,
+                };
+                combinedMessages.push(tempMessage);
+            } else {
+                // 存在则更新消息内容
+                combinedMessages[existingIndex] = {
+                    ...combinedMessages[existingIndex],
+                    content: streamEvent.content,
+                    message_type: streamEvent.message_type, // 确保消息类型也被更新
+                    finish_time: streamEvent.is_done ? (streamEvent.end_time || new Date()) : combinedMessages[existingIndex].finish_time,
+                };
+            }
+        });
+
+        const sorted = combinedMessages.sort((a, b) => new Date(a.created_time).getTime() - new Date(b.created_time).getTime());
+        return sorted;
+    }, [messages, streamingMessages, conversation?.id]);
+
+    // ============= Generation Group 版本管理 =============
+    
+    // 管理每个 generation group 的当前选中版本
+    const [selectedVersions, setSelectedVersions] = useState<Map<string, number>>(new Map());
+    
+    // 构建 generation group 信息
+    const generationGroups = useMemo(() => {
+        const groups = new Map<string, {
+            messages: Message[],
+            versions: Array<{
+                reasoning?: Message,
+                response?: Message,
+                timestamp: Date
+            }>
+        }>();
+        
+        // 按 generation_group_id 分组消息
+        allDisplayMessages.forEach(msg => {
+            if (msg.generation_group_id && (msg.message_type === 'reasoning' || msg.message_type === 'response')) {
+                if (!groups.has(msg.generation_group_id)) {
+                    groups.set(msg.generation_group_id, {
+                        messages: [],
+                        versions: []
+                    });
+                }
+                groups.get(msg.generation_group_id)!.messages.push(msg);
+            }
+        });
+        
+        // 构建每个组的版本信息
+        groups.forEach((group, groupId) => {
+            // 按 parent_id 分组来构建版本
+            const versionMap = new Map<number | null, {reasoning?: Message, response?: Message}>();
+            
+            group.messages.forEach(msg => {
+                const versionKey = msg.parent_id || 0; // 使用 0 作为原始版本的key
+                if (!versionMap.has(versionKey)) {
+                    versionMap.set(versionKey, {});
+                }
+                const version = versionMap.get(versionKey)!;
+                if (msg.message_type === 'reasoning') {
+                    version.reasoning = msg;
+                } else if (msg.message_type === 'response') {
+                    version.response = msg;
+                }
+            });
+            
+            // 转换为版本数组，按时间排序
+            const versions = Array.from(versionMap.entries())
+                .map(([_, versionData]) => ({
+                    ...versionData,
+                    timestamp: versionData.reasoning?.created_time || versionData.response?.created_time || new Date()
+                }))
+                .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+            
+            group.versions = versions;
+            
+            // 设置默认选中最新版本
+            if (!selectedVersions.has(groupId)) {
+                setSelectedVersions(prev => new Map(prev).set(groupId, versions.length - 1));
+            }
+        });
+        
+        return groups;
+    }, [allDisplayMessages]);
+    
+    // 切换 generation group 的版本
+    const handleGenerationVersionChange = useCallback((groupId: string, versionIndex: number) => {
+        setSelectedVersions(prev => new Map(prev).set(groupId, versionIndex));
+    }, []);
+    
+    // 检查消息是否是某个 generation group 的最后一个消息
+    const isLastInGenerationGroup = useCallback((message: Message) => {
+        if (!message.generation_group_id || (message.message_type !== 'reasoning' && message.message_type !== 'response')) {
+            return false;
+        }
+        
+        const group = generationGroups.get(message.generation_group_id);
+        if (!group) return false;
+        
+        const selectedVersion = selectedVersions.get(message.generation_group_id) ?? group.versions.length - 1;
+        const currentVersionData = group.versions[selectedVersion];
+        
+        // 如果当前版本有 response，那么 response 是最后一个
+        // 如果当前版本只有 reasoning，那么 reasoning 是最后一个
+        const lastMessageInGroup = currentVersionData?.response || currentVersionData?.reasoning;
+        
+        return lastMessageInGroup?.id === message.id;
+    }, [generationGroups, selectedVersions]);
+
+    // 获取 generation group 的版本控制信息
+    const getGenerationGroupControl = useCallback((message: Message) => {
+        if (!message.generation_group_id || !isLastInGenerationGroup(message)) {
+            return null;
+        }
+        
+        const group = generationGroups.get(message.generation_group_id);
+        if (!group || group.versions.length <= 1) return null;
+        
+        const selectedVersion = selectedVersions.get(message.generation_group_id) ?? group.versions.length - 1;
+        
+        return {
+            currentVersion: selectedVersion + 1,
+            totalVersions: group.versions.length,
+            groupId: message.generation_group_id
+        };
+    }, [generationGroups, selectedVersions, isLastInGenerationGroup]);
+
+    // 获取消息的显示版本信息
+    const getMessageVersionInfo = useCallback((message: Message) => {
+        if (!message.generation_group_id || (message.message_type !== 'reasoning' && message.message_type !== 'response')) {
+            return null;
+        }
+        
+        const group = generationGroups.get(message.generation_group_id);
+        if (!group) return null;
+        
+        const selectedVersion = selectedVersions.get(message.generation_group_id) ?? group.versions.length - 1;
+        
+        return {
+            shouldShow: group.versions[selectedVersion]?.reasoning?.id === message.id || 
+                       group.versions[selectedVersion]?.response?.id === message.id
+        };
+    }, [generationGroups, selectedVersions]);
+
     // ============= Reasoning 展开状态管理 =============
     
     // 管理每个 reasoning 消息的展开状态
@@ -768,12 +936,19 @@ function ConversationUI({
     // 消息重新生成处理
     const handleMessageRegenerate = useCallback(
         (regenerateMessageId: number) => {
+            // 设置AI响应状态
+            setAiIsResponsing(true);
+            
             invoke<AiResponse>("regenerate_ai", {
                 messageId: regenerateMessageId,
             }).then((res) => {
                 console.log("regenerate ai response", res);
                 // 重新生成消息的处理逻辑
                 setMessageId(res.add_message_id);
+            }).catch((error) => {
+                console.error("Regenerate error:", error);
+                setAiIsResponsing(false);
+                toast.error("重新生成失败: " + error);
             });
         },
         [],
@@ -937,48 +1112,6 @@ function ConversationUI({
         }
     }, 200);
 
-    // ============= 数据计算和处理 =============
-
-    // 合并常规消息和流式消息，按时间排序显示
-    const allDisplayMessages = useMemo(() => {
-        const combinedMessages = [...messages];
-        
-        // 将流式消息添加到显示列表中
-        streamingMessages.forEach((streamEvent) => {
-            // 检查是否已经存在同样ID的消息
-            const existingIndex = combinedMessages.findIndex(msg => msg.id === streamEvent.message_id);
-            if (existingIndex === -1) {
-                // 推断合理的时间戳：基于最后一条消息的时间稍微往后一点
-                const lastMessage = combinedMessages[combinedMessages.length - 1];
-                const baseTime = lastMessage ? new Date(lastMessage.created_time) : new Date();
-                const tempMessage: Message = {
-                    id: streamEvent.message_id,
-                    conversation_id: conversation?.id || 0,
-                    message_type: streamEvent.message_type,
-                    content: streamEvent.content,
-                    llm_model_id: null,
-                    created_time: new Date(baseTime.getTime() + 1000), // 基于最后消息时间+1秒
-                    start_time: streamEvent.message_type === 'reasoning' ? baseTime : null,
-                    finish_time: streamEvent.is_done ? (streamEvent.end_time || new Date()) : null,
-                    token_count: 0,
-                    regenerate: null,
-                };
-                combinedMessages.push(tempMessage);
-            } else {
-                // 存在则更新消息内容
-                combinedMessages[existingIndex] = {
-                    ...combinedMessages[existingIndex],
-                    content: streamEvent.content,
-                    message_type: streamEvent.message_type, // 确保消息类型也被更新
-                    finish_time: streamEvent.is_done ? (streamEvent.end_time || new Date()) : combinedMessages[existingIndex].finish_time,
-                };
-            }
-        });
-
-        const sorted = combinedMessages.sort((a, b) => new Date(a.created_time).getTime() - new Date(b.created_time).getTime());
-        return sorted;
-    }, [messages, streamingMessages, conversation?.id]);
-
     // 过滤系统消息并渲染MessageItem组件
     const filteredMessages = useMemo(
         () =>
@@ -988,22 +1121,63 @@ function ConversationUI({
                     // 查找对应的流式消息信息（如果存在）
                     const streamEvent = streamingMessages.get(message.id);
                     
+                    // 检查是否需要根据版本管理隐藏消息
+                    const versionInfo = getMessageVersionInfo(message);
+                    if (versionInfo && !versionInfo.shouldShow) {
+                        return null; // 不显示非当前版本的消息
+                    }
+                    
+                    // 检查是否需要显示版本控制
+                    const groupControl = getGenerationGroupControl(message);
+                    
                     return (
-                        <MessageItem
-                            key={message.id} // 使用唯一的 id 作为 key，而不是索引
-                            message={message}
-                            streamEvent={streamEvent} // 传递流式消息信息
-                            onCodeRun={handleArtifact}
-                            onMessageRegenerate={() =>
-                                handleMessageRegenerate(message.id)
-                            }
-                            // Reasoning 展开状态相关 props
-                            isReasoningExpanded={reasoningExpandStates.get(message.id) || false}
-                            onToggleReasoningExpand={() => toggleReasoningExpand(message.id)}
-                        />
+                        <React.Fragment key={message.id}>
+                            <MessageItem
+                                message={message}
+                                streamEvent={streamEvent}
+                                onCodeRun={handleArtifact}
+                                onMessageRegenerate={() =>
+                                    handleMessageRegenerate(message.id)
+                                }
+                                // Reasoning 展开状态相关 props
+                                isReasoningExpanded={reasoningExpandStates.get(message.id) || false}
+                                onToggleReasoningExpand={() => toggleReasoningExpand(message.id)}
+                            />
+                            {/* 在 generation group 的最后一个消息下方显示版本控制 */}
+                            {groupControl && (
+                                <div className="flex justify-center my-2">
+                                    <div className="flex items-center bg-gray-100 rounded-lg px-3 py-1 text-sm">
+                                        <button
+                                            className="px-2 py-1 hover:bg-gray-200 rounded disabled:opacity-50"
+                                            disabled={groupControl.currentVersion <= 1}
+                                            onClick={() => handleGenerationVersionChange(
+                                                groupControl.groupId, 
+                                                groupControl.currentVersion - 2  // Convert 1-based to 0-based, then subtract 1
+                                            )}
+                                        >
+                                            {"<"}
+                                        </button>
+                                        <span className="mx-2">
+                                            {groupControl.currentVersion} / {groupControl.totalVersions}
+                                        </span>
+                                        <button
+                                            className="px-2 py-1 hover:bg-gray-200 rounded disabled:opacity-50"
+                                            disabled={groupControl.currentVersion >= groupControl.totalVersions}
+                                            onClick={() => handleGenerationVersionChange(
+                                                groupControl.groupId, 
+                                                groupControl.currentVersion  // currentVersion is 1-based, so this gives us the next 0-based index
+                                            )}
+                                        >
+                                            {">"}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </React.Fragment>
                     );
-                }),
-        [allDisplayMessages, streamingMessages, reasoningExpandStates, toggleReasoningExpand],
+                })
+                .filter(Boolean), // 过滤掉 null 值
+        [allDisplayMessages, streamingMessages, getMessageVersionInfo, getGenerationGroupControl, handleGenerationVersionChange, reasoningExpandStates, toggleReasoningExpand],
     );
 
     // ============= 组件渲染 =============
