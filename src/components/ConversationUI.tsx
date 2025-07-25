@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from "react";
 import { toast } from "sonner";
 import { Sparkles } from "lucide-react";
 
@@ -359,11 +359,34 @@ function ConversationUI({
                                 if (messageUpdateData.message_type === 'response') {
                                     setAiIsResponsing(false);
                                 }
-                            } else {
+                                
+                                // 在清理streamingMessages之前，先将消息添加到messages状态
+                                handleMessageCompletion(streamEvent);
+                                
+                                // 标记流式消息为完成状态，但不立即删除，让消息能正常显示
                                 setStreamingMessages((prev) => {
                                     const newMap = new Map(prev);
-                                    newMap.set(streamEvent.message_id, streamEvent);
+                                    const completedEvent = { ...streamEvent, is_done: true };
+                                    newMap.set(streamEvent.message_id, completedEvent);
                                     return newMap;
+                                });
+                                
+                                // 延迟清理已完成的流式消息，给足够时间让消息保存到 messages 中
+                                setTimeout(() => {
+                                    setStreamingMessages((prev) => {
+                                        const newMap = new Map(prev);
+                                        newMap.delete(streamEvent.message_id);
+                                        return newMap;
+                                    });
+                                }, 1000); // 1秒后清理
+                            } else {
+                                // 使用 startTransition 将流式消息更新标记为低优先级，保持界面响应性
+                                startTransition(() => {
+                                    setStreamingMessages((prev) => {
+                                        const newMap = new Map(prev);
+                                        newMap.set(streamEvent.message_id, streamEvent);
+                                        return newMap;
+                                    });
                                 });
                                 smartScroll();
                             }
@@ -556,6 +579,26 @@ function ConversationUI({
                         if (messageUpdateData.message_type === 'response') {
                             setAiIsResponsing(false);
                         }
+                        
+                        // 在清理streamingMessages之前，先将消息添加到messages状态
+                        handleMessageCompletion(streamEvent);
+                        
+                        // 标记流式消息为完成状态，但不立即删除，让消息能正常显示
+                        setStreamingMessages((prev) => {
+                            const newMap = new Map(prev);
+                            const completedEvent = { ...streamEvent, is_done: true };
+                            newMap.set(streamEvent.message_id, completedEvent);
+                            return newMap;
+                        });
+                        
+                        // 延迟清理已完成的流式消息，给足够时间让消息保存到 messages 中
+                        setTimeout(() => {
+                            setStreamingMessages((prev) => {
+                                const newMap = new Map(prev);
+                                newMap.delete(streamEvent.message_id);
+                                return newMap;
+                            });
+                        }, 1000); // 1秒后清理
                     } else {
                         setStreamingMessages((prev) => {
                             const newMap = new Map(prev);
@@ -619,6 +662,45 @@ function ConversationUI({
             return newMap;
         });
     }, []);
+
+    // ============= 消息状态管理辅助函数 =============
+    
+    // 处理消息完成时的状态更新，确保消息在streamingMessages清理后仍能显示
+    const handleMessageCompletion = useCallback((streamEvent: StreamEvent) => {
+        // 检查messages中是否已存在该消息
+        setMessages(prevMessages => {
+            const existingIndex = prevMessages.findIndex(msg => msg.id === streamEvent.message_id);
+            
+            if (existingIndex !== -1) {
+                // 消息已存在，更新其内容和完成状态
+                const updatedMessages = [...prevMessages];
+                updatedMessages[existingIndex] = {
+                    ...updatedMessages[existingIndex],
+                    content: streamEvent.content,
+                    message_type: streamEvent.message_type,
+                    finish_time: new Date(), // 标记为完成
+                };
+                return updatedMessages;
+            } else {
+                // 消息不存在，添加新消息
+                const lastMessage = prevMessages[prevMessages.length - 1];
+                const baseTime = lastMessage ? new Date(lastMessage.created_time) : new Date();
+                const newMessage: Message = {
+                    id: streamEvent.message_id,
+                    conversation_id: conversation?.id || 0,
+                    message_type: streamEvent.message_type,
+                    content: streamEvent.content,
+                    llm_model_id: null,
+                    created_time: new Date(baseTime.getTime() + 1000),
+                    start_time: streamEvent.message_type === 'reasoning' ? baseTime : null,
+                    finish_time: new Date(), // 标记为完成
+                    token_count: 0,
+                    regenerate: null,
+                };
+                return [...prevMessages, newMessage];
+            }
+        });
+    }, [conversation?.id]);
 
     // ============= 业务逻辑处理函数 =============
     
@@ -746,10 +828,13 @@ function ConversationUI({
                     regenerate: null,
                 };
 
-                setMessages((prevMessages) => [
-                    ...prevMessages,
-                    userMessage,
-                ]);
+                // 使用 startTransition 优化用户消息的添加，避免阻塞界面
+                startTransition(() => {
+                    setMessages((prevMessages) => [
+                        ...prevMessages,
+                        userMessage,
+                    ]);
+                });
                 
                 invoke<AiResponse>("ask_ai", {
                     request: {
@@ -770,18 +855,20 @@ function ConversationUI({
                     setMessageId(res.add_message_id);
 
                     // 更新用户消息内容（后端处理后的版本）
-                    setMessages((prevMessages) => {
-                        const newMessages = [...prevMessages];
-                        const index = prevMessages.findIndex(
-                            (msg) => msg == userMessage,
-                        );
-                        if (index !== -1) {
-                            newMessages[index] = {
-                                ...newMessages[index],
-                                content: res.request_prompt_result_with_context,
-                            };
-                        }
-                        return newMessages;
+                    startTransition(() => {
+                        setMessages((prevMessages) => {
+                            const newMessages = [...prevMessages];
+                            const index = prevMessages.findIndex(
+                                (msg) => msg == userMessage,
+                            );
+                            if (index !== -1) {
+                                newMessages[index] = {
+                                    ...newMessages[index],
+                                    content: res.request_prompt_result_with_context,
+                                };
+                            }
+                            return newMessages;
+                        });
                     });
 
                     // 如果是新对话，更新对话 ID
@@ -805,11 +892,34 @@ function ConversationUI({
                             
                             if (messageUpdateData.is_done) {
                                 setAiIsResponsing(false);
-                            } else {
+                                
+                                // 在清理streamingMessages之前，先将消息添加到messages状态
+                                handleMessageCompletion(streamEvent);
+                                
+                                // 标记流式消息为完成状态，但不立即删除，让消息能正常显示
                                 setStreamingMessages((prev) => {
                                     const newMap = new Map(prev);
-                                    newMap.set(streamEvent.message_id, streamEvent);
+                                    const completedEvent = { ...streamEvent, is_done: true };
+                                    newMap.set(streamEvent.message_id, completedEvent);
                                     return newMap;
+                                });
+                                
+                                // 延迟清理已完成的流式消息，给足够时间让消息保存到 messages 中
+                                setTimeout(() => {
+                                    setStreamingMessages((prev) => {
+                                        const newMap = new Map(prev);
+                                        newMap.delete(streamEvent.message_id);
+                                        return newMap;
+                                    });
+                                }, 1000); // 1秒后清理
+                            } else {
+                                // 使用 startTransition 将流式消息更新标记为低优先级，保持界面响应性
+                                startTransition(() => {
+                                    setStreamingMessages((prev) => {
+                                        const newMap = new Map(prev);
+                                        newMap.set(streamEvent.message_id, streamEvent);
+                                        return newMap;
+                                    });
                                 });
                                 smartScroll();
                             }

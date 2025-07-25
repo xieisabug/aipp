@@ -57,7 +57,7 @@ const ReasoningMessage = React.memo(({
     // 计算思考时间 - 统一使用后端时间基准，使用 useMemo 缓存
     const thinkingTime = useMemo(() => {
         // 优先使用 streamEvent 中后端提供的精确时间信息
-        if (streamEvent?.duration_ms !== undefined) {
+        if (streamEvent?.duration_ms !== undefined && streamEvent.duration_ms > 0) {
             const seconds = Math.floor(streamEvent.duration_ms / 1000);
             if (seconds < 60) return `${seconds}秒`;
             const minutes = Math.floor(seconds / 60);
@@ -78,7 +78,7 @@ const ReasoningMessage = React.memo(({
         }
 
         // 正在思考时：基于后端开始时间和当前时间计算实时时间
-        if (message.start_time && !message.finish_time) {
+        if (message.start_time && !message.finish_time && !streamEvent?.is_done) {
             const startTime = new Date(message.start_time);
             // 使用定时器更新的 currentTime 来保证实时性
             const diffMs = Math.max(0, currentTime.getTime() - startTime.getTime());
@@ -90,7 +90,7 @@ const ReasoningMessage = React.memo(({
         }
 
         return '';
-    }, [streamEvent?.duration_ms, message.start_time, message.finish_time, currentTime]);
+    }, [streamEvent?.duration_ms, streamEvent?.is_done, message.start_time, message.finish_time, currentTime]);
 
     // 格式化状态文本
     const formatStatusText = useCallback((baseText: string) => {
@@ -164,6 +164,30 @@ const ReasoningMessage = React.memo(({
             )}
         </div>
     );
+}, 
+// 自定义比较函数，只在关键属性变化时才重新渲染
+(prevProps, nextProps) => {
+    // 基本消息属性比较
+    if (prevProps.message.id !== nextProps.message.id) return false;
+    if (prevProps.message.start_time !== nextProps.message.start_time) return false;
+    if (prevProps.message.finish_time !== nextProps.message.finish_time) return false;
+    
+    // 显示内容比较
+    if (prevProps.displayedContent !== nextProps.displayedContent) return false;
+    
+    // 展开状态比较
+    if (prevProps.isReasoningExpanded !== nextProps.isReasoningExpanded) return false;
+    
+    // 流式事件比较
+    const prevStreamEvent = prevProps.streamEvent;
+    const nextStreamEvent = nextProps.streamEvent;
+    if (prevStreamEvent?.is_done !== nextStreamEvent?.is_done) return false;
+    if (prevStreamEvent?.duration_ms !== nextStreamEvent?.duration_ms) return false;
+    
+    // 回调函数比较
+    if (prevProps.onToggleReasoningExpand !== nextProps.onToggleReasoningExpand) return false;
+    
+    return true; // 所有关键属性都相同，不需要重新渲染
 });
 
 ReasoningMessage.displayName = 'ReasoningMessage';

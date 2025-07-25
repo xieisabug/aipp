@@ -1,10 +1,44 @@
 import { useEffect, useRef } from 'react';
 
+// 检查是否在开发环境，提供安全的检查
+const isDevelopment = (() => {
+    try {
+        // 首先检查是否是 Tauri 开发环境
+        if (typeof window !== 'undefined' && (window as any).__TAURI__) {
+            // 在 Tauri 环境中，通过 hostname 判断
+            return window.location.hostname === 'localhost' || 
+                   window.location.hostname === '127.0.0.1' ||
+                   window.location.protocol === 'tauri:';
+        }
+        
+        // 如果有 process.env，使用它
+        if (typeof process !== 'undefined' && process.env) {
+            return process.env.NODE_ENV === 'development';
+        }
+        
+        // 最后通过 URL 判断
+        return typeof window !== 'undefined' && 
+               (window.location.hostname === 'localhost' || 
+                window.location.hostname === '127.0.0.1' ||
+                window.location.hostname.includes('localhost'));
+    } catch {
+        // 如果出错，默认启用监控以便调试
+        return true;
+    }
+})();
+
 // 性能监控 Hook
 export const usePerformanceMonitor = (componentName: string, deps?: any[]) => {
     const renderStartRef = useRef<number>(0);
     const mountStartRef = useRef<number>(0);
     const isFirstRenderRef = useRef(true);
+
+    // 在开发环境中才进行性能监控
+    if (!isDevelopment) {
+        return {
+            logCustomMetric: () => {}
+        };
+    }
 
     // 在每次渲染开始时记录时间
     renderStartRef.current = performance.now();
@@ -106,6 +140,11 @@ export const measureSync = <T>(
     operationName: string,
     operation: () => T
 ): T => {
+    // 在生产环境中直接执行操作，不进行测量
+    if (!isDevelopment) {
+        return operation();
+    }
+    
     const start = performance.now();
     try {
         const result = operation();
