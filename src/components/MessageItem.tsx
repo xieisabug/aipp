@@ -17,13 +17,75 @@ import Refresh from "../assets/refresh.svg?react";
 import CodeBlock from "./CodeBlock";
 import MessageFileAttachment from "./MessageFileAttachment";
 import MessageWebContent from "./conversation/MessageWebContent";
+import ReasoningMessage from "./ReasoningMessage";
 import { Message, StreamEvent } from "../data/Conversation";
+import { usePerformanceMonitor, measureSync } from "../hooks/usePerformanceMonitor";
 
 interface CustomComponents extends Components {
     fileattachment: React.ElementType;
     bangwebtomarkdown: React.ElementType;
     bangweb: React.ElementType;
 }
+
+// 将常量移到组件外部避免重复创建
+const CUSTOM_TAGS = {
+    fileattachment: (match: RegExpExecArray) =>
+        `\n<fileattachment ${match[1]}></fileattachment>\n`,
+    bangwebtomarkdown: (match: RegExpExecArray) =>
+        `\n<bangwebtomarkdown ${match[1]}></bangwebtomarkdown>\n`,
+    bangweb: (match: RegExpExecArray) =>
+        `\n<bangweb ${match[1]}></bangweb>\n`,
+};
+
+// 定义允许的自定义标签及其属性，结合默认 schema
+const SANITIZE_SCHEMA = {
+    ...defaultSchema,
+    tagNames: [
+        ...(defaultSchema.tagNames || []),
+        "fileattachment",
+        "bangwebtomarkdown",
+        "bangweb",
+    ],
+    attributes: {
+        ...(defaultSchema.attributes || {}),
+        fileattachment: [
+            ...(defaultSchema.attributes?.fileattachment || []),
+            "attachment_id",
+            "attachment_url",
+            "attachment_type",
+            "attachment_content",
+        ],
+        bangwebtomarkdown: [
+            ...(defaultSchema.attributes?.bangwebtomarkdown || []),
+        ],
+        bangweb: [
+            ...(defaultSchema.attributes?.bangweb || []),
+        ],
+    },
+};
+
+// ReactMarkdown 插件配置
+const REMARK_PLUGINS = [
+    remarkMath,
+    remarkBreaks,
+    remarkGfm,
+    remarkCustomCompenent,
+] as const;
+
+const REHYPE_PLUGINS = [
+    rehypeRaw,
+    [rehypeSanitize, SANITIZE_SCHEMA] as const,
+    rehypeKatex,
+    rehypeHighlight,
+] as const;
+
+// ReactMarkdown 组件配置的基础部分
+const MARKDOWN_COMPONENTS_BASE = {
+    fileattachment: MessageFileAttachment,
+    bangwebtomarkdown: MessageWebContent,
+    bangweb: MessageWebContent,
+    tipscomponent: TipsComponent,
+} as const;
 
 interface MessageItemProps {
     message: Message;
@@ -37,6 +99,14 @@ interface MessageItemProps {
 
 const MessageItem = React.memo(
     ({ message, streamEvent, onCodeRun, onMessageRegenerate, isReasoningExpanded = false, onToggleReasoningExpand }: MessageItemProps) => {
+        // 性能监控
+        usePerformanceMonitor('MessageItem', [
+            message.id,
+            message.content,
+            message.message_type,
+            streamEvent?.is_done,
+            isReasoningExpanded
+        ]);
         const [copyIconState, setCopyIconState] = useState<"copy" | "ok">(
             "copy",
         );
@@ -54,128 +124,16 @@ const MessageItem = React.memo(
             return message.content;
         }, [message.content, message.regenerate, currentMessageIndex]);
 
-        // 如果是 reasoning 类型消息，使用特殊的渲染逻辑
+        // 如果是 reasoning 类型消息，使用专门的组件渲染
         if (message.message_type === "reasoning") {
-            const [currentTime, setCurrentTime] = useState(new Date());
-            
-            // 使用 start_time 和 finish_time 来判断思考状态，也考虑 streamEvent 的状态
-            const isComplete = message.finish_time !== null || (streamEvent?.is_done === true);
-            const isThinking = message.start_time !== null && !isComplete;
-
-            // 为正在思考的消息添加定时器，实时更新显示时间
-            useEffect(() => {
-                if (isThinking) {
-                    const timer = setInterval(() => {
-                        setCurrentTime(new Date());
-                    }, 1000); // 每秒更新一次
-                    
-                    return () => clearInterval(timer);
-                }
-            }, [isThinking]);
-
-            // 计算思考时间 - 统一使用后端时间基准
-            const calculateThinkingTime = () => {
-                // 优先使用 streamEvent 中后端提供的精确时间信息
-                if (streamEvent?.duration_ms !== undefined) {
-                    const seconds = Math.floor(streamEvent.duration_ms / 1000);
-                    if (seconds < 60) return `${seconds}秒`;
-                    const minutes = Math.floor(seconds / 60);
-                    const remainingSeconds = seconds % 60;
-                    return `${minutes}分${remainingSeconds}秒`;
-                }
-                
-                // 如果有后端提供的结束时间，使用后端时间计算
-                if (message.start_time && message.finish_time) {
-                    const startTime = new Date(message.start_time);
-                    const endTime = new Date(message.finish_time);
-                    const diffMs = endTime.getTime() - startTime.getTime();
-                    const seconds = Math.floor(diffMs / 1000);
-                    if (seconds < 60) return `${seconds}秒`;
-                    const minutes = Math.floor(seconds / 60);
-                    const remainingSeconds = seconds % 60;
-                    return `${minutes}分${remainingSeconds}秒`;
-                }
-
-                // 正在思考时：基于后端开始时间和当前时间计算实时时间
-                if (message.start_time && !message.finish_time) {
-                    const startTime = new Date(message.start_time);
-                    // 使用定时器更新的 currentTime 来保证实时性
-                    const diffMs = Math.max(0, currentTime.getTime() - startTime.getTime());
-                    const seconds = Math.floor(diffMs / 1000);
-                    if (seconds < 60) return `${seconds}秒`;
-                    const minutes = Math.floor(seconds / 60);
-                    const remainingSeconds = seconds % 60;
-                    return `${minutes}分${remainingSeconds}秒`;
-                }
-
-                return '';
-            };
-
-            // 格式化状态文本
-            const formatStatusText = (baseText: string) => {
-                const timeStr = calculateThinkingTime();
-                return timeStr ? `${baseText}(${baseText === '思考中...' ? '已' : ''}思考 ${timeStr})` : baseText;
-            };
-
-            const lines = displayedContent.split('\n');
-            const previewLines = lines.slice(-3); // 思考中时显示最后3行
-
-            // 思考完成时的小模块展示
-            if (isComplete && !isReasoningExpanded) {
-                return (
-                    <div 
-                        className="my-2 p-2 bg-gray-50 border-l-4 border-gray-400 rounded-r-lg w-80 max-w-[60%] cursor-pointer hover:bg-gray-100 transition-colors"
-                        onClick={() => onToggleReasoningExpand?.()}
-                    >
-                        <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 bg-gray-500 rounded-full"></div>
-                            <span className="text-sm font-medium text-gray-700">
-                                {formatStatusText('思考完成')}
-                            </span>
-                            <span className="text-xs text-gray-400 ml-auto">点击展开</span>
-                        </div>
-                    </div>
-                );
-            }
-
-            // 完整展示（思考完成展开或思考中）
             return (
-                <div className="my-2 p-3 bg-gray-50 border-l-4 border-gray-400 rounded-r-lg max-w-[80%]">
-                    <div className="flex items-center gap-2 mb-2">
-                        <div className={`w-2 h-2 bg-gray-500 rounded-full ${isThinking ? 'animate-pulse' : ''}`}></div>
-                        <span className="text-sm font-medium text-gray-700">
-                            {formatStatusText(isComplete ? '思考完成' : '思考中...')}
-                        </span>
-                    </div>
-                    <div className="text-sm text-gray-600 whitespace-pre-wrap font-mono">
-                        {isThinking && lines.length > 3 && !isReasoningExpanded ? (
-                            <>
-                                <div className="text-gray-400 text-xs mb-1">...</div>
-                                {previewLines.join('\n')}
-                            </>
-                        ) : (
-                            displayedContent
-                        )}
-                    </div>
-                    {/* 思考中时的展开按钮 */}
-                    {isThinking && lines.length > 3 && !isReasoningExpanded && (
-                        <button
-                            onClick={() => onToggleReasoningExpand?.()}
-                            className="mt-2 text-xs text-gray-600 hover:text-gray-800 underline cursor-pointer"
-                        >
-                            展开思考
-                        </button>
-                    )}
-                    {/* 思考完成时的收起按钮或思考中展开状态的收起按钮 */}
-                    {(isComplete || (isThinking && isReasoningExpanded)) && (
-                        <button
-                            onClick={() => onToggleReasoningExpand?.()}
-                            className="mt-2 text-xs text-gray-600 hover:text-gray-800 underline cursor-pointer"
-                        >
-                            收起
-                        </button>
-                    )}
-                </div>
+                <ReasoningMessage
+                    message={message}
+                    streamEvent={streamEvent}
+                    displayedContent={displayedContent}
+                    isReasoningExpanded={isReasoningExpanded}
+                    onToggleReasoningExpand={onToggleReasoningExpand}
+                />
             );
         }
 
@@ -217,7 +175,7 @@ const MessageItem = React.memo(
         );
 
         // 自定义解析器来处理自定义标签（移除了 think 标签处理）
-        const customParser = (
+        const customParser = useCallback((
             markdown: string,
             customTags: { [key: string]: (match: RegExpExecArray) => string },
         ) => {
@@ -237,96 +195,48 @@ const MessageItem = React.memo(
             });
 
             return result;
-        };
-
-        const customTags = {
-            fileattachment: (match: RegExpExecArray) =>
-                `\n<fileattachment ${match[1]}></fileattachment>\n`,
-            bangwebtomarkdown: (match: RegExpExecArray) =>
-                `\n<bangwebtomarkdown ${match[1]}></bangwebtomarkdown>\n`,
-            bangweb: (match: RegExpExecArray) =>
-                `\n<bangweb ${match[1]}></bangweb>\n`,
-        };
+        }, []);
 
         const markdownContent = useMemo(
-            () => customParser(displayedContent, customTags),
-            [displayedContent],
+            () => measureSync(`markdown-parsing-${message.id}`, () => customParser(displayedContent, CUSTOM_TAGS)),
+            [displayedContent, customParser],
         );
 
-        // 定义允许的自定义标签及其属性，结合默认 schema
-        const sanitizeSchema = {
-            ...defaultSchema,
-            tagNames: [
-                ...(defaultSchema.tagNames || []),
-                "fileattachment",
-                "bangwebtomarkdown",
-                "bangweb",
-            ],
-            attributes: {
-                ...(defaultSchema.attributes || {}),
-                fileattachment: [
-                    ...(defaultSchema.attributes?.fileattachment || []),
-                    "attachment_id",
-                    "attachment_url",
-                    "attachment_type",
-                    "attachment_content",
-                ],
-                bangwebtomarkdown: [
-                    ...(defaultSchema.attributes?.bangwebtomarkdown || []),
-                ],
-                bangweb: [
-                    ...(defaultSchema.attributes?.bangweb || []),
-                ],
+        // 使用 useMemo 缓存 markdown 组件配置
+        const markdownComponents = useMemo(() => ({
+            ...MARKDOWN_COMPONENTS_BASE,
+            code: ({ className, children }: { className?: string; children: React.ReactNode }) => {
+                const match = /language-(\w+)/.exec(className || "");
+                return match ? (
+                    <CodeBlock
+                        language={match[1]}
+                        onCodeRun={onCodeRun || (() => {})}
+                    >
+                        {children}
+                    </CodeBlock>
+                ) : (
+                    <code
+                        className={className}
+                        style={{
+                            overflow: "auto",
+                        }}
+                    >
+                        {children}
+                    </code>
+                );
             },
-        };
+        } as CustomComponents), [onCodeRun]);
 
         const markdownElement = useMemo(
-            () => (
+            () => measureSync(`markdown-render-${message.id}`, () => (
                 <ReactMarkdown
                     children={markdownContent}
-                    remarkPlugins={[
-                        remarkMath,
-                        remarkBreaks,
-                        remarkGfm,
-                        remarkCustomCompenent,
-                    ]}
-                    rehypePlugins={[
-                        rehypeRaw,
-                        [rehypeSanitize, sanitizeSchema],
-                        rehypeKatex,
-                        rehypeHighlight,
-                    ]}
-                    components={{
-                        code: ({ className, children }) => {
-                            const match = /language-(\w+)/.exec(
-                                className || "",
-                            );
-                            return match ? (
-                                <CodeBlock
-                                    language={match[1]}
-                                    onCodeRun={onCodeRun || (() => {})}
-                                >
-                                    {children}
-                                </CodeBlock>
-                            ) : (
-                                <code
-                                    className={className}
-                                    style={{
-                                        overflow: "auto",
-                                    }}
-                                >
-                                    {children}
-                                </code>
-                            );
-                        },
-                        fileattachment: MessageFileAttachment,
-                        bangwebtomarkdown: MessageWebContent,
-                        bangweb: MessageWebContent,
-                        tipscomponent: TipsComponent,
-                    } as CustomComponents}
+                    remarkPlugins={REMARK_PLUGINS as any}
+                    rehypePlugins={REHYPE_PLUGINS as any}
+                    components={markdownComponents}
                 />
-            ),
-            [markdownContent, onCodeRun],
+            )),
+            [markdownContent, markdownComponents],
         );
 
         return (
