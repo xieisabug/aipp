@@ -50,6 +50,11 @@ macos-accessibility-client = "0.0.1"
 [target."cfg(not(any(target_os = \"android\", target_os = \"ios\")))".dependencies]
 tauri-plugin-global-shortcut =  { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v2" }
 
+[dev-dependencies]
+rstest = "0.18"
+tokio-test = "0.4"
+tempfile = "3.8"
+
 [features]
 # This feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!
 custom-protocol = ["tauri/custom-protocol"]

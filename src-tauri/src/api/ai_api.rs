@@ -432,6 +432,7 @@ async fn handle_stream_chat(
     need_generate_title: bool,
     user_prompt: String,
     config_feature_map: HashMap<String, HashMap<String, FeatureConfig>>,
+    generation_group_id_override: Option<String>, // 新增参数，用于regenerate时复用group_id
 ) -> Result<(), anyhow::Error> {
     // 添加重试逻辑
     let mut attempts = 0;
@@ -461,8 +462,9 @@ async fn handle_stream_chat(
             let mut reasoning_message_id: Option<i64> = None;
             let mut response_message_id: Option<i64> = None;
             
-            // 为这次生成创建唯一的组ID
-            let generation_group_id = uuid::Uuid::new_v4().to_string();
+            // 为这次生成确定组ID：优先使用传入的group_id，否则创建新的
+            let generation_group_id = generation_group_id_override
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
             
             // 状态跟踪变量
             let mut current_output_type: Option<String> = None;
@@ -874,9 +876,11 @@ async fn handle_non_stream_chat(
     need_generate_title: bool,
     user_prompt: String,
     config_feature_map: HashMap<String, HashMap<String, FeatureConfig>>,
+    generation_group_id_override: Option<String>, // 新增参数，用于regenerate时复用group_id
 ) -> Result<(), anyhow::Error> {
-    // 为这次生成创建唯一的组ID
-    let generation_group_id = uuid::Uuid::new_v4().to_string();
+    // 为这次生成确定组ID：优先使用传入的group_id，否则创建新的
+    let generation_group_id = generation_group_id_override
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     
     // 创建一个 response 类型的消息
     let response_message = conversation_db
@@ -1174,6 +1178,7 @@ pub async fn ask_ai(
                     _need_generate_title,
                     request.prompt.clone(),
                     _config_feature_map.clone(),
+                    None, // 普通ask_ai不需要复用generation_group_id
                 )
                 .await?;
             } else {
@@ -1193,6 +1198,7 @@ pub async fn ask_ai(
                     _need_generate_title,
                     request.prompt.clone(),
                     _config_feature_map.clone(),
+                    None, // 普通ask_ai不需要复用generation_group_id
                 )
                 .await?;
             }
@@ -1310,12 +1316,12 @@ pub async fn regenerate_ai(
             .collect();
         (filtered_messages, Some(message_id)) // 用户消息作为parent
     } else {
-        // AI消息重新生成：仅保留在待重新生成消息之前的历史消息，新消息与原消息有相同的parent
+        // AI消息重新生成：仅保留在待重新生成消息之前的历史消息，新消息以被重发的原消息为parent
         let filtered_messages: Vec<(Message, Option<MessageAttachment>)> = messages
             .into_iter()
             .filter(|m| m.0.id < message_id)
             .collect();
-        (filtered_messages, message.parent_id) // 使用原消息的parent_id
+        (filtered_messages, Some(message_id)) // 使用被重发消息的ID作为parent_id
     };
 
     // 计算每个父消息最新的子消息（parent_id -> latest child）
@@ -1368,6 +1374,18 @@ pub async fn regenerate_ai(
         return Err(AppError::NoModelFound);
     }
 
+    // 确定要使用的generation_group_id
+    let regenerate_generation_group_id = if message.message_type == "user" {
+        // 用户消息重发：为新的AI回复生成新的group_id
+        Some(uuid::Uuid::new_v4().to_string())
+    } else {
+        // AI消息重发：复用原消息的generation_group_id以保持版本关系
+        message.generation_group_id.clone().or_else(|| {
+            // 如果原消息没有generation_group_id，创建一个新的
+            Some(uuid::Uuid::new_v4().to_string())
+        })
+    };
+
     let app_handle_clone = app_handle.clone();
     let new_message = add_message(
         &app_handle_clone,
@@ -1380,7 +1398,7 @@ pub async fn regenerate_ai(
         None,
         None,
         0,
-        Some(uuid::Uuid::new_v4().to_string()),
+        regenerate_generation_group_id.clone(), // 克隆以避免所有权问题
     )?;
     let new_message_id = new_message.id;
 
@@ -1466,6 +1484,7 @@ pub async fn regenerate_ai(
                 false, // regenerate 不需要生成标题
                 String::new(), // regenerate 不需要用户提示
                 HashMap::new(), // regenerate 不需要配置
+                regenerate_generation_group_id.clone(), // 传递generation_group_id用于复用
             )
             .await?;
         } else {
@@ -1485,6 +1504,7 @@ pub async fn regenerate_ai(
                 false, // regenerate 不需要生成标题
                 String::new(), // regenerate 不需要用户提示
                 HashMap::new(), // regenerate 不需要配置
+                regenerate_generation_group_id.clone(), // 传递generation_group_id用于复用
             )
             .await?;
         }

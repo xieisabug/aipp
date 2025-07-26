@@ -14,6 +14,9 @@ pub mod llm_db;
 pub mod plugin_db;
 pub mod system_db;
 
+#[cfg(test)]
+mod tests;
+
 const CURRENT_VERSION: &str = "0.0.3";
 
 fn get_db_path(app_handle: &tauri::AppHandle, db_name: &str) -> Result<PathBuf, String> {
