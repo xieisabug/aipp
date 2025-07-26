@@ -17,7 +17,7 @@ pub mod system_db;
 #[cfg(test)]
 mod tests;
 
-const CURRENT_VERSION: &str = "0.0.3";
+const CURRENT_VERSION: &str = "0.0.4";
 
 fn get_db_path(app_handle: &tauri::AppHandle, db_name: &str) -> Result<PathBuf, String> {
     let app_dir = app_handle.path().app_data_dir().unwrap();
@@ -66,7 +66,7 @@ pub fn database_upgrade(
                         &ConversationDatabase,
                         &tauri::AppHandle,
                     ) -> Result<(), String>,
-                )> = vec![("0.0.2", special_logic_0_0_2), ("0.0.3", special_logic_0_0_3)];
+                )> = vec![("0.0.2", special_logic_0_0_2), ("0.0.3", special_logic_0_0_3), ("0.0.4", special_logic_0_0_4)];
 
                 for (version_str, logic) in special_versions.iter() {
                     let version = Version::parse(version_str).unwrap();
@@ -193,6 +193,99 @@ fn special_logic_0_0_2(
         .execute("COMMIT;", [])
         .map_err(|e| format!("事务提交失败: {}", e.to_string()))?;
     println!("special_logic_0_0_2 done");
+    Ok(())
+}
+
+fn special_logic_0_0_4(
+    _system_db: &SystemDatabase,
+    _llm_db: &LLMDatabase,
+    _assistant_db: &AssistantDatabase,
+    conversation_db: &ConversationDatabase,
+    _app_handle: &tauri::AppHandle,
+) -> Result<(), String> {
+    println!("special_logic_0_0_4: 清理废弃的assistant消息类型");
+    
+    // 创建数据库连接
+    let conn = conversation_db.get_connection()
+        .map_err(|e| format!("打开数据库连接失败: {}", e.to_string()))?;
+    
+    // 开始事务
+    conn.execute("BEGIN TRANSACTION;", [])
+        .map_err(|e| format!("开始事务失败: {}", e.to_string()))?;
+
+    // 查询所有废弃的assistant类型消息
+    let mut stmt = conn
+        .prepare("SELECT id, content FROM message WHERE message_type = 'assistant'")
+        .map_err(|e| format!("查询废弃消息失败: {}", e.to_string()))?;
+
+    let deprecated_messages = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?, // id
+                row.get::<_, String>(1)?, // content
+            ))
+        })
+        .map_err(|e| format!("查询废弃消息失败: {}", e.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("收集废弃消息数据失败: {}", e.to_string()))?;
+
+    println!("发现 {} 条废弃的assistant消息需要处理", deprecated_messages.len());
+
+    // 将废弃的assistant消息转换为response消息
+    for (message_id, content) in deprecated_messages {
+        // 检查是否有对应的reasoning消息（通过时间相近来判断）
+        let mut reasoning_stmt = conn
+            .prepare("SELECT id FROM message WHERE message_type = 'reasoning' AND conversation_id = (SELECT conversation_id FROM message WHERE id = ?) AND ABS(julianday(created_time) - julianday((SELECT created_time FROM message WHERE id = ?))) < 0.001")
+            .map_err(|e| format!("查询对应reasoning消息失败: {}", e.to_string()))?;
+        
+        let reasoning_exists = reasoning_stmt
+            .query_row([message_id, message_id], |_| Ok(()))
+            .is_ok();
+
+        if reasoning_exists {
+            // 如果有reasoning消息，生成一个generation_group_id来关联它们
+            let generation_group_id = uuid::Uuid::new_v4().to_string();
+            
+            // 更新reasoning消息的generation_group_id
+            conn.execute(
+                "UPDATE message SET generation_group_id = ? WHERE message_type = 'reasoning' AND conversation_id = (SELECT conversation_id FROM message WHERE id = ?) AND ABS(julianday(created_time) - julianday((SELECT created_time FROM message WHERE id = ?))) < 0.001",
+                params![generation_group_id, message_id, message_id],
+            )
+            .map_err(|e| format!("更新reasoning消息generation_group_id失败: {}", e.to_string()))?;
+
+            // 更新assistant消息为response类型并设置generation_group_id
+            conn.execute(
+                "UPDATE message SET message_type = 'response', generation_group_id = ? WHERE id = ?",
+                params![generation_group_id, message_id],
+            )
+            .map_err(|e| format!("更新assistant消息失败: {}", e.to_string()))?;
+        } else {
+            // 如果没有reasoning消息，直接转换为response并生成新的generation_group_id
+            let generation_group_id = uuid::Uuid::new_v4().to_string();
+            conn.execute(
+                "UPDATE message SET message_type = 'response', generation_group_id = ? WHERE id = ?",
+                params![generation_group_id, message_id],
+            )
+            .map_err(|e| format!("更新单独assistant消息失败: {}", e.to_string()))?;
+        }
+    }
+
+    // 验证清理结果
+    let remaining_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM message WHERE message_type = 'assistant'", [], |row| {
+            row.get(0)
+        })
+        .map_err(|e| format!("验证清理结果失败: {}", e.to_string()))?;
+
+    if remaining_count > 0 {
+        return Err(format!("清理未完成，仍有 {} 条assistant消息", remaining_count));
+    }
+
+    // 提交事务
+    conn.execute("COMMIT;", [])
+        .map_err(|e| format!("事务提交失败: {}", e.to_string()))?;
+    
+    println!("special_logic_0_0_4 done: 废弃的assistant消息类型已清理完成");
     Ok(())
 }
 

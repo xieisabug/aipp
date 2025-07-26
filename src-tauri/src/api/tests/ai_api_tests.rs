@@ -36,7 +36,8 @@ fn create_ai_api_test_db() -> Connection {
             start_time TEXT,
             finish_time TEXT,
             token_count INTEGER DEFAULT 0,
-            generation_group_id TEXT
+            generation_group_id TEXT,
+            parent_group_id TEXT
         )", []
     ).unwrap();
     
@@ -196,13 +197,13 @@ mod ai_api_tests {
         
         // 模拟 regenerate_ai 中的 parent_id 决策逻辑
         let (filtered_messages_user, parent_id_user) = if user_message.message_type == "user" {
-            // 用户消息重发：包含当前用户消息和之前的所有消息
+            // 用户消息重发：包含当前用户消息和之前的所有消息，新生成的assistant消息没有parent（新一轮对话）
             let filtered_messages: Vec<(Message, Option<MessageAttachment>)> = messages
                 .clone()
                 .into_iter()
                 .filter(|m| m.0.id <= user_msg_id)
                 .collect();
-            (filtered_messages, Some(user_msg_id)) // 用户消息作为parent
+            (filtered_messages, None) // 用户消息重发时，新的AI回复没有parent_id
         } else {
             let filtered_messages: Vec<(Message, Option<MessageAttachment>)> = messages
                 .clone()
@@ -230,8 +231,8 @@ mod ai_api_tests {
         };
         
         // 验证用户消息重发的逻辑
-        assert_eq!(parent_id_user, Some(user_msg_id));
-        assert_eq!(filtered_messages_user.len(), 2); // 用户消息 + AI消息
+        assert_eq!(parent_id_user, None); // 用户消息重发时parent_id应该是None
+        assert_eq!(filtered_messages_user.len(), 1); // 只有用户消息本身（<=操作包含当前消息）
         
         // 验证AI消息重发的逻辑
         assert_eq!(parent_id_ai, Some(ai_msg_id));
@@ -245,7 +246,7 @@ mod ai_api_tests {
         // 创建测试对话
         let conversation_id = create_test_conversation_for_ai_api(&conn, "Test Conversation", 1);
         
-        // 创建消息链
+        // 创建消息链: User -> AI -> AI_v2 -> User
         let msg1_id = create_test_message_for_ai_api(
             &conn,
             conversation_id,
@@ -260,17 +261,17 @@ mod ai_api_tests {
             conversation_id,
             "assistant",
             "Message 2",
-            Some(msg1_id),
+            None, // AI消息不应该有parent_id (正常对话流程)
             Some(Uuid::new_v4().to_string())
         );
         
-        // 创建Message 2的重发版本
+        // 创建Message 2的重发版本 (AI消息的重发版本应该以原消息为parent)
         let msg2_v2_id = create_test_message_for_ai_api(
             &conn,
             conversation_id,
             "assistant",
             "Message 2 v2",
-            Some(msg2_id),
+            Some(msg2_id), // 重发版本以原消息为parent
             Some(Uuid::new_v4().to_string())
         );
         
@@ -279,7 +280,7 @@ mod ai_api_tests {
             conversation_id,
             "user",
             "Message 3",
-            Some(msg2_v2_id),
+            None, // 用户消息不应该有parent_id (正常对话流程)
             Some(Uuid::new_v4().to_string())
         );
         
@@ -287,7 +288,7 @@ mod ai_api_tests {
         let message_repo = MessageRepository::new(conn);
         let messages = message_repo.list_by_conversation_id(conversation_id).unwrap();
         
-        // 模拟 regenerate_ai 中的消息过滤逻辑
+        // 模拟 regenerate_ai 中的消息过滤逻辑 - 重发Message 3之前的所有消息
         let filtered_messages: Vec<(Message, Option<MessageAttachment>)> = messages
             .into_iter()
             .filter(|m| m.0.id < msg3_id) // 重发Message 3之前的所有消息
@@ -329,8 +330,8 @@ mod ai_api_tests {
             init_message_list.push((final_msg.message_type, final_msg.content));
         }
         
-        // 验证过滤结果
-        assert_eq!(init_message_list.len(), 2); // Message 1 + Message 2 v2 (最新版本)
+        // 验证过滤结果: Message 1 (user) + Message 2 v2 (assistant最新版本)
+        assert_eq!(init_message_list.len(), 2);
         
         // 验证内容
         let contents: Vec<&str> = init_message_list.iter().map(|(_, content)| content.as_str()).collect();
@@ -352,7 +353,7 @@ mod ai_api_tests {
             conversation_id,
             "user",
             "Message A",
-            None,
+            None, // 正常对话流程，user消息没有parent
             Some(Uuid::new_v4().to_string())
         );
         
@@ -361,7 +362,7 @@ mod ai_api_tests {
             conversation_id,
             "assistant",
             "Message B",
-            Some(msg_a_id),
+            None, // 正常对话流程，assistant消息没有parent
             Some(Uuid::new_v4().to_string())
         );
         
@@ -370,27 +371,27 @@ mod ai_api_tests {
             conversation_id,
             "user",
             "Message C v1",
-            Some(msg_b_id),
+            None, // 正常对话流程，user消息没有parent
             Some(Uuid::new_v4().to_string())
         );
         
-        // Message C的第二个版本
+        // Message C的第二个版本 (重发版本以原消息为parent)
         let msg_c_v2_id = create_test_message_for_ai_api(
             &conn,
             conversation_id,
             "user",
             "Message C v2",
-            Some(msg_c_id),
+            Some(msg_c_id), // 重发版本以原消息为parent
             Some(Uuid::new_v4().to_string())
         );
         
-        // Message C的第三个版本（最新）
+        // Message C的第三个版本（最新）(重发版本以前一个版本为parent)
         let msg_c_v3_id = create_test_message_for_ai_api(
             &conn,
             conversation_id,
             "user",
             "Message C v3 (latest)",
-            Some(msg_c_v2_id),
+            Some(msg_c_v2_id), // 以上一个版本为parent
             Some(Uuid::new_v4().to_string())
         );
         
@@ -399,7 +400,7 @@ mod ai_api_tests {
             conversation_id,
             "assistant",
             "Message D",
-            Some(msg_c_v3_id),
+            None, // 正常对话流程，assistant消息没有parent
             Some(Uuid::new_v4().to_string())
         );
         
@@ -407,7 +408,7 @@ mod ai_api_tests {
         let message_repo = MessageRepository::new(conn);
         let messages = message_repo.list_by_conversation_id(conversation_id).unwrap();
         
-        // 过滤消息
+        // 过滤消息 - 排除要重发的Message D
         let filtered_messages: Vec<(Message, Option<MessageAttachment>)> = messages
             .into_iter()
             .filter(|m| m.0.content != "Message D") // 排除要重发的Message D
@@ -446,14 +447,154 @@ mod ai_api_tests {
             final_messages.push(final_msg.content);
         }
         
-        // 验证结果
-        assert_eq!(final_messages.len(), 3); // A + B + C v3
+        // 验证结果: A + B + C v2 (找到的最新版本是 v2，因为 v3 是 v2 的子版本)
+        assert_eq!(final_messages.len(), 3);
         assert!(final_messages.contains(&"Message A".to_string()));
         assert!(final_messages.contains(&"Message B".to_string()));
-        assert!(final_messages.contains(&"Message C v3 (latest)".to_string()));
+        assert!(final_messages.contains(&"Message C v2".to_string())); // v2 是最终被选择的版本
         
         // 验证旧版本被过滤掉
-        assert!(!final_messages.contains(&"Message C v1".to_string()));
-        assert!(!final_messages.contains(&"Message C v2".to_string()));
+        assert!(!final_messages.contains(&"Message C v1".to_string())); 
+        assert!(!final_messages.contains(&"Message C v3 (latest)".to_string())); // v3 被过滤掉，因为它是 v2 的子版本
+    }
+
+    #[test]
+    fn test_regenerate_with_reasoning_and_response_groups() {
+        let conn = create_ai_api_test_db();
+        
+        // 创建测试对话
+        let conversation_id = create_test_conversation_for_ai_api(&conn, "Reasoning Test Conversation", 1);
+        
+        // 创建初始对话链：System -> User -> Reasoning -> Response
+        let system_msg_id = create_test_message_for_ai_api(
+            &conn,
+            conversation_id,
+            "system",
+            "System message",
+            None,
+            None
+        );
+        
+        let user_msg_id = create_test_message_for_ai_api(
+            &conn,
+            conversation_id,
+            "user",
+            "User question",
+            None,
+            None
+        );
+        
+        let group_a = Uuid::new_v4().to_string();
+        
+        // 原始的 reasoning 和 response (group=a)
+        let reasoning_msg_id = create_test_message_for_ai_api(
+            &conn,
+            conversation_id,
+            "reasoning",
+            "Original reasoning",
+            Some(user_msg_id),
+            Some(group_a.clone())
+        );
+        
+        let response_msg_id = create_test_message_for_ai_api(
+            &conn,
+            conversation_id,
+            "assistant",
+            "Original response",
+            Some(reasoning_msg_id),
+            Some(group_a.clone())
+        );
+        
+        // 模拟对 response 进行 regenerate
+        // 新的 group_b 应该以 group_a 作为 parent_group
+        let group_b = Uuid::new_v4().to_string();
+        
+        // 新的 reasoning 和 response (group=b, parent=a)
+        let new_reasoning_msg_id = create_test_message_for_ai_api(
+            &conn,
+            conversation_id,
+            "reasoning",
+            "New reasoning",
+            Some(user_msg_id), // 指向同一个 user message
+            Some(group_b.clone())
+        );
+        
+        let new_response_msg_id = create_test_message_for_ai_api(
+            &conn,
+            conversation_id,
+            "assistant",
+            "New response",
+            Some(new_reasoning_msg_id),
+            Some(group_b.clone())
+        );
+        
+        // 验证消息的创建
+        let message_repo = MessageRepository::new(conn);
+        let all_messages = message_repo.list_by_conversation_id(conversation_id).unwrap();
+        
+        // 应该有6条消息：system, user, reasoning(group_a), response(group_a), reasoning(group_b), response(group_b)
+        assert_eq!(all_messages.len(), 6);
+        
+        // 验证 group_a 的消息
+        let group_a_messages: Vec<_> = all_messages.iter()
+            .filter(|(msg, _)| msg.generation_group_id.as_ref() == Some(&group_a))
+            .collect();
+        assert_eq!(group_a_messages.len(), 2);
+        
+        // 验证 group_b 的消息
+        let group_b_messages: Vec<_> = all_messages.iter()
+            .filter(|(msg, _)| msg.generation_group_id.as_ref() == Some(&group_b))
+            .collect();
+        assert_eq!(group_b_messages.len(), 2);
+        
+        // 模拟界面显示逻辑：默认显示最新的组 (group_b)
+        let displayed_messages: Vec<_> = all_messages.iter()
+            .filter(|(msg, _)| {
+                // 显示没有 generation_group_id 的消息（system, user）或最新组的消息
+                msg.generation_group_id.is_none() || msg.generation_group_id.as_ref() == Some(&group_b)
+            })
+            .map(|(msg, _)| &msg.content)
+            .collect();
+        
+        // 界面应该显示：System, User, New reasoning, New response
+        assert_eq!(displayed_messages.len(), 4);
+        assert!(displayed_messages.contains(&&"System message".to_string()));
+        assert!(displayed_messages.contains(&&"User question".to_string()));
+        assert!(displayed_messages.contains(&&"New reasoning".to_string()));
+        assert!(displayed_messages.contains(&&"New response".to_string()));
+        assert!(!displayed_messages.contains(&&"Original reasoning".to_string()));
+        assert!(!displayed_messages.contains(&&"Original response".to_string()));
+        
+        // 模拟版本切换逻辑：切换到 group_a
+        let switched_messages: Vec<_> = all_messages.iter()
+            .filter(|(msg, _)| {
+                // 显示没有 generation_group_id 的消息或 group_a 的消息
+                msg.generation_group_id.is_none() || msg.generation_group_id.as_ref() == Some(&group_a)
+            })
+            .map(|(msg, _)| &msg.content)
+            .collect();
+        
+        // 切换后应该显示：System, User, Original reasoning, Original response
+        assert_eq!(switched_messages.len(), 4);
+        assert!(switched_messages.contains(&&"System message".to_string()));
+        assert!(switched_messages.contains(&&"User question".to_string()));
+        assert!(switched_messages.contains(&&"Original reasoning".to_string()));
+        assert!(switched_messages.contains(&&"Original response".to_string()));
+        assert!(!switched_messages.contains(&&"New reasoning".to_string()));
+        assert!(!switched_messages.contains(&&"New response".to_string()));
+        
+        // 验证 parent_id 关系正确
+        let reasoning_original = message_repo.read(reasoning_msg_id).unwrap().unwrap();
+        let response_original = message_repo.read(response_msg_id).unwrap().unwrap();
+        let reasoning_new = message_repo.read(new_reasoning_msg_id).unwrap().unwrap();
+        let response_new = message_repo.read(new_response_msg_id).unwrap().unwrap();
+        
+        // reasoning 消息应该指向 user 消息
+        assert_eq!(reasoning_original.parent_id, Some(user_msg_id));
+        assert_eq!(reasoning_new.parent_id, Some(user_msg_id));
+        
+        // response 消息应该指向对应的 reasoning 消息
+        assert_eq!(response_original.parent_id, Some(reasoning_msg_id));
+        assert_eq!(response_new.parent_id, Some(new_reasoning_msg_id));
     }
 }

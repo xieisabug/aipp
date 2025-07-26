@@ -35,7 +35,8 @@ fn create_test_db() -> Connection {
             start_time TEXT,
             finish_time TEXT,
             token_count INTEGER DEFAULT 0,
-            generation_group_id TEXT
+            generation_group_id TEXT,
+            parent_group_id TEXT
         )", []
     ).unwrap();
     
@@ -82,6 +83,7 @@ fn create_test_message(conversation_id: i64, message_type: &str, content: &str, 
         finish_time: None,
         token_count: 100,
         generation_group_id,
+        parent_group_id: None,
     }
 }
 

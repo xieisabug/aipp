@@ -191,6 +191,7 @@ pub async fn get_conversation_with_messages(
         let attachment_list = attachment_map.get(&message_id).cloned().unwrap_or_default();
         message_details.push(MessageDetail {
             id: message.id,
+            parent_id: message.parent_id,
             conversation_id: message.conversation_id,
             message_type: message.message_type,
             content: message.content,
@@ -200,9 +201,9 @@ pub async fn get_conversation_with_messages(
             finish_time: message.finish_time,
             token_count: message.token_count,
             generation_group_id: message.generation_group_id,
+            parent_group_id: message.parent_group_id,
             attachment_list,
             regenerate: Vec::new(),
-            parent_id: message.parent_id,
         });
     }
 

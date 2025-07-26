@@ -433,6 +433,9 @@ async fn handle_stream_chat(
     user_prompt: String,
     config_feature_map: HashMap<String, HashMap<String, FeatureConfig>>,
     generation_group_id_override: Option<String>, // 新增参数，用于regenerate时复用group_id
+    parent_group_id_override: Option<String>, // 新增参数，用于设置parent_group_id
+    llm_model_id: i64, // 模型ID
+    llm_model_name: String, // 模型名称
 ) -> Result<(), anyhow::Error> {
     // 添加重试逻辑
     let mut attempts = 0;
@@ -521,13 +524,14 @@ async fn handle_stream_chat(
                                                     conversation_id,
                                                     message_type: "response".to_string(),
                                                     content: response_content.clone(),
-                                                    llm_model_id: None,
-                                                    llm_model_name: None,
+                                                    llm_model_id: Some(llm_model_id),
+                                                    llm_model_name: Some(llm_model_name.clone()),
                                                     created_time: now,
                                                     start_time: Some(now),
                                                     finish_time: None,
                                                     token_count: 0,
                                                     generation_group_id: Some(generation_group_id.clone()),
+                                                    parent_group_id: parent_group_id_override.clone(),
                                                 })
                                                 .unwrap();
                                             response_message_id = Some(new_message.id);
@@ -601,13 +605,14 @@ async fn handle_stream_chat(
                                                     conversation_id,
                                                     message_type: "reasoning".to_string(),
                                                     content: reasoning_content.clone(),
-                                                    llm_model_id: None,
-                                                    llm_model_name: None,
+                                                    llm_model_id: Some(llm_model_id),
+                                                    llm_model_name: Some(llm_model_name.clone()),
                                                     created_time: now,
                                                     start_time: Some(now),
                                                     finish_time: None,
                                                     token_count: 0,
                                                     generation_group_id: Some(generation_group_id.clone()),
+                                                    parent_group_id: parent_group_id_override.clone(),
                                                 })
                                                 .unwrap();
                                             reasoning_message_id = Some(new_message.id);
@@ -877,6 +882,9 @@ async fn handle_non_stream_chat(
     user_prompt: String,
     config_feature_map: HashMap<String, HashMap<String, FeatureConfig>>,
     generation_group_id_override: Option<String>, // 新增参数，用于regenerate时复用group_id
+    parent_group_id_override: Option<String>, // 新增参数，用于设置parent_group_id
+    llm_model_id: i64, // 模型ID
+    llm_model_name: String, // 模型名称
 ) -> Result<(), anyhow::Error> {
     // 为这次生成确定组ID：优先使用传入的group_id，否则创建新的
     let generation_group_id = generation_group_id_override
@@ -892,13 +900,14 @@ async fn handle_non_stream_chat(
             conversation_id,
             message_type: "response".to_string(),
             content: String::new(),
-            llm_model_id: None,
-            llm_model_name: None,
+            llm_model_id: Some(llm_model_id),
+            llm_model_name: Some(llm_model_name.clone()),
             created_time: chrono::Utc::now(),
             start_time: Some(chrono::Utc::now()),
             finish_time: None,
             token_count: 0,
             generation_group_id: Some(generation_group_id),
+            parent_group_id: parent_group_id_override,
         })
         .unwrap();
     let response_message_id = response_message.id;
@@ -1106,20 +1115,48 @@ pub async fn ask_ai(
 
         let tokens = message_token_manager.get_tokens();
         let window_clone = window.clone(); // 在移动之前克隆
+        let model_id = model_detail.model.id; // 提前获取模型ID
+        let model_code = model_detail.model.code.clone(); // 提前获取模型代码
+        let model_configs = model_detail.configs.clone(); // 提前获取模型配置
+        let provider_api_type = model_detail.provider.api_type.clone(); // 提前获取API类型
+        let assistant_model_configs = assistant_detail.model_configs.clone(); // 提前获取助手模型配置
         tokio::spawn(async move {
             // 直接创建数据库连接（避免线程安全问题）
             let conversation_db = ConversationDatabase::new(&app_handle_clone).unwrap();
 
             // 构建聊天配置
             let client = genai_client::create_client_with_config(
-                &model_detail.configs,
-                &model_detail.model.code,
-                &model_detail.provider.api_type,
+                &model_configs,
+                &model_code,
+                &provider_api_type,
             )?;
 
+            // 创建一个临时的 ModelDetail 用于配置合并
+            let temp_model_detail = crate::db::llm_db::ModelDetail {
+                model: crate::db::llm_db::LLMModel {
+                    id: model_id,
+                    name: model_code.clone(),
+                    code: model_code.clone(),
+                    llm_provider_id: 0, // 临时值
+                    description: String::new(), // 临时值
+                    vision_support: false, // 临时值
+                    audio_support: false, // 临时值
+                    video_support: false, // 临时值
+                },
+                provider: crate::db::llm_db::LLMProvider {
+                    id: 0, // 临时值
+                    name: String::new(), // 临时值
+                    api_type: provider_api_type.clone(),
+                    description: String::new(), // 临时值
+                    is_official: false, // 临时值
+                    is_enabled: true, // 临时值
+                },
+                configs: model_configs.clone(),
+            };
+
             let model_config_clone = ConfigBuilder::merge_model_configs(
-                assistant_detail.model_configs.clone(),
-                &model_detail,
+                assistant_model_configs,
+                &temp_model_detail,
                 override_model_config,
             );
 
@@ -1141,7 +1178,7 @@ pub async fn ask_ai(
             let model_name = config_map
                 .get("model")
                 .cloned()
-                .unwrap_or_else(|| model_detail.model.code.clone());
+                .unwrap_or_else(|| model_code.clone());
 
             let chat_options = ConfigBuilder::build_chat_options(&config_map);
 
@@ -1179,6 +1216,9 @@ pub async fn ask_ai(
                     request.prompt.clone(),
                     _config_feature_map.clone(),
                     None, // 普通ask_ai不需要复用generation_group_id
+                    None, // 普通ask_ai不需要parent_group_id
+                    model_id, // 传递模型ID
+                    model_code.clone(), // 传递模型名称
                 )
                 .await?;
             } else {
@@ -1199,6 +1239,9 @@ pub async fn ask_ai(
                     request.prompt.clone(),
                     _config_feature_map.clone(),
                     None, // 普通ask_ai不需要复用generation_group_id
+                    None, // 普通ask_ai不需要parent_group_id
+                    model_id, // 传递模型ID
+                    model_code.clone(), // 传递模型名称
                 )
                 .await?;
             }
@@ -1265,6 +1308,7 @@ fn init_conversation(
                 finish_time: None,
                 token_count: 0,
                 generation_group_id: None, // 初始化消息不需要 generation_group_id
+                parent_group_id: None,
             })
             .map_err(AppError::from)?;
         for attachment in attachment_list {
@@ -1308,20 +1352,20 @@ pub async fn regenerate_ai(
         .list_by_conversation_id(conversation_id)?;
 
     // 根据消息类型决定处理逻辑
-    let (filtered_messages, parent_message_id) = if message.message_type == "user" {
-        // 用户消息重发：包含当前用户消息和之前的所有消息，新生成的assistant消息以用户消息为parent
+    let (filtered_messages, _parent_message_id) = if message.message_type == "user" {
+        // 用户消息重发：包含当前用户消息和之前的所有消息，新生成的assistant消息没有parent（新一轮对话）
         let filtered_messages: Vec<(Message, Option<MessageAttachment>)> = messages
             .into_iter()
             .filter(|m| m.0.id <= message_id)  // 包含当前消息
             .collect();
-        (filtered_messages, Some(message_id)) // 用户消息作为parent
+        (filtered_messages, None) // 用户消息重发时，新的AI回复没有parent_id
     } else {
         // AI消息重新生成：仅保留在待重新生成消息之前的历史消息，新消息以被重发的原消息为parent
         let filtered_messages: Vec<(Message, Option<MessageAttachment>)> = messages
             .into_iter()
             .filter(|m| m.0.id < message_id)
             .collect();
-        (filtered_messages, Some(message_id)) // 使用被重发消息的ID作为parent_id
+        (filtered_messages, Some(message_id)) // 使用被重发消息的ID作为parent_id表示这是它的一个版本
     };
 
     // 计算每个父消息最新的子消息（parent_id -> latest child）
@@ -1374,37 +1418,22 @@ pub async fn regenerate_ai(
         return Err(AppError::NoModelFound);
     }
 
-    // 确定要使用的generation_group_id
-    let regenerate_generation_group_id = if message.message_type == "user" {
-        // 用户消息重发：为新的AI回复生成新的group_id
-        Some(uuid::Uuid::new_v4().to_string())
+    // 确定要使用的generation_group_id和parent_group_id
+    let (regenerate_generation_group_id, regenerate_parent_group_id) = if message.message_type == "user" {
+        // 用户消息重发：为新的AI回复生成全新的group_id（这是全新的一轮对话）
+        (Some(uuid::Uuid::new_v4().to_string()), None)
     } else {
-        // AI消息重发：复用原消息的generation_group_id以保持版本关系
-        message.generation_group_id.clone().or_else(|| {
-            // 如果原消息没有generation_group_id，创建一个新的
-            Some(uuid::Uuid::new_v4().to_string())
-        })
+        // AI消息重发：生成新的group_id，并将原消息的group_id作为parent_group_id
+        let original_group_id = message.generation_group_id.clone();
+        (Some(uuid::Uuid::new_v4().to_string()), original_group_id)
     };
 
-    let app_handle_clone = app_handle.clone();
-    let new_message = add_message(
-        &app_handle_clone,
-        parent_message_id,
-        conversation_id,
-        "assistant".to_string(),
-        String::new(),
-        Some(assistant_detail.model[0].id),
-        Some(assistant_detail.model[0].model_code.clone()),
-        None,
-        None,
-        0,
-        regenerate_generation_group_id.clone(), // 克隆以避免所有权问题
-    )?;
-    let new_message_id = new_message.id;
-
+    // 使用临时ID用于取消令牌管理，实际消息将在流式处理中动态创建
+    let temp_message_id = chrono::Utc::now().timestamp_millis();
+    
     let cancel_token = CancellationToken::new();
     message_token_manager
-        .store_token(new_message_id, cancel_token.clone())
+        .store_token(temp_message_id, cancel_token.clone())
         .await;
 
     // 在异步任务外获取模型详情（避免线程安全问题）
@@ -1417,20 +1446,49 @@ pub async fn regenerate_ai(
 
     let tokens = message_token_manager.get_tokens();
     let window_clone = window.clone(); // 在移动之前克隆
+    let app_handle_clone = app_handle.clone(); // 添加这行
+    let regenerate_model_id = model_detail.model.id; // 提前获取模型ID
+    let regenerate_model_code = model_detail.model.code.clone(); // 提前获取模型代码
+    let regenerate_model_configs = model_detail.configs.clone(); // 提前获取模型配置
+    let regenerate_provider_api_type = model_detail.provider.api_type.clone(); // 提前获取API类型
+    let regenerate_assistant_model_configs = assistant_detail.model_configs.clone(); // 提前获取助手模型配置
     tokio::spawn(async move {
         // 直接创建数据库连接（避免线程安全问题）
         let conversation_db = ConversationDatabase::new(&app_handle_clone).unwrap();
 
         // 构建聊天配置
         let client = genai_client::create_client_with_config(
-            &model_detail.configs,
-            &model_detail.model.code,
-            &model_detail.provider.api_type,
+            &regenerate_model_configs,
+            &regenerate_model_code,
+            &regenerate_provider_api_type,
         )?;
 
+        // 创建一个临时的 ModelDetail 用于配置合并
+        let temp_model_detail = crate::db::llm_db::ModelDetail {
+            model: crate::db::llm_db::LLMModel {
+                id: regenerate_model_id,
+                name: regenerate_model_code.clone(),
+                code: regenerate_model_code.clone(),
+                llm_provider_id: 0, // 临时值
+                description: String::new(), // 临时值
+                vision_support: false, // 临时值
+                audio_support: false, // 临时值
+                video_support: false, // 临时值
+            },
+            provider: crate::db::llm_db::LLMProvider {
+                id: 0, // 临时值
+                name: String::new(), // 临时值
+                api_type: regenerate_provider_api_type.clone(),
+                description: String::new(), // 临时值
+                is_official: false, // 临时值
+                is_enabled: true, // 临时值
+            },
+            configs: regenerate_model_configs.clone(),
+        };
+
         let model_config_clone = ConfigBuilder::merge_model_configs(
-            assistant_detail.model_configs.clone(),
-            &model_detail,
+            regenerate_assistant_model_configs,
+            &temp_model_detail,
             None, // regenerate 不使用覆盖配置
         );
 
@@ -1452,7 +1510,7 @@ pub async fn regenerate_ai(
         let model_name = config_map
             .get("model")
             .cloned()
-            .unwrap_or_else(|| model_detail.model.code.clone());
+            .unwrap_or_else(|| regenerate_model_code.clone());
 
         let chat_options = ConfigBuilder::build_chat_options(&config_map);
 
@@ -1475,7 +1533,7 @@ pub async fn regenerate_ai(
                 &chat_request,
                 &chat_config.chat_options,
                 conversation_id,
-                new_message_id,
+                temp_message_id,
                 &cancel_token,
                 &conversation_db,
                 &tokens,
@@ -1485,6 +1543,9 @@ pub async fn regenerate_ai(
                 String::new(), // regenerate 不需要用户提示
                 HashMap::new(), // regenerate 不需要配置
                 regenerate_generation_group_id.clone(), // 传递generation_group_id用于复用
+                regenerate_parent_group_id.clone(), // 传递parent_group_id设置版本关系
+                regenerate_model_id, // 传递模型ID
+                regenerate_model_code.clone(), // 传递模型名称
             )
             .await?;
         } else {
@@ -1495,7 +1556,7 @@ pub async fn regenerate_ai(
                 &chat_request,
                 &chat_config.chat_options,
                 conversation_id,
-                new_message_id,
+                temp_message_id,
                 &cancel_token,
                 &conversation_db,
                 &tokens,
@@ -1505,6 +1566,9 @@ pub async fn regenerate_ai(
                 String::new(), // regenerate 不需要用户提示
                 HashMap::new(), // regenerate 不需要配置
                 regenerate_generation_group_id.clone(), // 传递generation_group_id用于复用
+                regenerate_parent_group_id.clone(), // 传递parent_group_id设置版本关系
+                regenerate_model_id, // 传递模型ID
+                regenerate_model_code.clone(), // 传递模型名称
             )
             .await?;
         }
@@ -1516,7 +1580,7 @@ pub async fn regenerate_ai(
 
     Ok(AiResponse {
         conversation_id,
-        add_message_id: new_message_id,
+        add_message_id: temp_message_id,
         request_prompt_result_with_context: String::new(),
     })
 }
@@ -1533,6 +1597,7 @@ fn add_message(
     finish_time: Option<chrono::DateTime<chrono::Utc>>,
     token_count: i32,
     generation_group_id: Option<String>,
+    parent_group_id: Option<String>,
 ) -> Result<Message, AppError> {
     let db = ConversationDatabase::new(app_handle).map_err(AppError::from)?;
     let message = db
@@ -1551,6 +1616,7 @@ fn add_message(
             created_time: chrono::Utc::now(),
             token_count,
             generation_group_id,
+            parent_group_id,
         })
         .map_err(AppError::from)?;
     Ok(message.clone())
@@ -1702,6 +1768,7 @@ async fn initialize_conversation(
                 None,
                 0,
                 None, // 用户消息不需要 generation_group_id
+                None, // 用户消息不需要 parent_group_id
             )?;
             let mut updated_message_list = message_list;
             updated_message_list.push((

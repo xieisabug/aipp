@@ -10,6 +10,7 @@ import { throttle } from "lodash";
 import NewChatComponent from "./NewChatComponent";
 import FileDropArea from "./FileDropArea";
 import MessageItem from "./MessageItem";
+import VersionPagination from "./VersionPagination";
 import ConversationTitle from "./conversation/ConversationTitle";
 import useFileDropHandler from "../hooks/useFileDropHandler";
 import InputArea from "./conversation/InputArea";
@@ -674,6 +675,7 @@ function ConversationUI({
                     finish_time: streamEvent.is_done ? (streamEvent.end_time || new Date()) : null,
                     token_count: 0,
                     generation_group_id: null, // 流式消息暂时不设置generation_group_id
+                    parent_group_id: null, // 流式消息暂时不设置parent_group_id
                     regenerate: null,
                 };
                 combinedMessages.push(tempMessage);
@@ -704,7 +706,8 @@ function ConversationUI({
             versions: Array<{
                 reasoning?: Message,
                 response?: Message,
-                timestamp: Date
+                timestamp: Date,
+                versionId: string
             }>
         }>();
         
@@ -723,11 +726,12 @@ function ConversationUI({
         
         // 构建每个组的版本信息
         groups.forEach((group, groupId) => {
-            // 按 parent_id 分组来构建版本
-            const versionMap = new Map<number | null, {reasoning?: Message, response?: Message}>();
+            // 创建版本映射 - 使用 parent_group_id 来分组版本
+            const versionMap = new Map<string, {reasoning?: Message, response?: Message}>();
             
             group.messages.forEach(msg => {
-                const versionKey = msg.parent_id || 0; // 使用 0 作为原始版本的key
+                // 使用 parent_group_id 来标识版本，如果没有 parent_group_id 则为原始版本
+                const versionKey = msg.parent_group_id || 'original';
                 if (!versionMap.has(versionKey)) {
                     versionMap.set(versionKey, {});
                 }
@@ -741,8 +745,9 @@ function ConversationUI({
             
             // 转换为版本数组，按时间排序
             const versions = Array.from(versionMap.entries())
-                .map(([_, versionData]) => ({
+                .map(([versionId, versionData]) => ({
                     ...versionData,
+                    versionId,
                     timestamp: versionData.reasoning?.created_time || versionData.response?.created_time || new Date()
                 }))
                 .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
@@ -810,10 +815,13 @@ function ConversationUI({
         if (!group) return null;
         
         const selectedVersion = selectedVersions.get(message.generation_group_id) ?? group.versions.length - 1;
+        const selectedVersionData = group.versions[selectedVersion];
+        
+        if (!selectedVersionData) return null;
         
         return {
-            shouldShow: group.versions[selectedVersion]?.reasoning?.id === message.id || 
-                       group.versions[selectedVersion]?.response?.id === message.id
+            shouldShow: selectedVersionData.reasoning?.id === message.id || 
+                       selectedVersionData.response?.id === message.id
         };
     }, [generationGroups, selectedVersions]);
 
@@ -863,6 +871,8 @@ function ConversationUI({
                     start_time: streamEvent.message_type === 'reasoning' ? baseTime : null,
                     finish_time: new Date(), // 标记为完成
                     token_count: 0,
+                    generation_group_id: null, // 流式消息暂时不设置generation_group_id
+                    parent_group_id: null, // 流式消息暂时不设置parent_group_id
                     regenerate: null,
                 };
                 return [...prevMessages, newMessage];
@@ -999,6 +1009,8 @@ function ConversationUI({
                     created_time: new Date(),
                     start_time: null,
                     finish_time: null,
+                    generation_group_id: null,
+                    parent_group_id: null,
                     attachment_list: [],
                     regenerate: null,
                 };
@@ -1145,33 +1157,15 @@ function ConversationUI({
                             />
                             {/* 在 generation group 的最后一个消息下方显示版本控制 */}
                             {groupControl && (
-                                <div className="flex justify-center my-2">
-                                    <div className="flex items-center bg-gray-100 rounded-lg px-3 py-1 text-sm">
-                                        <button
-                                            className="px-2 py-1 hover:bg-gray-200 rounded disabled:opacity-50"
-                                            disabled={groupControl.currentVersion <= 1}
-                                            onClick={() => handleGenerationVersionChange(
-                                                groupControl.groupId, 
-                                                groupControl.currentVersion - 2  // Convert 1-based to 0-based, then subtract 1
-                                            )}
-                                        >
-                                            {"<"}
-                                        </button>
-                                        <span className="mx-2">
-                                            {groupControl.currentVersion} / {groupControl.totalVersions}
-                                        </span>
-                                        <button
-                                            className="px-2 py-1 hover:bg-gray-200 rounded disabled:opacity-50"
-                                            disabled={groupControl.currentVersion >= groupControl.totalVersions}
-                                            onClick={() => handleGenerationVersionChange(
-                                                groupControl.groupId, 
-                                                groupControl.currentVersion  // currentVersion is 1-based, so this gives us the next 0-based index
-                                            )}
-                                        >
-                                            {">"}
-                                        </button>
-                                    </div>
-                                </div>
+                                <VersionPagination
+                                    currentVersion={groupControl.currentVersion}
+                                    totalVersions={groupControl.totalVersions}
+                                    onVersionChange={(versionIndex) => handleGenerationVersionChange(
+                                        groupControl.groupId, 
+                                        versionIndex
+                                    )}
+                                    className="mt-2"
+                                />
                             )}
                         </React.Fragment>
                     );
