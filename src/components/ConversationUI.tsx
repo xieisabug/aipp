@@ -727,15 +727,27 @@ function ConversationUI({
             if (msg.generation_group_id && (msg.message_type === 'reasoning' || msg.message_type === 'response')) {
                 // 确定这个消息应该归属于哪个根组
                 let rootGroupId: string;
-                if (msg.parent_group_id && rootGroups.has(msg.parent_group_id)) {
-                    // 如果有 parent_group_id 且 parent_group_id 是一个根组，则归属于父组
-                    rootGroupId = msg.parent_group_id;
-                } else if (rootGroups.has(msg.generation_group_id)) {
+                if (rootGroups.has(msg.generation_group_id)) {
                     // 如果自己是根组，则归属于自己
                     rootGroupId = msg.generation_group_id;
                 } else {
-                    // 其他情况，暂时归属于自己的 generation_group_id（可能需要进一步处理）
-                    rootGroupId = msg.generation_group_id;
+                    // 如果不是根组，需要向上追溯找到根组
+                    let currentGroupId = msg.generation_group_id;
+                    let parentId = msg.parent_group_id;
+                    
+                    // 向上追溯直到找到根组
+                    while (parentId && !rootGroups.has(parentId)) {
+                        // 在所有消息中查找 parent_group_id 对应的消息，获取其 parent_group_id
+                        const parentMessage = allDisplayMessages.find(m => m.generation_group_id === parentId);
+                        if (parentMessage && parentMessage.parent_group_id) {
+                            parentId = parentMessage.parent_group_id;
+                        } else {
+                            break;
+                        }
+                    }
+                    
+                    // 如果找到了根组，归属于根组；否则归属于最上级的组
+                    rootGroupId = (parentId && rootGroups.has(parentId)) ? parentId : msg.parent_group_id || currentGroupId;
                 }
                 
                 if (!groups.has(rootGroupId)) {
