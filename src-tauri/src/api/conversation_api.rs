@@ -109,6 +109,12 @@ pub struct ConversationResult {
     pub created_time: DateTime<Utc>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ConversationWithMessages {
+    pub conversation: ConversationResult,
+    pub messages: Vec<MessageDetail>,
+}
+
 #[tauri::command]
 pub async fn list_conversations(
     app_handle: tauri::AppHandle,
@@ -146,7 +152,7 @@ pub async fn get_conversation_with_messages(
     app_handle: tauri::AppHandle,
     name_cache_state: tauri::State<'_, NameCacheState>,
     conversation_id: i64,
-) -> Result<(ConversationResult, Vec<MessageDetail>), String> {
+) -> Result<ConversationWithMessages, String> {
     let db = ConversationDatabase::new(&app_handle).map_err(|e| e.to_string())?;
     let conversation = db
         .conversation_repo()
@@ -209,16 +215,16 @@ pub async fn get_conversation_with_messages(
         .cloned()
         .unwrap_or_else(|| "未知".to_string());
 
-    Ok((
-        ConversationResult {
+    Ok(ConversationWithMessages {
+        conversation: ConversationResult {
             id: conversation.id,
             name: conversation.name,
             assistant_id: conversation.assistant_id.unwrap_or(0),
             assistant_name,
             created_time: conversation.created_time,
         },
-        final_messages,
-    ))
+        messages: final_messages,
+    })
 }
 
 #[tauri::command]

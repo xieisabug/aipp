@@ -6,6 +6,12 @@ export interface Conversation {
     created_time: Date;
 }
 
+// 新增：用于 get_conversation_with_messages API 的响应结构
+export interface ConversationWithMessages {
+    conversation: Conversation;
+    messages: Array<Message>;
+}
+
 export interface Message {
     id: number;
     conversation_id: number;

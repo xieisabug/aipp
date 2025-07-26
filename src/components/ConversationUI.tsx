@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, startTransiti
 import { toast } from "sonner";
 import { Sparkles } from "lucide-react";
 
-import { Conversation, FileInfo, Message, StreamEvent, ConversationEvent, MessageUpdateEvent } from "../data/Conversation";
+import { Conversation, FileInfo, Message, StreamEvent, ConversationEvent, MessageUpdateEvent, ConversationWithMessages } from "../data/Conversation";
 import "katex/dist/katex.min.css";
 import { listen } from "@tauri-apps/api/event";
 import { throttle } from "lodash";
@@ -527,11 +527,11 @@ function ConversationUI({
         setStreamingMessages(new Map()); // 切换对话时清理流式消息状态
         console.log(`conversationId change : ${conversationId}`);
         
-        invoke<Array<any>>("get_conversation_with_messages", {
+        invoke<ConversationWithMessages>("get_conversation_with_messages", {
             conversationId: +conversationId,
-        }).then((res: any[]) => {
-            setMessages(res[1]);
-            setConversation(res[0]);
+        }).then((res: ConversationWithMessages) => {
+            setMessages(res.messages);
+            setConversation(res.conversation);
             setIsLoadingShow(false);
 
             console.log(res);
@@ -542,7 +542,7 @@ function ConversationUI({
                 unsubscribeRef.current.then((f) => f());
             }
 
-            const lastMessageId = res[1][res[1].length - 1].id;
+            const lastMessageId = res.messages[res.messages.length - 1].id;
             setMessageId(lastMessageId);
             
             // 为已存在的对话设置事件监听器
