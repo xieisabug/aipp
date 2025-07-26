@@ -1420,8 +1420,31 @@ pub async fn regenerate_ai(
 
     // 确定要使用的generation_group_id和parent_group_id
     let (regenerate_generation_group_id, regenerate_parent_group_id) = if message.message_type == "user" {
-        // 用户消息重发：为新的AI回复生成全新的group_id（这是全新的一轮对话）
-        (Some(uuid::Uuid::new_v4().to_string()), None)
+        // 用户消息重发：为新的AI回复生成全新的group_id
+        // 查找该user message后面第一条非user、非system的消息，用它的generation_group_id作为parent_group_id
+        let mut parent_group_id: Option<String> = None;
+        
+        // 获取对话中的所有消息，按ID排序
+        let all_messages = db
+            .message_repo()
+            .unwrap()
+            .list_by_conversation_id(conversation_id)?;
+        
+        // 找到当前user message在列表中的位置
+        if let Some(message_index) = all_messages.iter().position(|(msg, _)| msg.id == message_id) {
+            // 查找该user message后面第一条非user、非system的消息
+            for (next_msg, _) in all_messages.iter().skip(message_index + 1) {
+                if next_msg.message_type != "user" && 
+                   next_msg.message_type != "system" && 
+                   next_msg.generation_group_id.is_some() {
+                    parent_group_id = next_msg.generation_group_id.clone();
+                    println!("Found parent group ID for user message regenerate: {:?}", parent_group_id);
+                    break;
+                }
+            }
+        }
+        
+        (Some(uuid::Uuid::new_v4().to_string()), parent_group_id)
     } else {
         // AI消息重发：生成新的group_id，并将原消息的group_id作为parent_group_id
         let original_group_id = message.generation_group_id.clone();
