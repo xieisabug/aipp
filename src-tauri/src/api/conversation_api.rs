@@ -12,6 +12,94 @@ use crate::{
     NameCacheState,
 };
 
+/// 处理消息版本管理的纯函数 - 这是核心业务逻辑
+/// 输入原始消息列表，返回经过版本管理处理的最终消息列表
+pub fn process_message_versions(mut message_details: Vec<MessageDetail>) -> Vec<MessageDetail> {
+    // 处理 regenerate 关系 - 支持 generation_group_id 系统
+    let regenerate_map: HashMap<i64, Vec<MessageDetail>> = message_details
+        .iter()
+        .filter(|m| m.parent_id.is_some())
+        .map(|m| (m.parent_id.unwrap(), m.clone()))
+        .fold(HashMap::new(), |mut acc, (parent_id, message)| {
+            acc.entry(parent_id).or_default().push(message);
+            acc
+        });
+
+    // 为每个消息构建regenerate数组
+    for message in &mut message_details {
+        if let Some(regenerated) = regenerate_map.get(&message.id) {
+            // 对regenerate消息按创建时间排序
+            let mut sorted_regenerated = regenerated.clone();
+            sorted_regenerated.sort_by_key(|m| m.created_time);
+            message.regenerate = sorted_regenerated;
+        }
+    }
+
+    // 过滤逻辑：显示最新版本的消息
+    // 1. 如果消息没有parent_id，它是原始消息
+    // 2. 如果消息有parent_id，它是某条消息的新版本
+    // 3. 我们需要显示：原始消息（如果没有更新版本）或最新的更新版本
+    
+    // 构建parent_id到直接子消息的映射
+    let mut direct_children: HashMap<i64, Vec<MessageDetail>> = HashMap::new();
+    let mut child_message_ids: std::collections::HashSet<i64> = std::collections::HashSet::new();
+    
+    for message in &message_details {
+        if let Some(parent_id) = message.parent_id {
+            child_message_ids.insert(message.id);
+            direct_children
+                .entry(parent_id)
+                .or_default()
+                .push(message.clone());
+        }
+    }
+    
+    // 对每个父消息的子消息按时间排序
+    for children in direct_children.values_mut() {
+        children.sort_by_key(|m| m.created_time);
+    }
+    
+    // 递归查找最终的最新版本
+    fn find_latest_version(
+        message_id: i64, 
+        direct_children: &HashMap<i64, Vec<MessageDetail>>
+    ) -> Option<MessageDetail> {
+        if let Some(children) = direct_children.get(&message_id) {
+            if let Some(latest_child) = children.last() {
+                // 递归查找这个子版本的最新版本
+                find_latest_version(latest_child.id, direct_children)
+                    .or_else(|| Some(latest_child.clone()))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+    
+    // 构建最终显示的消息列表
+    let mut final_messages: Vec<MessageDetail> = Vec::new();
+    for message in message_details {
+        if child_message_ids.contains(&message.id) {
+            // 这是某个消息的子版本，跳过（会在后续处理中添加最新版本）
+            continue;
+        }
+        
+        // 检查是否有这个消息的更新版本（递归查找）
+        if let Some(latest_version) = find_latest_version(message.id, &direct_children) {
+            // 有更新版本，使用最新版本
+            final_messages.push(latest_version);
+        } else {
+            // 没有更新版本，使用原消息
+            final_messages.push(message);
+        }
+    }
+    
+    // 按创建时间排序
+    final_messages.sort_by_key(|m| m.created_time);
+    final_messages
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConversationResult {
     pub id: i64,
@@ -112,69 +200,8 @@ pub async fn get_conversation_with_messages(
         });
     }
 
-    // 处理 regenerate 关系 - 支持 generation_group_id 系统
-    let regenerate_map: HashMap<i64, Vec<MessageDetail>> = message_details
-        .iter()
-        .filter(|m| m.parent_id.is_some())
-        .map(|m| (m.parent_id.unwrap(), m.clone()))
-        .fold(HashMap::new(), |mut acc, (parent_id, message)| {
-            acc.entry(parent_id).or_default().push(message);
-            acc
-        });
-
-    // 为每个消息构建regenerate数组
-    for message in &mut message_details {
-        if let Some(regenerated) = regenerate_map.get(&message.id) {
-            // 对regenerate消息按创建时间排序
-            let mut sorted_regenerated = regenerated.clone();
-            sorted_regenerated.sort_by_key(|m| m.created_time);
-            message.regenerate = sorted_regenerated;
-        }
-    }
-
-    // 过滤逻辑：显示最新版本的消息
-    // 1. 如果消息没有parent_id，它是原始消息
-    // 2. 如果消息有parent_id，它是某条消息的新版本
-    // 3. 我们需要显示：原始消息（如果没有更新版本）或最新的更新版本
-    
-    // 构建parent_id到最新子消息的映射
-    let mut latest_children: std::collections::HashMap<i64, MessageDetail> = std::collections::HashMap::new();
-    let mut child_message_ids: std::collections::HashSet<i64> = std::collections::HashSet::new();
-    
-    for message in &message_details {
-        if let Some(parent_id) = message.parent_id {
-            child_message_ids.insert(message.id);
-            latest_children
-                .entry(parent_id)
-                .and_modify(|existing| {
-                    if message.created_time > existing.created_time {
-                        *existing = message.clone();
-                    }
-                })
-                .or_insert(message.clone());
-        }
-    }
-    
-    // 构建最终显示的消息列表
-    let mut final_messages: Vec<MessageDetail> = Vec::new();
-    for message in message_details {
-        if child_message_ids.contains(&message.id) {
-            // 这是某个消息的子版本，跳过（会在后续处理中添加最新版本）
-            continue;
-        }
-        
-        // 检查是否有这个消息的更新版本
-        if let Some(latest_child) = latest_children.get(&message.id) {
-            // 有更新版本，使用最新版本
-            final_messages.push(latest_child.clone());
-        } else {
-            // 没有更新版本，使用原消息
-            final_messages.push(message);
-        }
-    }
-    
-    // 按创建时间排序
-    final_messages.sort_by_key(|m| m.created_time);
+    // 处理消息版本管理逻辑
+    let final_messages = process_message_versions(message_details);
 
     let assistant_name_cache = name_cache_state.assistant_names.lock().await;
     let assistant_name = assistant_name_cache
