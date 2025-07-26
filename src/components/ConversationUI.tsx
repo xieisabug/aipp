@@ -707,33 +707,58 @@ function ConversationUI({
                 reasoning?: Message,
                 response?: Message,
                 timestamp: Date,
-                versionId: string
+                versionId: string,
+                parentGroupId?: string
             }>
         }>();
         
-        // 按 generation_group_id 分组消息
+        // 首先找出所有的根 generation group（没有 parent_group_id 的）
+        const rootGroups = new Set<string>();
         allDisplayMessages.forEach(msg => {
             if (msg.generation_group_id && (msg.message_type === 'reasoning' || msg.message_type === 'response')) {
-                if (!groups.has(msg.generation_group_id)) {
-                    groups.set(msg.generation_group_id, {
+                if (!msg.parent_group_id) {
+                    rootGroups.add(msg.generation_group_id);
+                }
+            }
+        });
+        
+        // 按根 generation_group_id 分组消息，包括其所有子版本
+        allDisplayMessages.forEach(msg => {
+            if (msg.generation_group_id && (msg.message_type === 'reasoning' || msg.message_type === 'response')) {
+                // 确定这个消息应该归属于哪个根组
+                let rootGroupId: string;
+                if (msg.parent_group_id && rootGroups.has(msg.parent_group_id)) {
+                    // 如果有 parent_group_id 且 parent_group_id 是一个根组，则归属于父组
+                    rootGroupId = msg.parent_group_id;
+                } else if (rootGroups.has(msg.generation_group_id)) {
+                    // 如果自己是根组，则归属于自己
+                    rootGroupId = msg.generation_group_id;
+                } else {
+                    // 其他情况，暂时归属于自己的 generation_group_id（可能需要进一步处理）
+                    rootGroupId = msg.generation_group_id;
+                }
+                
+                if (!groups.has(rootGroupId)) {
+                    groups.set(rootGroupId, {
                         messages: [],
                         versions: []
                     });
                 }
-                groups.get(msg.generation_group_id)!.messages.push(msg);
+                groups.get(rootGroupId)!.messages.push(msg);
             }
         });
         
         // 构建每个组的版本信息
         groups.forEach((group, groupId) => {
-            // 创建版本映射 - 使用 parent_group_id 来分组版本
-            const versionMap = new Map<string, {reasoning?: Message, response?: Message}>();
+            // 创建版本映射 - 按 generation_group_id 分组版本
+            const versionMap = new Map<string, {reasoning?: Message, response?: Message, parentGroupId?: string}>();
             
             group.messages.forEach(msg => {
-                // 使用 parent_group_id 来标识版本，如果没有 parent_group_id 则为原始版本
-                const versionKey = msg.parent_group_id || 'original';
+                // 使用 generation_group_id 作为版本标识
+                const versionKey = msg.generation_group_id!;
+                
                 if (!versionMap.has(versionKey)) {
-                    versionMap.set(versionKey, {});
+                    versionMap.set(versionKey, { parentGroupId: msg.parent_group_id || undefined });
                 }
                 const version = versionMap.get(versionKey)!;
                 if (msg.message_type === 'reasoning') {
@@ -743,20 +768,29 @@ function ConversationUI({
                 }
             });
             
-            // 转换为版本数组，按时间排序
+            // 转换为版本数组，按逻辑顺序排序：原始版本在前，regenerated 版本按时间排序
             const versions = Array.from(versionMap.entries())
                 .map(([versionId, versionData]) => ({
                     ...versionData,
                     versionId,
-                    timestamp: versionData.reasoning?.created_time || versionData.response?.created_time || new Date()
+                    timestamp: new Date(versionData.reasoning?.created_time || versionData.response?.created_time || new Date())
                 }))
-                .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+                .sort((a, b) => {
+                    // 原始版本（没有 parentGroupId）排在前面
+                    if (!a.parentGroupId && b.parentGroupId) return -1;
+                    if (a.parentGroupId && !b.parentGroupId) return 1;
+                    // 都是 regenerated 版本或都是原始版本，按时间排序
+                    return a.timestamp.getTime() - b.timestamp.getTime();
+                });
+            
+            console.log(`Group ${groupId}: ${versions.length} versions, selected: ${versions.length - 1}`);
             
             group.versions = versions;
             
-            // 设置默认选中最新版本
+            // 设置默认选中最新版本（最后一个，即最新的 regenerated 版本）
             if (!selectedVersions.has(groupId)) {
-                setSelectedVersions(prev => new Map(prev).set(groupId, versions.length - 1));
+                const defaultVersionIndex = versions.length - 1;
+                setSelectedVersions(prev => new Map(prev).set(groupId, defaultVersionIndex));
             }
         });
         
@@ -765,6 +799,7 @@ function ConversationUI({
     
     // 切换 generation group 的版本
     const handleGenerationVersionChange = useCallback((groupId: string, versionIndex: number) => {
+        console.log(`Switching group ${groupId} to version ${versionIndex + 1}`);
         setSelectedVersions(prev => new Map(prev).set(groupId, versionIndex));
     }, []);
     
@@ -774,10 +809,21 @@ function ConversationUI({
             return false;
         }
         
-        const group = generationGroups.get(message.generation_group_id);
+        // 找到这个消息所属的根组
+        let rootGroupId: string | null = null;
+        for (const [groupId, group] of generationGroups.entries()) {
+            if (group.messages.some(msg => msg.id === message.id)) {
+                rootGroupId = groupId;
+                break;
+            }
+        }
+        
+        if (!rootGroupId) return false;
+        
+        const group = generationGroups.get(rootGroupId);
         if (!group) return false;
         
-        const selectedVersion = selectedVersions.get(message.generation_group_id) ?? group.versions.length - 1;
+        const selectedVersion = selectedVersions.get(rootGroupId) ?? group.versions.length - 1;
         const currentVersionData = group.versions[selectedVersion];
         
         // 如果当前版本有 response，那么 response 是最后一个
@@ -793,15 +839,26 @@ function ConversationUI({
             return null;
         }
         
-        const group = generationGroups.get(message.generation_group_id);
+        // 找到这个消息所属的根组
+        let rootGroupId: string | null = null;
+        for (const [groupId, group] of generationGroups.entries()) {
+            if (group.messages.some(msg => msg.id === message.id)) {
+                rootGroupId = groupId;
+                break;
+            }
+        }
+        
+        if (!rootGroupId) return null;
+        
+        const group = generationGroups.get(rootGroupId);
         if (!group || group.versions.length <= 1) return null;
         
-        const selectedVersion = selectedVersions.get(message.generation_group_id) ?? group.versions.length - 1;
+        const selectedVersion = selectedVersions.get(rootGroupId) ?? group.versions.length - 1;
         
         return {
             currentVersion: selectedVersion + 1,
             totalVersions: group.versions.length,
-            groupId: message.generation_group_id
+            groupId: rootGroupId
         };
     }, [generationGroups, selectedVersions, isLastInGenerationGroup]);
 
@@ -811,17 +868,31 @@ function ConversationUI({
             return null;
         }
         
-        const group = generationGroups.get(message.generation_group_id);
+        // 找到这个消息所属的根组
+        let rootGroupId: string | null = null;
+        for (const [groupId, group] of generationGroups.entries()) {
+            if (group.messages.some(msg => msg.id === message.id)) {
+                rootGroupId = groupId;
+                break;
+            }
+        }
+        
+        if (!rootGroupId) return null;
+        
+        const group = generationGroups.get(rootGroupId);
         if (!group) return null;
         
-        const selectedVersion = selectedVersions.get(message.generation_group_id) ?? group.versions.length - 1;
-        const selectedVersionData = group.versions[selectedVersion];
+        const selectedVersionIndex = selectedVersions.get(rootGroupId) ?? group.versions.length - 1;
+        const selectedVersionData = group.versions[selectedVersionIndex];
         
         if (!selectedVersionData) return null;
         
+        // 检查当前消息是否属于选中的版本
+        const isMessageInSelectedVersion = selectedVersionData.reasoning?.id === message.id || 
+                                         selectedVersionData.response?.id === message.id;
+        
         return {
-            shouldShow: selectedVersionData.reasoning?.id === message.id || 
-                       selectedVersionData.response?.id === message.id
+            shouldShow: isMessageInSelectedVersion
         };
     }, [generationGroups, selectedVersions]);
 
@@ -1126,8 +1197,8 @@ function ConversationUI({
 
     // 过滤系统消息并渲染MessageItem组件
     const filteredMessages = useMemo(
-        () =>
-            allDisplayMessages
+        () => {
+            const result = allDisplayMessages
                 .filter((m) => m.message_type !== "system")
                 .map((message) => {
                     // 查找对应的流式消息信息（如果存在）
@@ -1157,20 +1228,24 @@ function ConversationUI({
                             />
                             {/* 在 generation group 的最后一个消息下方显示版本控制 */}
                             {groupControl && (
-                                <VersionPagination
-                                    currentVersion={groupControl.currentVersion}
-                                    totalVersions={groupControl.totalVersions}
-                                    onVersionChange={(versionIndex) => handleGenerationVersionChange(
-                                        groupControl.groupId, 
-                                        versionIndex
-                                    )}
-                                    className="mt-2"
-                                />
+                                <div className="flex justify-start mt-2">
+                                    <VersionPagination
+                                        currentVersion={groupControl.currentVersion}
+                                        totalVersions={groupControl.totalVersions}
+                                        onVersionChange={(versionIndex) => handleGenerationVersionChange(
+                                            groupControl.groupId, 
+                                            versionIndex
+                                        )}
+                                    />
+                                </div>
                             )}
                         </React.Fragment>
                     );
                 })
-                .filter(Boolean), // 过滤掉 null 值
+                .filter(Boolean); // 过滤掉 null 值
+            
+            return result;
+        },
         [allDisplayMessages, streamingMessages, getMessageVersionInfo, getGenerationGroupControl, handleGenerationVersionChange, reasoningExpandStates, toggleReasoningExpand],
     );
 
