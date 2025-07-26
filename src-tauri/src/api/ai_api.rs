@@ -469,6 +469,10 @@ async fn handle_stream_chat(
             let generation_group_id = generation_group_id_override
                 .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
             
+            // 检查是否为重新生成操作（如果有parent_group_id_override则为重新生成）
+            let is_regeneration = parent_group_id_override.is_some();
+            let mut group_merge_event_emitted = false;
+            
             // 状态跟踪变量
             let mut current_output_type: Option<String> = None;
             let mut reasoning_start_time: Option<chrono::DateTime<chrono::Utc>> = None;
@@ -549,6 +553,27 @@ async fn handle_stream_chat(
                                                 format!("conversation_event_{}", conversation_id).as_str(),
                                                 add_event
                                             );
+                                            
+                                            // 如果是重新生成并且还没有发送组合并事件，则发送
+                                            if is_regeneration && !group_merge_event_emitted {
+                                                if let Some(ref parent_group_id) = parent_group_id_override {
+                                                    let group_merge_event = serde_json::json!({
+                                                        "type": "group_merge",
+                                                        "data": {
+                                                            "original_group_id": parent_group_id,
+                                                            "new_group_id": generation_group_id.clone(),
+                                                            "is_regeneration": true,
+                                                            "first_message_id": new_message.id,
+                                                            "conversation_id": conversation_id
+                                                        }
+                                                    });
+                                                    let _ = window.emit(
+                                                        format!("conversation_event_{}", conversation_id).as_str(),
+                                                        group_merge_event
+                                                    );
+                                                    group_merge_event_emitted = true;
+                                                }
+                                            }
                                         }
                                         
                                         // 更新消息内容
@@ -630,6 +655,27 @@ async fn handle_stream_chat(
                                                 format!("conversation_event_{}", conversation_id).as_str(),
                                                 add_event
                                             );
+                                            
+                                            // 如果是重新生成并且还没有发送组合并事件，则发送
+                                            if is_regeneration && !group_merge_event_emitted {
+                                                if let Some(ref parent_group_id) = parent_group_id_override {
+                                                    let group_merge_event = serde_json::json!({
+                                                        "type": "group_merge",
+                                                        "data": {
+                                                            "original_group_id": parent_group_id,
+                                                            "new_group_id": generation_group_id.clone(),
+                                                            "is_regeneration": true,
+                                                            "first_message_id": new_message.id,
+                                                            "conversation_id": conversation_id
+                                                        }
+                                                    });
+                                                    let _ = window.emit(
+                                                        format!("conversation_event_{}", conversation_id).as_str(),
+                                                        group_merge_event
+                                                    );
+                                                    group_merge_event_emitted = true;
+                                                }
+                                            }
                                         }
                                         
                                         // 更新消息内容

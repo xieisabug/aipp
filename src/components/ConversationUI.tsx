@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, startTransiti
 import { toast } from "sonner";
 import { Sparkles } from "lucide-react";
 
-import { Conversation, FileInfo, Message, StreamEvent, ConversationEvent, MessageUpdateEvent, ConversationWithMessages } from "../data/Conversation";
+import { Conversation, FileInfo, Message, StreamEvent, ConversationEvent, MessageUpdateEvent, ConversationWithMessages, GroupMergeEvent } from "../data/Conversation";
 import "katex/dist/katex.min.css";
 import { listen } from "@tauri-apps/api/event";
 import { throttle } from "lodash";
@@ -334,8 +334,41 @@ function ConversationUI({
                     const handleConversationEvent = (event: any) => {
                         const conversationEvent = event.payload as ConversationEvent;
                         
-                        if (conversationEvent.type === 'message_update') {
+                        if (conversationEvent.type === 'message_add') {
+                            // 处理消息添加事件
+                            const messageAddData = conversationEvent.data as any;
+                            console.log('Received message_add event:', messageAddData);
+                            
+                            // 重新获取对话消息，以确保获得完整的消息数据（包括generation_group_id等）
+                            invoke<ConversationWithMessages>("get_conversation_with_messages", {
+                                conversationId: conversation?.id || 0,
+                            }).then((updatedConversation) => {
+                                setMessages(updatedConversation.messages);
+                                console.log('Updated messages after message_add:', updatedConversation.messages.length);
+                            }).catch((error) => {
+                                console.error('Failed to reload conversation after message_add:', error);
+                                
+                                // 降级处理：仍然添加基本的消息信息
+                                const newMessage: Message = {
+                                    id: messageAddData.message_id,
+                                    conversation_id: conversation?.id || 0,
+                                    message_type: messageAddData.message_type,
+                                    content: "", // 初始内容为空，会通过后续的message_update事件更新
+                                    llm_model_id: null,
+                                    created_time: new Date(),
+                                    start_time: new Date(),
+                                    finish_time: null,
+                                    token_count: 0,
+                                    generation_group_id: null, // 这些字段会在数据库查询时填充
+                                    parent_group_id: null,
+                                    regenerate: null,
+                                };
+                                
+                                setMessages((prevMessages) => [...prevMessages, newMessage]);
+                            });
+                        } else if (conversationEvent.type === 'message_update') {
                             const messageUpdateData = conversationEvent.data as MessageUpdateEvent;
+                            console.log('Received message_update event:', messageUpdateData);
                             
                             const streamEvent: StreamEvent = {
                                 message_id: messageUpdateData.message_id,
@@ -390,6 +423,25 @@ function ConversationUI({
                                     });
                                 });
                                 smartScroll();
+                            }
+                        } else if (conversationEvent.type === 'group_merge') {
+                            // 处理组合并事件
+                            const groupMergeData = conversationEvent.data as GroupMergeEvent;
+                            console.log('Received group merge event:', groupMergeData);
+                            
+                            // 设置组合并关系
+                            setGroupMergeMap(prev => {
+                                const newMap = new Map(prev);
+                                newMap.set(groupMergeData.new_group_id, groupMergeData.original_group_id);
+                                console.log('Updated groupMergeMap:', Array.from(newMap.entries()));
+                                return newMap;
+                            });
+                            
+                            // 如果是重新生成，标记这个组需要自动切换到最新版本
+                            if (groupMergeData.is_regeneration) {
+                                const originalGroupId = groupMergeData.original_group_id;
+                                console.log(`Group ${originalGroupId} will auto-switch to latest version when new version is available`);
+                                // 不需要在这里做任何操作，useEffect 会处理自动切换
                             }
                         }
                     };
@@ -526,6 +578,7 @@ function ConversationUI({
         // 加载指定对话的消息和信息
         setIsLoadingShow(true);
         setStreamingMessages(new Map()); // 切换对话时清理流式消息状态
+        setGroupMergeMap(new Map()); // 切换对话时清理组合并状态
         console.log(`conversationId change : ${conversationId}`);
         
         invoke<ConversationWithMessages>("get_conversation_with_messages", {
@@ -550,7 +603,39 @@ function ConversationUI({
             const handleConversationEvent = (event: any) => {
                 const conversationEvent = event.payload as ConversationEvent;
                 
-                if (conversationEvent.type === 'message_update') {
+                if (conversationEvent.type === 'message_add') {
+                    // 处理消息添加事件
+                    const messageAddData = conversationEvent.data as any;
+                    console.log('Received message_add event:', messageAddData);
+                    
+                    // 重新获取对话消息，以确保获得完整的消息数据（包括generation_group_id等）
+                    invoke<ConversationWithMessages>("get_conversation_with_messages", {
+                        conversationId: +conversationId,
+                    }).then((updatedConversation) => {
+                        setMessages(updatedConversation.messages);
+                        console.log('Updated messages after message_add:', updatedConversation.messages.length);
+                    }).catch((error) => {
+                        console.error('Failed to reload conversation after message_add:', error);
+                        
+                        // 降级处理：仍然添加基本的消息信息
+                        const newMessage: Message = {
+                            id: messageAddData.message_id,
+                            conversation_id: +conversationId,
+                            message_type: messageAddData.message_type,
+                            content: "", // 初始内容为空，会通过后续的message_update事件更新
+                            llm_model_id: null,
+                            created_time: new Date(),
+                            start_time: new Date(),
+                            finish_time: null,
+                            token_count: 0,
+                            generation_group_id: null, // 这些字段会在数据库查询时填充
+                            parent_group_id: null,
+                            regenerate: null,
+                        };
+                        
+                        setMessages((prevMessages) => [...prevMessages, newMessage]);
+                    });
+                } else if (conversationEvent.type === 'message_update') {
                     const messageUpdateData = conversationEvent.data as MessageUpdateEvent;
                     
                     const streamEvent: StreamEvent = {
@@ -608,6 +693,16 @@ function ConversationUI({
                         });
                         smartScroll();
                     }
+                } else if (conversationEvent.type === 'group_merge') {
+                    // 处理组合并事件
+                    const groupMergeData = conversationEvent.data as GroupMergeEvent;
+                    console.log('Received group merge event:', groupMergeData);
+                    
+                    setGroupMergeMap(prev => {
+                        const newMap = new Map(prev);
+                        newMap.set(groupMergeData.new_group_id, groupMergeData.original_group_id);
+                        return newMap;
+                    });
                 }
             };
             
@@ -699,8 +794,17 @@ function ConversationUI({
     // 管理每个 generation group 的当前选中版本
     const [selectedVersions, setSelectedVersions] = useState<Map<string, number>>(new Map());
     
+    // 管理组合并关系：new_group_id -> original_group_id
+    const [groupMergeMap, setGroupMergeMap] = useState<Map<string, string>>(new Map());
+    
     // 构建 generation group 信息
     const generationGroups = useMemo(() => {
+        console.log('Building generationGroups with groupMergeMap:', Array.from(groupMergeMap.entries()));
+        console.log('All display messages with generation_group_id:', allDisplayMessages
+            .filter(msg => msg.generation_group_id && (msg.message_type === 'reasoning' || msg.message_type === 'response'))
+            .map(msg => ({ id: msg.id, type: msg.message_type, group: msg.generation_group_id, parent_group: msg.parent_group_id }))
+        );
+        
         const groups = new Map<string, {
             messages: Message[],
             versions: Array<{
@@ -708,7 +812,8 @@ function ConversationUI({
                 response?: Message,
                 timestamp: Date,
                 versionId: string,
-                parentGroupId?: string
+                parentGroupId?: string,
+                isPlaceholder?: boolean
             }>
         }>();
         
@@ -727,7 +832,13 @@ function ConversationUI({
             if (msg.generation_group_id && (msg.message_type === 'reasoning' || msg.message_type === 'response')) {
                 // 确定这个消息应该归属于哪个根组
                 let rootGroupId: string;
-                if (rootGroups.has(msg.generation_group_id)) {
+                
+                // 检查是否是被合并的组
+                const mergedToGroup = groupMergeMap.get(msg.generation_group_id);
+                if (mergedToGroup) {
+                    console.log(`Message ${msg.id} with group ${msg.generation_group_id} merged to ${mergedToGroup}`);
+                    rootGroupId = mergedToGroup;
+                } else if (rootGroups.has(msg.generation_group_id)) {
                     // 如果自己是根组，则归属于自己
                     rootGroupId = msg.generation_group_id;
                 } else {
@@ -799,6 +910,23 @@ function ConversationUI({
             
             group.versions = versions;
             
+            // 检查是否需要添加占位符版本
+            const selectedVersionIndex = selectedVersions.get(groupId);
+            if (selectedVersionIndex !== undefined && selectedVersionIndex >= versions.length) {
+                // 如果选中的版本索引超出现有版本数量，添加占位符版本
+                const placeholderCount = selectedVersionIndex - versions.length + 1;
+                for (let i = 0; i < placeholderCount; i++) {
+                    const placeholderVersion = {
+                        versionId: `placeholder_${groupId}_${versions.length + i}`,
+                        timestamp: new Date(),
+                        parentGroupId: groupId, // 标记为占位符版本
+                        isPlaceholder: true
+                    };
+                    versions.push(placeholderVersion);
+                }
+                group.versions = versions;
+            }
+            
             // 设置默认选中最新版本（最后一个，即最新的 regenerated 版本）
             if (!selectedVersions.has(groupId)) {
                 const defaultVersionIndex = versions.length - 1;
@@ -807,7 +935,25 @@ function ConversationUI({
         });
         
         return groups;
-    }, [allDisplayMessages]);
+    }, [allDisplayMessages, groupMergeMap, selectedVersions]);
+    
+    // 监听 generationGroups 变化，自动切换到最新版本
+    useEffect(() => {
+        generationGroups.forEach((group, groupId) => {
+            const currentVersionIndex = selectedVersions.get(groupId);
+            const maxVersionIndex = group.versions.length - 1;
+            
+            // 如果当前选中的版本索引小于最大版本索引，说明有新版本，自动切换到最新版本
+            if (currentVersionIndex !== undefined && currentVersionIndex < maxVersionIndex) {
+                console.log(`Auto-switching group ${groupId} from version ${currentVersionIndex + 1} to latest version ${maxVersionIndex + 1}`);
+                setSelectedVersions(prev => {
+                    const newMap = new Map(prev);
+                    newMap.set(groupId, maxVersionIndex);
+                    return newMap;
+                });
+            }
+        });
+    }, [generationGroups, selectedVersions]);
     
     // 切换 generation group 的版本
     const handleGenerationVersionChange = useCallback((groupId: string, versionIndex: number) => {
@@ -898,6 +1044,13 @@ function ConversationUI({
         const selectedVersionData = group.versions[selectedVersionIndex];
         
         if (!selectedVersionData) return null;
+        
+        // 如果选中的是占位符版本，隐藏所有现有消息
+        if (selectedVersionData.isPlaceholder) {
+            return {
+                shouldShow: false
+            };
+        }
         
         // 检查当前消息是否属于选中的版本
         const isMessageInSelectedVersion = selectedVersionData.reasoning?.id === message.id || 
@@ -1150,8 +1303,41 @@ function ConversationUI({
                     const handleConversationEvent = (event: any) => {
                         const conversationEvent = event.payload as ConversationEvent;
                         
-                        if (conversationEvent.type === 'message_update') {
+                        if (conversationEvent.type === 'message_add') {
+                            // 处理消息添加事件
+                            const messageAddData = conversationEvent.data as any;
+                            console.log('Received message_add event:', messageAddData);
+                            
+                            // 重新获取对话消息，以确保获得完整的消息数据（包括generation_group_id等）
+                            invoke<ConversationWithMessages>("get_conversation_with_messages", {
+                                conversationId: res.conversation_id,
+                            }).then((updatedConversation) => {
+                                setMessages(updatedConversation.messages);
+                                console.log('Updated messages after message_add:', updatedConversation.messages.length);
+                            }).catch((error) => {
+                                console.error('Failed to reload conversation after message_add:', error);
+                                
+                                // 降级处理：仍然添加基本的消息信息
+                                const newMessage: Message = {
+                                    id: messageAddData.message_id,
+                                    conversation_id: res.conversation_id,
+                                    message_type: messageAddData.message_type,
+                                    content: "", // 初始内容为空，会通过后续的message_update事件更新
+                                    llm_model_id: null,
+                                    created_time: new Date(),
+                                    start_time: new Date(),
+                                    finish_time: null,
+                                    token_count: 0,
+                                    generation_group_id: null, // 这些字段会在数据库查询时填充
+                                    parent_group_id: null,
+                                    regenerate: null,
+                                };
+                                
+                                setMessages((prevMessages) => [...prevMessages, newMessage]);
+                            });
+                        } else if (conversationEvent.type === 'message_update') {
                             const messageUpdateData = conversationEvent.data as MessageUpdateEvent;
+                            console.log('Received message_update event:', messageUpdateData);
                             
                             const streamEvent: StreamEvent = {
                                 message_id: messageUpdateData.message_id,
@@ -1192,6 +1378,25 @@ function ConversationUI({
                                     });
                                 });
                                 smartScroll();
+                            }
+                        } else if (conversationEvent.type === 'group_merge') {
+                            // 处理组合并事件
+                            const groupMergeData = conversationEvent.data as GroupMergeEvent;
+                            console.log('Received group merge event:', groupMergeData);
+                            
+                            // 设置组合并关系
+                            setGroupMergeMap(prev => {
+                                const newMap = new Map(prev);
+                                newMap.set(groupMergeData.new_group_id, groupMergeData.original_group_id);
+                                console.log('Updated groupMergeMap:', Array.from(newMap.entries()));
+                                return newMap;
+                            });
+                            
+                            // 如果是重新生成，标记这个组需要自动切换到最新版本
+                            if (groupMergeData.is_regeneration) {
+                                const originalGroupId = groupMergeData.original_group_id;
+                                console.log(`Group ${originalGroupId} will auto-switch to latest version when new version is available`);
+                                // 不需要在这里做任何操作，useEffect 会处理自动切换
                             }
                         }
                     };
@@ -1256,9 +1461,54 @@ function ConversationUI({
                 })
                 .filter(Boolean); // 过滤掉 null 值
             
+            // 添加占位符消息渲染
+            generationGroups.forEach((group, groupId) => {
+                const selectedVersionIndex = selectedVersions.get(groupId) ?? group.versions.length - 1;
+                const selectedVersionData = group.versions[selectedVersionIndex];
+                
+                // 如果选中的是占位符版本，添加占位符消息
+                if (selectedVersionData?.isPlaceholder) {
+                    // 找到这个组的最后一个消息的位置，在其后添加占位符
+                    const groupMessages = group.messages.filter(msg => msg.message_type !== "system");
+                    if (groupMessages.length > 0) {
+                        const lastMessage = groupMessages[groupMessages.length - 1];
+                        const lastMessageIndex = result.findIndex(item => 
+                            item?.key === lastMessage.id.toString()
+                        );
+                        
+                        if (lastMessageIndex !== -1) {
+                            // 在最后一个消息后添加占位符
+                            const placeholderElement = (
+                                <React.Fragment key={`placeholder_${groupId}`}>
+                                    <div className="flex justify-start mb-4">
+                                        <div className="bg-gray-100 rounded-lg p-4 max-w-3xl">
+                                            <div className="flex items-center space-x-2">
+                                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900"></div>
+                                                <span className="text-sm text-gray-600">正在重新生成...</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="flex justify-start mt-2">
+                                        <VersionPagination
+                                            currentVersion={selectedVersionIndex + 1}
+                                            totalVersions={group.versions.length}
+                                            onVersionChange={(versionIndex) => handleGenerationVersionChange(
+                                                groupId, 
+                                                versionIndex
+                                            )}
+                                        />
+                                    </div>
+                                </React.Fragment>
+                            );
+                            result.splice(lastMessageIndex + 1, 0, placeholderElement);
+                        }
+                    }
+                }
+            });
+            
             return result;
         },
-        [allDisplayMessages, streamingMessages, getMessageVersionInfo, getGenerationGroupControl, handleGenerationVersionChange, reasoningExpandStates, toggleReasoningExpand],
+        [allDisplayMessages, streamingMessages, getMessageVersionInfo, getGenerationGroupControl, handleGenerationVersionChange, reasoningExpandStates, toggleReasoningExpand, generationGroups, selectedVersions],
     );
 
     // ============= 组件渲染 =============

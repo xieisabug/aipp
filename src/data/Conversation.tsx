@@ -65,6 +65,14 @@ export interface MessageTypeEndEvent {
     end_time: Date;
 }
 
+export interface GroupMergeEvent {
+    original_group_id: string;
+    new_group_id: string;
+    is_regeneration: boolean;
+    first_message_id?: number;
+    conversation_id?: number;
+}
+
 // 消息类型枚举
 export type MessageType = 'system' | 'user' | 'assistant' | 'reasoning' | 'response' | 'error';
 
