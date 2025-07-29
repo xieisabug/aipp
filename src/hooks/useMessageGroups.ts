@@ -1,7 +1,7 @@
 // src/hooks/useMessageGroups.ts
 
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Message } from '../data/Conversation';
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { Message } from "../data/Conversation";
 
 // 钩子的输入参数
 interface UseMessageGroupsProps {
@@ -9,21 +9,29 @@ interface UseMessageGroupsProps {
     groupMergeMap: Map<string, string>;
 }
 
+// 版本定义
+interface Version {
+    reasoning?: Message;
+    response?: Message;
+    timestamp: Date;
+    versionId: string;
+    parentGroupId?: string;
+    isPlaceholder?: boolean;
+}
+
+// 组的定义
+interface GenerationGroup {
+    versions: Version[];
+}
+
 // 钩子返回的类型
 interface UseMessageGroupsReturn {
-    generationGroups: Map<string, {
-        messages: Message[];
-        versions: Array<{
-            reasoning?: Message;
-            response?: Message;
-            timestamp: Date;
-            versionId: string;
-            parentGroupId?: string;
-            isPlaceholder?: boolean;
-        }>;
-    }>;
+    generationGroups: Map<string, GenerationGroup>;
     selectedVersions: Map<string, number>;
-    handleGenerationVersionChange: (groupId: string, versionIndex: number) => void;
+    handleGenerationVersionChange: (
+        groupId: string,
+        versionIndex: number,
+    ) => void;
     getMessageVersionInfo: (message: Message) => { shouldShow: boolean } | null;
     getGenerationGroupControl: (message: Message) => {
         currentVersion: number;
@@ -32,140 +40,149 @@ interface UseMessageGroupsReturn {
     } | null;
 }
 
-export function useMessageGroups({ allDisplayMessages, groupMergeMap }: UseMessageGroupsProps): UseMessageGroupsReturn {
-    // 1. 将版本状态管理移入钩子
-    const [selectedVersions, setSelectedVersions] = useState<Map<string, number>>(new Map());
+export function useMessageGroups({
+    allDisplayMessages,
+    groupMergeMap,
+}: UseMessageGroupsProps): UseMessageGroupsReturn {
+    const [selectedVersions, setSelectedVersions] = useState<
+        Map<string, number>
+    >(new Map());
     const userSwitchRef = useRef(false);
 
-    // 2. 优化后的 generationGroups 计算逻辑
-    const generationGroups = useMemo(() => {
+    // =================================================================================
+    // 优化点 1: 核心计算逻辑重构
+    // - 将多个循环合并为一次遍历，提升效率
+    // - 使用更清晰的步骤: 1.收集版本 -> 2.分组 -> 3.排序
+    // - 不再有副作用，成为一个纯粹的计算过程
+    // =================================================================================
+    const pureGenerationGroups = useMemo(() => {
         const startTime = performance.now();
-        console.log(`[useMessageGroups] 开始计算 generationGroups，消息数量: ${allDisplayMessages.length}`);
-        
-        const groups = new Map<string, {
-            messages: Message[],
-            versions: Array<{
-                reasoning?: Message,
-                response?: Message,
-                timestamp: Date,
-                versionId: string,
-                parentGroupId?: string,
-                isPlaceholder?: boolean
-            }>
-        }>();
-        if (allDisplayMessages.length === 0) {
-            const duration = performance.now() - startTime;
-            console.log(`[useMessageGroups] 计算完成，耗时: ${duration.toFixed(2)}ms（空消息列表）`);
-            return groups;
+
+        // 步骤 1: 一次遍历，收集所有版本数据和父子关系
+        const versionDataMap = new Map<
+            string,
+            Pick<Version, "reasoning" | "response" | "parentGroupId">
+        >();
+        const groupToParentMap = new Map<string, string>();
+
+        for (const msg of allDisplayMessages) {
+            if (
+                !msg.generation_group_id ||
+                (msg.message_type !== "reasoning" &&
+                    msg.message_type !== "response")
+            ) {
+                continue;
+            }
+            const versionKey = msg.generation_group_id;
+            if (msg.parent_group_id) {
+                groupToParentMap.set(versionKey, msg.parent_group_id);
+            }
+            const versionData = versionDataMap.get(versionKey) ?? {};
+            if (msg.message_type === "reasoning") versionData.reasoning = msg;
+            else versionData.response = msg;
+            if (msg.parent_group_id)
+                versionData.parentGroupId = msg.parent_group_id;
+            versionDataMap.set(versionKey, versionData);
         }
 
-        // --- 算法优化部分 ---
-        // 步骤 A: 预处理，构建父子关系图和查找根节点
-        const groupToParentMap = new Map<string, string>();
-        allDisplayMessages.forEach(msg => {
-            if (msg.generation_group_id && msg.parent_group_id) {
-                groupToParentMap.set(msg.generation_group_id, msg.parent_group_id);
-            }
-        });
-
-        // 步骤 B: 高效查找每个组的根节点，并缓存结果
+        // 步骤 2: 高效查找根节点并分组
         const groupToRootCache = new Map<string, string>();
         const findRoot = (groupId: string): string => {
-            if (groupToRootCache.has(groupId)) {
+            if (groupToRootCache.has(groupId))
                 return groupToRootCache.get(groupId)!;
+
+            const mergedId = groupMergeMap.get(groupId) || groupId;
+            const parentId = groupToParentMap.get(mergedId);
+
+            if (!parentId) {
+                groupToRootCache.set(groupId, mergedId);
+                return mergedId;
             }
-            // 优先处理合并关系
-            let current = groupMergeMap.get(groupId) || groupId;
-            let parent = groupToParentMap.get(current);
-            
-            // 向上追溯
-            while (parent) {
-                current = parent;
-                parent = groupToParentMap.get(current);
-            }
-            groupToRootCache.set(groupId, current);
-            return current;
+            const root = findRoot(parentId);
+            groupToRootCache.set(groupId, root); // 路径压缩
+            return root;
         };
 
-        // 步骤 C: 将消息分配到其根组
-        allDisplayMessages.forEach(msg => {
-            if (msg.generation_group_id && (msg.message_type === 'reasoning' || msg.message_type === 'response')) {
-                const rootGroupId = findRoot(msg.generation_group_id);
-                if (!groups.has(rootGroupId)) {
-                    groups.set(rootGroupId, { messages: [], versions: [] });
-                }
-                groups.get(rootGroupId)!.messages.push(msg);
-            }
-        });
-        // --- 算法优化结束 ---
-
-        // 步骤 D: 构建版本信息 (这部分逻辑与原来保持一致)
-        groups.forEach((group, groupId) => {
-            const versionMap = new Map<string, {reasoning?: Message, response?: Message, parentGroupId?: string}>();
-            
-            group.messages.forEach(msg => {
-                const versionKey = msg.generation_group_id!;
-                if (!versionMap.has(versionKey)) {
-                    versionMap.set(versionKey, { parentGroupId: msg.parent_group_id || undefined });
-                }
-                const version = versionMap.get(versionKey)!;
-                if (msg.message_type === 'reasoning') {
-                    version.reasoning = msg;
-                } else if (msg.message_type === 'response') {
-                    version.response = msg;
-                }
+        const groups = new Map<string, GenerationGroup>();
+        versionDataMap.forEach((data, versionId) => {
+            const rootId = findRoot(versionId);
+            const group = groups.get(rootId) ?? { versions: [] };
+            group.versions.push({
+                ...data,
+                versionId,
+                timestamp: new Date(
+                    data.reasoning?.created_time ||
+                        data.response?.created_time ||
+                        0,
+                ),
             });
-            
-            const versions = Array.from(versionMap.entries())
-                .map(([versionId, versionData]) => ({
-                    ...versionData,
-                    versionId,
-                    timestamp: new Date(versionData.reasoning?.created_time || versionData.response?.created_time || new Date())
-                }))
-                .sort((a, b) => {
-                    if (!a.parentGroupId && b.parentGroupId) return -1;
-                    if (a.parentGroupId && !b.parentGroupId) return 1;
-                    return a.timestamp.getTime() - b.timestamp.getTime();
-                });
-            
-            group.versions = versions;
-            
-            // 检查是否需要添加占位符版本
+            groups.set(rootId, group);
+        });
+
+        // 步骤 3: 对每个组内的版本进行排序
+        groups.forEach((group) => {
+            group.versions.sort((a, b) => {
+                if (!a.parentGroupId && b.parentGroupId) return -1;
+                if (a.parentGroupId && !b.parentGroupId) return 1;
+                return a.timestamp.getTime() - b.timestamp.getTime();
+            });
+        });
+
+        const duration = performance.now() - startTime;
+        console.log(
+            `[useMessageGroups] 计算完成，耗时: ${duration.toFixed(2)}ms，生成组数: ${groups.size}`,
+        );
+        return groups;
+    }, [allDisplayMessages, groupMergeMap]);
+
+    // =================================================================================
+    // 优化点 2: 逻辑分离
+    // - 将视图相关的占位符逻辑从核心计算中分离
+    // - 这个 memo 依赖于纯数据和用户选择，职责更清晰
+    // =================================================================================
+    const generationGroups = useMemo(() => {
+        const newGroups = new Map<string, GenerationGroup>();
+        pureGenerationGroups.forEach((group, groupId) => {
+            const versions = [...group.versions];
             const selectedVersionIndex = selectedVersions.get(groupId);
-            if (selectedVersionIndex !== undefined && selectedVersionIndex >= versions.length) {
-                const placeholderCount = selectedVersionIndex - versions.length + 1;
+
+            if (
+                selectedVersionIndex !== undefined &&
+                selectedVersionIndex >= versions.length
+            ) {
+                const placeholderCount =
+                    selectedVersionIndex - versions.length + 1;
                 for (let i = 0; i < placeholderCount; i++) {
-                    const placeholderVersion = {
+                    versions.push({
                         versionId: `placeholder_${groupId}_${versions.length + i}`,
                         timestamp: new Date(),
                         parentGroupId: groupId,
-                        isPlaceholder: true
-                    };
-                    versions.push(placeholderVersion);
+                        isPlaceholder: true,
+                    });
                 }
-                group.versions = versions;
             }
-            
-            // 设置默认选中最新版本
-            if (!selectedVersions.has(groupId) && versions.length > 0) {
-                const defaultVersionIndex = versions.length - 1;
-                setSelectedVersions(prev => new Map(prev).set(groupId, defaultVersionIndex));
+            newGroups.set(groupId, { ...group, versions });
+        });
+        return newGroups;
+    }, [pureGenerationGroups, selectedVersions]);
+
+    // =================================================================================
+    // 优化点 3: 遵循 React 实践，将副作用移入 useEffect
+    // - 自动设置新分组的默认选中版本
+    // =================================================================================
+    useEffect(() => {
+        const newSelections = new Map<string, number>();
+        pureGenerationGroups.forEach((group, groupId) => {
+            if (!selectedVersions.has(groupId) && group.versions.length > 0) {
+                newSelections.set(groupId, group.versions.length - 1);
             }
         });
-        
-        const duration = performance.now() - startTime;
-        console.log(`[useMessageGroups] 计算完成，耗时: ${duration.toFixed(2)}ms，生成组数: ${groups.size}`);
-        
-        return groups;
-    }, [allDisplayMessages, groupMergeMap, selectedVersions]);
+        if (newSelections.size > 0) {
+            setSelectedVersions((prev) => new Map([...prev, ...newSelections]));
+        }
+    }, [pureGenerationGroups, selectedVersions]);
 
-    // 3. 将相关的回调和辅助函数移入钩子
-    const handleGenerationVersionChange = useCallback((groupId: string, versionIndex: number) => {
-        userSwitchRef.current = true;
-        setSelectedVersions(prev => new Map(prev).set(groupId, versionIndex));
-    }, []);
-
-    // 自动切换到最新版本的逻辑
+    // 自动切换到最新版本的逻辑 (保持不变，但现在依赖于更新后的 generationGroups)
     useEffect(() => {
         if (userSwitchRef.current) {
             userSwitchRef.current = false;
@@ -174,103 +191,121 @@ export function useMessageGroups({ allDisplayMessages, groupMergeMap }: UseMessa
         generationGroups.forEach((group, groupId) => {
             const currentVersionIndex = selectedVersions.get(groupId);
             const maxVersionIndex = group.versions.length - 1;
-            if (currentVersionIndex !== undefined && currentVersionIndex < maxVersionIndex) {
-                setSelectedVersions(prev => new Map(prev).set(groupId, maxVersionIndex));
+            if (
+                currentVersionIndex !== undefined &&
+                currentVersionIndex < maxVersionIndex &&
+                !group.versions[maxVersionIndex].isPlaceholder
+            ) {
+                setSelectedVersions((prev) =>
+                    new Map(prev).set(groupId, maxVersionIndex),
+                );
             }
         });
     }, [generationGroups, selectedVersions]);
 
-    const isLastInGenerationGroup = useCallback((message: Message): boolean => {
-        if (!message.generation_group_id || (message.message_type !== 'reasoning' && message.message_type !== 'response')) {
-            return false;
-        }
-        
-        let rootGroupId: string | null = null;
-        for (const [groupId, group] of generationGroups.entries()) {
-            if (group.messages.some(msg => msg.id === message.id)) {
-                rootGroupId = groupId;
-                break;
-            }
-        }
-        
-        if (!rootGroupId) return false;
-        
-        const group = generationGroups.get(rootGroupId);
-        if (!group || group.versions.length === 0) return false;
-        
-        const selectedVersionIndex = selectedVersions.get(rootGroupId) ?? group.versions.length - 1;
-        const currentVersionData = group.versions[selectedVersionIndex];
-        
-        const lastMessageInGroup = currentVersionData?.response || currentVersionData?.reasoning;
-        
-        return lastMessageInGroup?.id === message.id;
-    }, [generationGroups, selectedVersions]);
+    // =================================================================================
+    // 优化点 4: 性能优化
+    // - 创建查找表，让消息找其根组的耗时从 O(N) 降到 O(1)
+    // =================================================================================
+    const messageIdToRootGroupIdMap = useMemo(() => {
+        const map = new Map<string, string>();
+        pureGenerationGroups.forEach((group, rootId) => {
+            group.versions.forEach((version) => {
+                if (version.reasoning)
+                    map.set(version.reasoning.id.toString(), rootId);
+                if (version.response)
+                    map.set(version.response.id.toString(), rootId);
+            });
+        });
+        return map;
+    }, [pureGenerationGroups]);
 
-    const getGenerationGroupControl = useCallback((message: Message) => {
-        if (!message.generation_group_id || !isLastInGenerationGroup(message)) {
-            return null;
-        }
-        
-        let rootGroupId: string | null = null;
-        for (const [groupId, group] of generationGroups.entries()) {
-            if (group.messages.some(msg => msg.id === message.id)) {
-                rootGroupId = groupId;
-                break;
-            }
-        }
-        
-        if (!rootGroupId) return null;
-        
-        const group = generationGroups.get(rootGroupId);
-        if (!group || group.versions.length <= 1) return null;
-        
-        const selectedVersionIndex = selectedVersions.get(rootGroupId) ?? group.versions.length - 1;
-        
-        return {
-            currentVersion: selectedVersionIndex + 1,
-            totalVersions: group.versions.length,
-            groupId: rootGroupId
-        };
-    }, [generationGroups, selectedVersions, isLastInGenerationGroup]);
+    const handleGenerationVersionChange = useCallback(
+        (groupId: string, versionIndex: number) => {
+            userSwitchRef.current = true;
+            setSelectedVersions((prev) =>
+                new Map(prev).set(groupId, versionIndex),
+            );
+        },
+        [],
+    );
 
-    const getMessageVersionInfo = useCallback((message: Message) => {
-        if (!message.generation_group_id || (message.message_type !== 'reasoning' && message.message_type !== 'response')) {
-            return null;
-        }
-        
-        let rootGroupId: string | null = null;
-        for (const [groupId, group] of generationGroups.entries()) {
-            if (group.messages.some(msg => msg.id === message.id)) {
-                rootGroupId = groupId;
-                break;
-            }
-        }
-        
-        if (!rootGroupId) return null;
-        
-        const group = generationGroups.get(rootGroupId);
-        if (!group || group.versions.length === 0) return null;
-        
-        const selectedVersionIndex = selectedVersions.get(rootGroupId) ?? group.versions.length - 1;
-        const selectedVersionData = group.versions[selectedVersionIndex];
-        
-        if (!selectedVersionData) return null;
-        
-        if (selectedVersionData.isPlaceholder) {
+    const isLastInGenerationGroup = useCallback(
+        (message: Message): boolean => {
+            const rootGroupId = messageIdToRootGroupIdMap.get(
+                message.id.toString(),
+            );
+            if (!rootGroupId) return false;
+
+            const group = generationGroups.get(rootGroupId);
+            if (!group || group.versions.length === 0) return false;
+
+            const selectedVersionIndex =
+                selectedVersions.get(rootGroupId) ?? group.versions.length - 1;
+            const currentVersionData = group.versions[selectedVersionIndex];
+            const lastMessageInGroup =
+                currentVersionData?.response || currentVersionData?.reasoning;
+
+            return lastMessageInGroup?.id === message.id;
+        },
+        [generationGroups, selectedVersions, messageIdToRootGroupIdMap],
+    );
+
+    const getGenerationGroupControl = useCallback(
+        (message: Message) => {
+            if (!isLastInGenerationGroup(message)) return null;
+
+            const rootGroupId = messageIdToRootGroupIdMap.get(
+                message.id.toString(),
+            );
+            if (!rootGroupId) return null;
+
+            const group = generationGroups.get(rootGroupId);
+            if (!group || group.versions.length <= 1) return null;
+
+            const selectedVersionIndex =
+                selectedVersions.get(rootGroupId) ?? group.versions.length - 1;
             return {
-                shouldShow: false
+                currentVersion: selectedVersionIndex + 1,
+                totalVersions: group.versions.length,
+                groupId: rootGroupId,
             };
-        }
-        
-        const isMessageInSelectedVersion = selectedVersionData.reasoning?.id === message.id || 
-                                         selectedVersionData.response?.id === message.id;
-        
-        return {
-            shouldShow: isMessageInSelectedVersion
-        };
-    }, [generationGroups, selectedVersions]);
+        },
+        [
+            generationGroups,
+            selectedVersions,
+            isLastInGenerationGroup,
+            messageIdToRootGroupIdMap,
+        ],
+    );
 
-    // 4. 返回钩子需要暴露的所有状态和函数
+    const getMessageVersionInfo = useCallback(
+        (message: Message) => {
+            const rootGroupId = messageIdToRootGroupIdMap.get(
+                message.id.toString(),
+            );
+            if (!rootGroupId) return null;
+
+            const group = generationGroups.get(rootGroupId);
+            if (!group) return null;
+
+            const selectedVersionIndex =
+                selectedVersions.get(rootGroupId) ?? group.versions.length - 1;
+            const selectedVersionData = group.versions[selectedVersionIndex];
+            if (!selectedVersionData) return null;
+
+            if (selectedVersionData.isPlaceholder) {
+                return { shouldShow: false };
+            }
+
+            const isMessageInSelectedVersion =
+                selectedVersionData.reasoning?.id === message.id ||
+                selectedVersionData.response?.id === message.id;
+            return { shouldShow: isMessageInSelectedVersion };
+        },
+        [generationGroups, selectedVersions, messageIdToRootGroupIdMap],
+    );
+
     return {
         generationGroups,
         selectedVersions,
