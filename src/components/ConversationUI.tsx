@@ -1212,7 +1212,9 @@ function ConversationUI({
                 // 如果选中的是占位符版本，添加占位符消息
                 if (selectedVersionData?.isPlaceholder) {
                     // 找到这个组的最后一个消息的位置，在其后添加占位符
-                    const groupMessages = group.messages.filter(msg => msg.message_type !== "system");
+                    const groupMessages = group.versions
+                        .flatMap(version => version.messages)
+                        .filter((msg: any) => msg.message_type !== "system");
                     if (groupMessages.length > 0) {
                         const lastMessage = groupMessages[groupMessages.length - 1];
                         const lastMessageIndex = result.findIndex(item => 

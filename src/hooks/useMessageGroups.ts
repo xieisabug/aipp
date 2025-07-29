@@ -11,8 +11,7 @@ interface UseMessageGroupsProps {
 
 // 版本定义
 interface Version {
-    reasoning?: Message;
-    response?: Message;
+    messages: Message[];
     timestamp: Date;
     versionId: string;
     parentGroupId?: string;
@@ -61,25 +60,20 @@ export function useMessageGroups({
         // 步骤 1: 一次遍历，收集所有版本数据和父子关系
         const versionDataMap = new Map<
             string,
-            Pick<Version, "reasoning" | "response" | "parentGroupId">
+            Pick<Version, "messages" | "parentGroupId">
         >();
         const groupToParentMap = new Map<string, string>();
 
         for (const msg of allDisplayMessages) {
-            if (
-                !msg.generation_group_id ||
-                (msg.message_type !== "reasoning" &&
-                    msg.message_type !== "response")
-            ) {
+            if (!msg.generation_group_id) {
                 continue;
             }
             const versionKey = msg.generation_group_id;
             if (msg.parent_group_id) {
                 groupToParentMap.set(versionKey, msg.parent_group_id);
             }
-            const versionData = versionDataMap.get(versionKey) ?? {};
-            if (msg.message_type === "reasoning") versionData.reasoning = msg;
-            else versionData.response = msg;
+            const versionData = versionDataMap.get(versionKey) ?? { messages: [] };
+            versionData.messages.push(msg);
             if (msg.parent_group_id)
                 versionData.parentGroupId = msg.parent_group_id;
             versionDataMap.set(versionKey, versionData);
@@ -111,9 +105,7 @@ export function useMessageGroups({
                 ...data,
                 versionId,
                 timestamp: new Date(
-                    data.reasoning?.created_time ||
-                        data.response?.created_time ||
-                        0,
+                    Math.min(...data.messages.map(m => new Date(m.created_time || 0).getTime()).filter(t => t > 0)) || 0
                 ),
             });
             groups.set(rootId, group);
@@ -154,6 +146,7 @@ export function useMessageGroups({
                     selectedVersionIndex - versions.length + 1;
                 for (let i = 0; i < placeholderCount; i++) {
                     versions.push({
+                        messages: [],
                         versionId: `placeholder_${groupId}_${versions.length + i}`,
                         timestamp: new Date(),
                         parentGroupId: groupId,
@@ -211,10 +204,9 @@ export function useMessageGroups({
         const map = new Map<string, string>();
         pureGenerationGroups.forEach((group, rootId) => {
             group.versions.forEach((version) => {
-                if (version.reasoning)
-                    map.set(version.reasoning.id.toString(), rootId);
-                if (version.response)
-                    map.set(version.response.id.toString(), rootId);
+                version.messages.forEach((message) => {
+                    map.set(message.id.toString(), rootId);
+                });
             });
         });
         return map;
@@ -243,8 +235,7 @@ export function useMessageGroups({
             const selectedVersionIndex =
                 selectedVersions.get(rootGroupId) ?? group.versions.length - 1;
             const currentVersionData = group.versions[selectedVersionIndex];
-            const lastMessageInGroup =
-                currentVersionData?.response || currentVersionData?.reasoning;
+            const lastMessageInGroup = currentVersionData?.messages[currentVersionData.messages.length - 1];
 
             return lastMessageInGroup?.id === message.id;
         },
@@ -298,9 +289,9 @@ export function useMessageGroups({
                 return { shouldShow: false };
             }
 
-            const isMessageInSelectedVersion =
-                selectedVersionData.reasoning?.id === message.id ||
-                selectedVersionData.response?.id === message.id;
+            const isMessageInSelectedVersion = selectedVersionData.messages.some(
+                msg => msg.id === message.id
+            );
             return { shouldShow: isMessageInSelectedVersion };
         },
         [generationGroups, selectedVersions, messageIdToRootGroupIdMap],
