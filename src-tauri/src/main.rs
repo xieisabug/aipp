@@ -319,9 +319,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build(tauri::generate_context!())
         .expect("error while running tauri application");
 
-    app.run(|_, e| match e {
+    app.run(|app_handle, e| match e {
         RunEvent::ExitRequested { api, .. } => {
             api.prevent_exit();
+        }
+        RunEvent::Reopen { .. } => {
+            handle_open_ask_window(app_handle);
         }
         _ => {}
     });
