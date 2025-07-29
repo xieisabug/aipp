@@ -140,7 +140,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             tray.set_menu(Some(tray_menu))?;
             tray.on_menu_event(move |app, event| match event.id().as_ref() {
                 "quit" => {
-                    app.exit(0);
+                    std::process::exit(0);
                 }
                 "show" => {
                     handle_open_ask_window(&app);
