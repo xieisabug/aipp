@@ -837,7 +837,30 @@ function ConversationUI({
                 const mergedToGroup = groupMergeMap.get(msg.generation_group_id);
                 if (mergedToGroup) {
                     console.log(`Message ${msg.id} with group ${msg.generation_group_id} merged to ${mergedToGroup}`);
-                    rootGroupId = mergedToGroup;
+                    // 从合并目标组开始追溯到根组
+                    let currentGroupId = mergedToGroup;
+                    
+                    // 如果合并目标本身就是根组，直接使用
+                    if (rootGroups.has(currentGroupId)) {
+                        rootGroupId = currentGroupId;
+                    } else {
+                        // 否则从合并目标开始向上追溯找到根组
+                        const mergedToMessage = allDisplayMessages.find(m => m.generation_group_id === currentGroupId);
+                        let parentId = mergedToMessage?.parent_group_id;
+                        
+                        // 向上追溯直到找到根组
+                        while (parentId && !rootGroups.has(parentId)) {
+                            const parentMessage = allDisplayMessages.find(m => m.generation_group_id === parentId);
+                            if (parentMessage && parentMessage.parent_group_id) {
+                                parentId = parentMessage.parent_group_id;
+                            } else {
+                                break;
+                            }
+                        }
+                        
+                        // 如果找到了根组，归属于根组；否则使用合并目标组
+                        rootGroupId = (parentId && rootGroups.has(parentId)) ? parentId : currentGroupId;
+                    }
                 } else if (rootGroups.has(msg.generation_group_id)) {
                     // 如果自己是根组，则归属于自己
                     rootGroupId = msg.generation_group_id;
@@ -939,6 +962,11 @@ function ConversationUI({
     
     // 监听 generationGroups 变化，自动切换到最新版本
     useEffect(() => {
+        if (userSwitchRef.current) {
+            userSwitchRef.current = false;
+            return;
+        }
+        
         generationGroups.forEach((group, groupId) => {
             const currentVersionIndex = selectedVersions.get(groupId);
             const maxVersionIndex = group.versions.length - 1;
@@ -955,9 +983,11 @@ function ConversationUI({
         });
     }, [generationGroups, selectedVersions]);
     
+    const userSwitchRef = useRef(false);
     // 切换 generation group 的版本
     const handleGenerationVersionChange = useCallback((groupId: string, versionIndex: number) => {
         console.log(`Switching group ${groupId} to version ${versionIndex + 1}`);
+        userSwitchRef.current = true;
         setSelectedVersions(prev => new Map(prev).set(groupId, versionIndex));
     }, []);
     
