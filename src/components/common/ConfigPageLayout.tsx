@@ -52,7 +52,7 @@ const ConfigPageLayout: React.FC<ConfigPageLayoutProps> = ({
 
     // 为sidebar添加addButton props（如果sidebar是SidebarList组件）
     const enhancedSidebar = sidebar && React.isValidElement(sidebar) && !shouldShowDropdown
-        ? cloneElement(sidebar as React.ReactElement, {
+        ? cloneElement(sidebar as React.ReactElement<any>, {
             addButton: addButton
         })
         : sidebar;
