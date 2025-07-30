@@ -262,3 +262,16 @@ pub fn update_conversation(
     let _ = app_handle.emit("title_change", [conversation_id.to_string(), name]);
     Ok(())
 }
+
+#[tauri::command]
+pub fn update_message_content(
+    app_handle: tauri::AppHandle,
+    message_id: i64,
+    content: String,
+) -> Result<(), String> {
+    let db = ConversationDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+    db.message_repo()
+        .unwrap()
+        .update_content(message_id, &content)
+        .map_err(|e| e.to_string())
+}

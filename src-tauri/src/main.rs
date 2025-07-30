@@ -23,7 +23,7 @@ use crate::api::assistant_api::{
 };
 use crate::api::attachment_api::{add_attachment, open_attachment_with_default_app};
 use crate::api::conversation_api::{
-    delete_conversation, get_conversation_with_messages, list_conversations, update_conversation,
+    delete_conversation, get_conversation_with_messages, list_conversations, update_conversation, update_message_content,
 };
 use crate::api::llm_api::{
     add_llm_model, add_llm_provider, delete_llm_model, delete_llm_provider, fetch_model_list,
@@ -298,6 +298,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             get_conversation_with_messages,
             delete_conversation,
             update_conversation,
+            update_message_content,
             run_artifacts,
             get_bang_list,
             get_selected_text_api,

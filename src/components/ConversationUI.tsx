@@ -15,6 +15,7 @@ import ConversationTitle from "./conversation/ConversationTitle";
 import useFileDropHandler from "../hooks/useFileDropHandler";
 import InputArea from "./conversation/InputArea";
 import FormDialog from "./FormDialog";
+import MessageEditDialog from "./MessageEditDialog";
 import useConversationManager from "../hooks/useConversationManager";
 import { useMessageGroups } from '../hooks/useMessageGroups';
 import useFileManagement from "@/hooks/useFileManagement";
@@ -208,6 +209,10 @@ function ConversationUI({
     const [formDialogIsOpen, setFormDialogIsOpen] = useState<boolean>(false);
     const [formConversationTitle, setFormConversationTitle] = useState<string>("");
     const [isRegeneratingTitle, setIsRegeneratingTitle] = useState<boolean>(false);
+
+    // 消息编辑相关状态
+    const [editDialogIsOpen, setEditDialogIsOpen] = useState<boolean>(false);
+    const [editingMessage, setEditingMessage] = useState<Message | null>(null);
 
     // ============= 助手运行时API接口实现 =============
     
@@ -903,25 +908,6 @@ function ConversationUI({
         });
     }, [conversation, formConversationTitle]);
 
-    // 重新生成标题处理
-    const handleRegenerateTitle = useCallback(async () => {
-        if (!conversation?.id || isRegeneratingTitle) return;
-
-        setIsRegeneratingTitle(true);
-
-        try {
-            await invoke("regenerate_conversation_title", {
-                conversationId: conversation.id,
-            });
-            toast.success("标题已重新生成");
-        } catch (error) {
-            console.error("重新生成标题失败:", error);
-            toast.error("重新生成标题失败: " + error);
-        } finally {
-            setIsRegeneratingTitle(false);
-        }
-    }, [conversation, isRegeneratingTitle]);
-
     // 消息重新生成处理
     const handleMessageRegenerate = useCallback(
         (regenerateMessageId: number) => {
@@ -942,6 +928,84 @@ function ConversationUI({
         },
         [],
     );
+
+    // 消息编辑相关处理函数
+    const handleMessageEdit = useCallback((message: Message) => {
+        setEditingMessage(message);
+        setEditDialogIsOpen(true);
+    }, []);
+
+    const closeEditDialog = useCallback(() => {
+        setEditDialogIsOpen(false);
+        setEditingMessage(null);
+    }, []);
+
+    const handleEditSave = useCallback((content: string) => {
+        if (!editingMessage) return;
+        
+        invoke("update_message_content", {
+            messageId: editingMessage.id,
+            content: content,
+        }).then(() => {
+            // 更新本地消息状态
+            setMessages(prevMessages => 
+                prevMessages.map(msg => 
+                    msg.id === editingMessage.id 
+                        ? { ...msg, content: content }
+                        : msg
+                )
+            );
+            toast.success("消息已更新");
+        }).catch((error) => {
+            toast.error("更新消息失败: " + error);
+        });
+    }, [editingMessage]);
+
+    const handleEditSaveAndRegenerate = useCallback((content: string) => {
+        if (!editingMessage) return;
+        
+        // 先更新消息内容
+        invoke("update_message_content", {
+            messageId: editingMessage.id,
+            content: content,
+        }).then(() => {
+            // 更新本地消息状态
+            setMessages(prevMessages => 
+                prevMessages.map(msg => 
+                    msg.id === editingMessage.id 
+                        ? { ...msg, content: content }
+                        : msg
+                )
+            );
+            
+            // 然后触发重新生成
+            handleMessageRegenerate(editingMessage.id);
+            
+            toast.success("消息已更新并开始重新生成");
+        }).catch((error) => {
+            toast.error("更新消息失败: " + error);
+        });
+    }, [editingMessage, handleMessageRegenerate]);
+
+    // 重新生成标题处理
+    const handleRegenerateTitle = useCallback(async () => {
+        if (!conversation?.id || isRegeneratingTitle) return;
+
+        setIsRegeneratingTitle(true);
+
+        try {
+            await invoke("regenerate_conversation_title", {
+                conversationId: conversation.id,
+            });
+            toast.success("标题已重新生成");
+        } catch (error) {
+            console.error("重新生成标题失败:", error);
+            toast.error("重新生成标题失败: " + error);
+        } finally {
+            setIsRegeneratingTitle(false);
+        }
+    }, [conversation, isRegeneratingTitle]);
+
     
     // 发送消息的主要处理函数，使用节流防止频繁点击
     const handleSend = throttle(() => {
@@ -1182,6 +1246,7 @@ function ConversationUI({
                                 onMessageRegenerate={() =>
                                     handleMessageRegenerate(message.id)
                                 }
+                                onMessageEdit={() => handleMessageEdit(message)}
                                 // Reasoning 展开状态相关 props
                                 isReasoningExpanded={reasoningExpandStates.get(message.id) || false}
                                 onToggleReasoningExpand={() => toggleReasoningExpand(message.id)}
@@ -1341,6 +1406,15 @@ function ConversationUI({
                     </div>
                 </div>
             </FormDialog>
+
+            <MessageEditDialog
+                isOpen={editDialogIsOpen}
+                initialContent={editingMessage?.content || ""}
+                messageType={editingMessage?.message_type || ""}
+                onClose={closeEditDialog}
+                onSave={handleEditSave}
+                onSaveAndRegenerate={handleEditSaveAndRegenerate}
+            />
 
             {isLoadingShow ? (
                 <div className="bg-white/95 w-full h-full absolute flex items-center justify-center backdrop-blur rounded-xl">

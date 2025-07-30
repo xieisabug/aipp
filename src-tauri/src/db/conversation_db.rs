@@ -278,6 +278,15 @@ impl MessageRepository {
         Ok(())
     }
 
+    /// 更新消息内容
+    pub fn update_content(&self, id: i64, content: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE message SET content = ?1 WHERE id = ?2",
+            (content, id),
+        )?;
+        Ok(())
+    }
+
     /// 获取指定对话的主线消息（用于默认显示）
     /// 主线消息是指没有parent_group_id的消息，以及每个generation_group_id的最新消息
     pub fn list_main_thread_by_conversation_id(

@@ -15,6 +15,7 @@ import IconButton from "./IconButton";
 import Copy from "../assets/copy.svg?react";
 import Ok from "../assets/ok.svg?react";
 import Refresh from "../assets/refresh.svg?react";
+import { Edit2 } from "lucide-react";
 import CodeBlock from "./CodeBlock";
 import MessageFileAttachment from "./MessageFileAttachment";
 import MessageWebContent from "./conversation/MessageWebContent";
@@ -93,13 +94,14 @@ interface MessageItemProps {
     streamEvent?: StreamEvent;
     onCodeRun?: (lang: string, code: string) => void;
     onMessageRegenerate?: () => void;
+    onMessageEdit?: () => void;
     // Reasoning 展开状态相关 props
     isReasoningExpanded?: boolean;
     onToggleReasoningExpand?: () => void;
 }
 
 const MessageItem = React.memo(
-    ({ message, streamEvent, onCodeRun, onMessageRegenerate, isReasoningExpanded = false, onToggleReasoningExpand }: MessageItemProps) => {
+    ({ message, streamEvent, onCodeRun, onMessageRegenerate, onMessageEdit, isReasoningExpanded = false, onToggleReasoningExpand }: MessageItemProps) => {
         // 性能监控
         usePerformanceMonitor('MessageItem', [
             message.id,
@@ -262,6 +264,12 @@ const MessageItem = React.memo(
                 ) : null}
 
                 <div className={`hidden group-hover:flex items-center absolute -bottom-9 py-3 px-4 box-border h-10 rounded-[21px] border border-border bg-background ${message.message_type === "user" ? "right-0" : "left-0"}`}>
+                    {((message.message_type === "assistant" || message.message_type === "response") || message.message_type === "user") && onMessageEdit ? (
+                        <IconButton
+                            icon={<Edit2 size={16} color="black" />}
+                            onClick={onMessageEdit}
+                        />
+                    ) : null}
                     {((message.message_type === "assistant" || message.message_type === "response") || message.message_type === "user") && onMessageRegenerate ? (
                         <IconButton
                             icon={<Refresh fill="black" />}
@@ -306,6 +314,7 @@ const MessageItem = React.memo(
         // 回调函数比较（通常应该是稳定的）
         if (prevProps.onCodeRun !== nextProps.onCodeRun) return false;
         if (prevProps.onMessageRegenerate !== nextProps.onMessageRegenerate) return false;
+        if (prevProps.onMessageEdit !== nextProps.onMessageEdit) return false;
         if (prevProps.onToggleReasoningExpand !== nextProps.onToggleReasoningExpand) return false;
         
         return true; // 所有关键属性都相同，不需要重新渲染
