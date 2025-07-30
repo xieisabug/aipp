@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { open } from "@tauri-apps/plugin-shell";
 import ReactMarkdown, { Components } from "react-markdown";
 import remarkMath from "remark-math";
 import remarkBreaks from "remark-breaks";
@@ -193,6 +194,25 @@ const MessageItem = React.memo(
                     >
                         {children}
                     </code>
+                );
+            },
+            a: ({ href, children, ...props }: { href?: string; children: React.ReactNode; [key: string]: any }) => {
+                const handleClick = useCallback((e: React.MouseEvent) => {
+                    e.preventDefault();
+                    if (href) {
+                        open(href).catch(console.error);
+                    }
+                }, [href]);
+
+                return (
+                    <a 
+                        href={href} 
+                        onClick={handleClick}
+                        className="text-blue-600 hover:text-blue-800 underline cursor-pointer"
+                        {...props}
+                    >
+                        {children}
+                    </a>
                 );
             },
         } as CustomComponents), [onCodeRun]);
