@@ -232,7 +232,7 @@ fn special_logic_0_0_4(
     println!("发现 {} 条废弃的assistant消息需要处理", deprecated_messages.len());
 
     // 将废弃的assistant消息转换为response消息
-    for (message_id, content) in deprecated_messages {
+    for (message_id, _content) in deprecated_messages {
         // 检查是否有对应的reasoning消息（通过时间相近来判断）
         let mut reasoning_stmt = conn
             .prepare("SELECT id FROM message WHERE message_type = 'reasoning' AND conversation_id = (SELECT conversation_id FROM message WHERE id = ?) AND ABS(julianday(created_time) - julianday((SELECT created_time FROM message WHERE id = ?))) < 0.001")

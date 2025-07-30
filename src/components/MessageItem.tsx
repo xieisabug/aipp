@@ -22,6 +22,7 @@ import MessageWebContent from "./conversation/MessageWebContent";
 import ReasoningMessage from "./ReasoningMessage";
 import { Message, StreamEvent } from "../data/Conversation";
 import { usePerformanceMonitor, measureSync } from "../hooks/usePerformanceMonitor";
+import { ShineBorder } from "./magicui/shine-border";
 
 interface CustomComponents extends Components {
     fileattachment: React.ElementType;
@@ -98,10 +99,12 @@ interface MessageItemProps {
     // Reasoning 展开状态相关 props
     isReasoningExpanded?: boolean;
     onToggleReasoningExpand?: () => void;
+    // ShineBorder 动画状态
+    shouldShowShineBorder?: boolean;
 }
 
 const MessageItem = React.memo(
-    ({ message, streamEvent, onCodeRun, onMessageRegenerate, onMessageEdit, isReasoningExpanded = false, onToggleReasoningExpand }: MessageItemProps) => {
+    ({ message, streamEvent, onCodeRun, onMessageRegenerate, onMessageEdit, isReasoningExpanded = false, onToggleReasoningExpand, shouldShowShineBorder = false }: MessageItemProps) => {
         // 性能监控
         usePerformanceMonitor('MessageItem', [
             message.id,
@@ -113,7 +116,7 @@ const MessageItem = React.memo(
         const [copyIconState, setCopyIconState] = useState<"copy" | "ok">(
             "copy",
         );
-        
+
         // 使用新的版本管理逻辑
         const displayedContent = useMemo(() => {
             return message.content;
@@ -183,7 +186,7 @@ const MessageItem = React.memo(
                 return match ? (
                     <CodeBlock
                         language={match[1]}
-                        onCodeRun={onCodeRun || (() => {})}
+                        onCodeRun={onCodeRun || (() => { })}
                     >
                         {children}
                     </CodeBlock>
@@ -198,7 +201,7 @@ const MessageItem = React.memo(
                     </code>
                 );
             },
-            a: ({ href, children, ...props }: { href?: string; children: React.ReactNode; [key: string]: any }) => {
+            a: ({ href, children, ...props }: { href?: string; children: React.ReactNode;[key: string]: any }) => {
                 const handleClick = useCallback((e: React.MouseEvent) => {
                     e.preventDefault();
                     if (href) {
@@ -207,8 +210,8 @@ const MessageItem = React.memo(
                 }, [href]);
 
                 return (
-                    <a 
-                        href={href} 
+                    <a
+                        href={href}
                         onClick={handleClick}
                         className="text-blue-600 hover:text-blue-800 underline cursor-pointer"
                         {...props}
@@ -240,6 +243,9 @@ const MessageItem = React.memo(
                         : "self-start bg-background text-foreground border border-border")
                 }
             >
+                {shouldShowShineBorder && (
+                    <ShineBorder shineColor={["#A07CFE", "#FE8FB5", "#FFBE7B"]} borderWidth={2} duration={8} />
+                )}
                 <div className="prose prose-sm max-w-none">{markdownElement}</div>
                 {message.attachment_list?.filter(
                     (a: any) => a.attachment_type === "Image",
@@ -296,27 +302,30 @@ const MessageItem = React.memo(
         if (prevProps.message.id !== nextProps.message.id) return false;
         if (prevProps.message.content !== nextProps.message.content) return false;
         if (prevProps.message.message_type !== nextProps.message.message_type) return false;
-        
+
         // regenerate 数组比较
         const prevRegenerate = prevProps.message.regenerate;
         const nextRegenerate = nextProps.message.regenerate;
         if (prevRegenerate?.length !== nextRegenerate?.length) return false;
-        
+
         // 流式事件比较
         const prevStreamEvent = prevProps.streamEvent;
         const nextStreamEvent = nextProps.streamEvent;
         if (prevStreamEvent?.is_done !== nextStreamEvent?.is_done) return false;
         if (prevStreamEvent?.content !== nextStreamEvent?.content) return false;
-        
+
         // reasoning 展开状态比较
         if (prevProps.isReasoningExpanded !== nextProps.isReasoningExpanded) return false;
-        
+
+        // ShineBorder 动画状态比较
+        if (prevProps.shouldShowShineBorder !== nextProps.shouldShowShineBorder) return false;
+
         // 回调函数比较（通常应该是稳定的）
         if (prevProps.onCodeRun !== nextProps.onCodeRun) return false;
         if (prevProps.onMessageRegenerate !== nextProps.onMessageRegenerate) return false;
         if (prevProps.onMessageEdit !== nextProps.onMessageEdit) return false;
         if (prevProps.onToggleReasoningExpand !== nextProps.onToggleReasoningExpand) return false;
-        
+
         return true; // 所有关键属性都相同，不需要重新渲染
     }
 );

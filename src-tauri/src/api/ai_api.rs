@@ -18,7 +18,6 @@ use tauri::Emitter;
 use tauri::State;
 use tokio_util::sync::CancellationToken;
 
-
 /// Conversation事件数据结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ConversationEvent {
@@ -73,7 +72,6 @@ struct ChatConfig {
     chat_options: ChatOptions,
     client: Client,
 }
-
 
 /// 配置构建器
 struct ConfigBuilder;
@@ -171,14 +169,14 @@ fn build_chat_messages(
         if message_type == "reasoning" {
             continue;
         }
-        
+
         // 将 response 类型转换为 assistant 角色
         let role = if message_type == "response" {
             "assistant"
         } else {
             message_type.as_str()
         };
-        
+
         // 如果没有附件，使用简单的文本消息
         if attachments.is_empty() {
             match role {
@@ -356,13 +354,13 @@ fn handle_message_type_end(
 ) -> Result<(), anyhow::Error> {
     let end_time = chrono::Utc::now();
     let duration_ms = end_time.timestamp_millis() - start_time.timestamp_millis();
-    
+
     // 更新数据库的finish_time
     conversation_db
         .message_repo()
         .unwrap()
         .update_finish_time(message_id)?;
-    
+
     // 发送类型结束事件
     let type_end_event = ConversationEvent {
         r#type: "message_type_end".to_string(),
@@ -371,13 +369,14 @@ fn handle_message_type_end(
             message_type: message_type.to_string(),
             duration_ms,
             end_time,
-        }).unwrap(),
+        })
+        .unwrap(),
     };
     let _ = window.emit(
         format!("conversation_event_{}", conversation_id).as_str(),
-        type_end_event
+        type_end_event,
     );
-    
+
     // 发送最终的更新事件，标记为完成
     let final_update_event = ConversationEvent {
         r#type: "message_update".to_string(),
@@ -386,13 +385,14 @@ fn handle_message_type_end(
             message_type: message_type.to_string(),
             content: content.to_string(),
             is_done: true,
-        }).unwrap(),
+        })
+        .unwrap(),
     };
     let _ = window.emit(
         format!("conversation_event_{}", conversation_id).as_str(),
-        final_update_event
+        final_update_event,
     );
-    
+
     Ok(())
 }
 
@@ -433,9 +433,9 @@ async fn handle_stream_chat(
     user_prompt: String,
     config_feature_map: HashMap<String, HashMap<String, FeatureConfig>>,
     generation_group_id_override: Option<String>, // 新增参数，用于regenerate时复用group_id
-    parent_group_id_override: Option<String>, // 新增参数，用于设置parent_group_id
-    llm_model_id: i64, // 模型ID
-    llm_model_name: String, // 模型名称
+    parent_group_id_override: Option<String>,     // 新增参数，用于设置parent_group_id
+    llm_model_id: i64,                            // 模型ID
+    llm_model_name: String,                       // 模型名称
 ) -> Result<(), anyhow::Error> {
     // 添加重试逻辑
     let mut attempts = 0;
@@ -451,7 +451,10 @@ async fn handle_stream_chat(
                     eprintln!("Chat stream failed after {} attempts: {}", attempts, e);
                     break Err(e);
                 }
-                eprintln!("Chat stream attempt {} failed: {}, retrying...", attempts, e);
+                eprintln!(
+                    "Chat stream attempt {} failed: {}, retrying...",
+                    attempts, e
+                );
                 sleep(Duration::from_millis(RETRY_DELAY_MS)).await;
             }
         }
@@ -464,15 +467,15 @@ async fn handle_stream_chat(
             let mut response_content = String::new();
             let mut reasoning_message_id: Option<i64> = None;
             let mut response_message_id: Option<i64> = None;
-            
+
             // 为这次生成确定组ID：优先使用传入的group_id，否则创建新的
-            let generation_group_id = generation_group_id_override
-                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-            
+            let generation_group_id =
+                generation_group_id_override.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
             // 检查是否为重新生成操作（如果有parent_group_id_override则为重新生成）
             let is_regeneration = parent_group_id_override.is_some();
             let mut group_merge_event_emitted = false;
-            
+
             // 状态跟踪变量
             let mut current_output_type: Option<String> = None;
             let mut reasoning_start_time: Option<chrono::DateTime<chrono::Utc>> = None;
@@ -505,20 +508,20 @@ async fn handle_stream_chat(
                                                 });
                                             }
                                         }
-                                        
+
                                         // 切换到response状态
                                         if current_output_type != Some("response".to_string()) {
                                             current_output_type = Some("response".to_string());
                                         }
-                                        
+
                                         // 处理正常回答内容
                                         response_content.push_str(&chunk.content);
-                                        
+
                                         // 如果还没有创建 response 消息，创建一个
                                         if response_message_id.is_none() {
                                             let now = chrono::Utc::now();
                                             response_start_time = Some(now);
-                                            
+
                                             let new_message = conversation_db
                                                 .message_repo()
                                                 .unwrap()
@@ -539,7 +542,7 @@ async fn handle_stream_chat(
                                                 })
                                                 .unwrap();
                                             response_message_id = Some(new_message.id);
-                                            
+
                                             // 发送消息添加事件
                                             let add_event = ConversationEvent {
                                                 r#type: "message_add".to_string(),
@@ -553,7 +556,7 @@ async fn handle_stream_chat(
                                                 format!("conversation_event_{}", conversation_id).as_str(),
                                                 add_event
                                             );
-                                            
+
                                             // 如果是重新生成并且还没有发送组合并事件，则发送
                                             if is_regeneration && !group_merge_event_emitted {
                                                 if let Some(ref parent_group_id) = parent_group_id_override {
@@ -575,7 +578,7 @@ async fn handle_stream_chat(
                                                 }
                                             }
                                         }
-                                        
+
                                         // 更新消息内容
                                         if let Some(msg_id) = response_message_id {
                                             let mut message = conversation_db
@@ -590,7 +593,7 @@ async fn handle_stream_chat(
                                                 .unwrap()
                                                 .update(&message)
                                                 .unwrap();
-                                            
+
                                             // 发送消息更新事件
                                             let update_event = ConversationEvent {
                                                 r#type: "message_update".to_string(),
@@ -612,15 +615,15 @@ async fn handle_stream_chat(
                                         if current_output_type != Some("reasoning".to_string()) {
                                             current_output_type = Some("reasoning".to_string());
                                         }
-                                        
+
                                         // 处理推理内容
                                         reasoning_content.push_str(&reasoning_chunk.content);
-                                        
+
                                         // 如果还没有创建 reasoning 消息，创建一个
                                         if reasoning_message_id.is_none() {
                                             let now = chrono::Utc::now();
                                             reasoning_start_time = Some(now);
-                                            
+
                                             let new_message = conversation_db
                                                 .message_repo()
                                                 .unwrap()
@@ -641,7 +644,7 @@ async fn handle_stream_chat(
                                                 })
                                                 .unwrap();
                                             reasoning_message_id = Some(new_message.id);
-                                            
+
                                             // 发送消息添加事件
                                             let add_event = ConversationEvent {
                                                 r#type: "message_add".to_string(),
@@ -655,7 +658,7 @@ async fn handle_stream_chat(
                                                 format!("conversation_event_{}", conversation_id).as_str(),
                                                 add_event
                                             );
-                                            
+
                                             // 如果是重新生成并且还没有发送组合并事件，则发送
                                             if is_regeneration && !group_merge_event_emitted {
                                                 if let Some(ref parent_group_id) = parent_group_id_override {
@@ -677,7 +680,7 @@ async fn handle_stream_chat(
                                                 }
                                             }
                                         }
-                                        
+
                                         // 更新消息内容
                                         if let Some(msg_id) = reasoning_message_id {
                                             let mut message = conversation_db
@@ -692,7 +695,7 @@ async fn handle_stream_chat(
                                                 .unwrap()
                                                 .update(&message)
                                                 .unwrap();
-                                            
+
                                             // 发送消息更新事件
                                             let update_event = ConversationEvent {
                                                 r#type: "message_update".to_string(),
@@ -743,7 +746,7 @@ async fn handle_stream_chat(
                                                     ).unwrap_or_else(|e| {
                                                         eprintln!("Failed to handle response type end: {}", e);
                                                     });
-                                                    
+
                                                     // 在 response 完成后自动生成标题
                                                     if need_generate_title && !response_content.is_empty() {
                                                         let app_handle_clone = app_handle.clone();
@@ -751,7 +754,7 @@ async fn handle_stream_chat(
                                                         let response_content_clone = response_content.clone();
                                                         let config_feature_map_clone = config_feature_map.clone();
                                                         let window_clone = window.clone();
-                                                        
+
                                                         tokio::spawn(async move {
                                                             if let Err(e) = generate_title(
                                                                 &app_handle_clone,
@@ -788,7 +791,7 @@ async fn handle_stream_chat(
                                 eprintln!("Stream error: {}", e);
                                 cleanup_token(tokens, initial_message_id).await;
                                 let err_msg = format!("Chat stream error: {}", e);
-                                
+
                                 // 发送错误事件到任一存在的消息
                                 if let Some(msg_id) = response_message_id.or(reasoning_message_id) {
                                     let error_event = ConversationEvent {
@@ -805,7 +808,7 @@ async fn handle_stream_chat(
                                         error_event
                                     );
                                 }
-                                
+
                                 return Err(anyhow::anyhow!("Stream error: {}", e));
                             },
                             None => {
@@ -839,7 +842,7 @@ async fn handle_stream_chat(
                                             ).unwrap_or_else(|e| {
                                                 eprintln!("Failed to handle response type end: {}", e);
                                             });
-                                            
+
                                             // 在 response 完成后自动生成标题
                                             if need_generate_title && !response_content.is_empty() {
                                                 let app_handle_clone = app_handle.clone();
@@ -847,7 +850,7 @@ async fn handle_stream_chat(
                                                 let response_content_clone = response_content.clone();
                                                 let config_feature_map_clone = config_feature_map.clone();
                                                 let window_clone = window.clone();
-                                                
+
                                                 tokio::spawn(async move {
                                                     if let Err(e) = generate_title(
                                                         &app_handle_clone,
@@ -890,7 +893,7 @@ async fn handle_stream_chat(
         Err(e) => {
             cleanup_token(tokens, initial_message_id).await;
             let err_msg = format!("Chat stream error: {}", e);
-            
+
             // 发送错误事件
             let error_event = ConversationEvent {
                 r#type: "message_update".to_string(),
@@ -899,11 +902,12 @@ async fn handle_stream_chat(
                     message_type: "error".to_string(),
                     content: err_msg,
                     is_done: true,
-                }).unwrap(),
+                })
+                .unwrap(),
             };
             let _ = window.emit(
                 format!("conversation_event_{}", conversation_id).as_str(),
-                error_event
+                error_event,
             );
             eprintln!("Chat stream error: {}", e);
             return Err(anyhow::anyhow!("Chat stream error: {}", e));
@@ -928,14 +932,14 @@ async fn handle_non_stream_chat(
     user_prompt: String,
     config_feature_map: HashMap<String, HashMap<String, FeatureConfig>>,
     generation_group_id_override: Option<String>, // 新增参数，用于regenerate时复用group_id
-    parent_group_id_override: Option<String>, // 新增参数，用于设置parent_group_id
-    llm_model_id: i64, // 模型ID
-    llm_model_name: String, // 模型名称
+    parent_group_id_override: Option<String>,     // 新增参数，用于设置parent_group_id
+    llm_model_id: i64,                            // 模型ID
+    llm_model_name: String,                       // 模型名称
 ) -> Result<(), anyhow::Error> {
     // 为这次生成确定组ID：优先使用传入的group_id，否则创建新的
-    let generation_group_id = generation_group_id_override
-        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    
+    let generation_group_id =
+        generation_group_id_override.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
     // 创建一个 response 类型的消息
     let response_message = conversation_db
         .message_repo()
@@ -965,11 +969,12 @@ async fn handle_non_stream_chat(
             message_id: response_message_id,
             message_type: "response".to_string(),
             temp_message_id: initial_message_id,
-        }).unwrap(),
+        })
+        .unwrap(),
     };
     let _ = window.emit(
         format!("conversation_event_{}", conversation_id).as_str(),
-        add_event
+        add_event,
     );
 
     let chat_result = tokio::select! {
@@ -1021,7 +1026,7 @@ async fn handle_non_stream_chat(
                 .unwrap()
                 .update_finish_time(response_message_id)
                 .unwrap();
-            
+
             // 发送消息更新事件（完成状态）
             let update_event = ConversationEvent {
                 r#type: "message_update".to_string(),
@@ -1030,13 +1035,14 @@ async fn handle_non_stream_chat(
                     message_type: "response".to_string(),
                     content: content.clone(),
                     is_done: true,
-                }).unwrap(),
+                })
+                .unwrap(),
             };
             let _ = window.emit(
                 format!("conversation_event_{}", conversation_id).as_str(),
-                update_event
+                update_event,
             );
-            
+
             // 在非流式消息完成后自动生成标题
             if need_generate_title && !content.is_empty() {
                 let app_handle_clone = app_handle.clone();
@@ -1044,7 +1050,7 @@ async fn handle_non_stream_chat(
                 let content_clone = content.clone();
                 let config_feature_map_clone = config_feature_map.clone();
                 let window_clone = window.clone();
-                
+
                 tokio::spawn(async move {
                     if let Err(e) = generate_title(
                         &app_handle_clone,
@@ -1053,18 +1059,20 @@ async fn handle_non_stream_chat(
                         content_clone,
                         config_feature_map_clone,
                         window_clone,
-                    ).await {
+                    )
+                    .await
+                    {
                         eprintln!("Failed to generate title: {}", e);
                     }
                 });
             }
-            
+
             Ok(())
         }
         Err(e) => {
             cleanup_token(tokens, initial_message_id).await;
             let err_msg = format!("Chat error: {}", e);
-            
+
             // 发送错误事件
             let error_event = ConversationEvent {
                 r#type: "message_update".to_string(),
@@ -1073,19 +1081,19 @@ async fn handle_non_stream_chat(
                     message_type: "error".to_string(),
                     content: err_msg,
                     is_done: true,
-                }).unwrap(),
+                })
+                .unwrap(),
             };
             let _ = window.emit(
                 format!("conversation_event_{}", conversation_id).as_str(),
-                error_event
+                error_event,
             );
-            
+
             eprintln!("Chat error: {}", e);
             Err(anyhow::anyhow!("Chat error: {}", e))
         }
     }
 }
-
 
 #[tauri::command]
 pub async fn ask_ai(
@@ -1151,150 +1159,149 @@ pub async fn ask_ai(
         .store_token(temp_message_id, cancel_token.clone())
         .await;
 
-        // 在异步任务外获取模型详情（避免线程安全问题）
-        let llm_db = LLMDatabase::new(&app_handle).map_err(AppError::from)?;
-        let provider_id = &assistant_detail.model[0].provider_id;
-        let model_code = &assistant_detail.model[0].model_code;
-        let model_detail = llm_db
-            .get_llm_model_detail(provider_id, model_code)
-            .context("Failed to get LLM model detail")?;
+    // 在异步任务外获取模型详情（避免线程安全问题）
+    let llm_db = LLMDatabase::new(&app_handle).map_err(AppError::from)?;
+    let provider_id = &assistant_detail.model[0].provider_id;
+    let model_code = &assistant_detail.model[0].model_code;
+    let model_detail = llm_db
+        .get_llm_model_detail(provider_id, model_code)
+        .context("Failed to get LLM model detail")?;
 
-        let tokens = message_token_manager.get_tokens();
-        let window_clone = window.clone(); // 在移动之前克隆
-        let model_id = model_detail.model.id; // 提前获取模型ID
-        let model_code = model_detail.model.code.clone(); // 提前获取模型代码
-        let model_configs = model_detail.configs.clone(); // 提前获取模型配置
-        let provider_api_type = model_detail.provider.api_type.clone(); // 提前获取API类型
-        let assistant_model_configs = assistant_detail.model_configs.clone(); // 提前获取助手模型配置
-        tokio::spawn(async move {
-            // 直接创建数据库连接（避免线程安全问题）
-            let conversation_db = ConversationDatabase::new(&app_handle_clone).unwrap();
+    let tokens = message_token_manager.get_tokens();
+    let window_clone = window.clone(); // 在移动之前克隆
+    let model_id = model_detail.model.id; // 提前获取模型ID
+    let model_code = model_detail.model.code.clone(); // 提前获取模型代码
+    let model_configs = model_detail.configs.clone(); // 提前获取模型配置
+    let provider_api_type = model_detail.provider.api_type.clone(); // 提前获取API类型
+    let assistant_model_configs = assistant_detail.model_configs.clone(); // 提前获取助手模型配置
+    tokio::spawn(async move {
+        // 直接创建数据库连接（避免线程安全问题）
+        let conversation_db = ConversationDatabase::new(&app_handle_clone).unwrap();
 
-            // 构建聊天配置
-            let client = genai_client::create_client_with_config(
-                &model_configs,
-                &model_code,
-                &provider_api_type,
-            )?;
+        // 构建聊天配置
+        let client = genai_client::create_client_with_config(
+            &model_configs,
+            &model_code,
+            &provider_api_type,
+        )?;
 
-            // 创建一个临时的 ModelDetail 用于配置合并
-            let temp_model_detail = crate::db::llm_db::ModelDetail {
-                model: crate::db::llm_db::LLMModel {
-                    id: model_id,
-                    name: model_code.clone(),
-                    code: model_code.clone(),
-                    llm_provider_id: 0, // 临时值
-                    description: String::new(), // 临时值
-                    vision_support: false, // 临时值
-                    audio_support: false, // 临时值
-                    video_support: false, // 临时值
-                },
-                provider: crate::db::llm_db::LLMProvider {
-                    id: 0, // 临时值
-                    name: String::new(), // 临时值
-                    api_type: provider_api_type.clone(),
-                    description: String::new(), // 临时值
-                    is_official: false, // 临时值
-                    is_enabled: true, // 临时值
-                },
-                configs: model_configs.clone(),
-            };
+        // 创建一个临时的 ModelDetail 用于配置合并
+        let temp_model_detail = crate::db::llm_db::ModelDetail {
+            model: crate::db::llm_db::LLMModel {
+                id: model_id,
+                name: model_code.clone(),
+                code: model_code.clone(),
+                llm_provider_id: 0,         // 临时值
+                description: String::new(), // 临时值
+                vision_support: false,      // 临时值
+                audio_support: false,       // 临时值
+                video_support: false,       // 临时值
+            },
+            provider: crate::db::llm_db::LLMProvider {
+                id: 0,               // 临时值
+                name: String::new(), // 临时值
+                api_type: provider_api_type.clone(),
+                description: String::new(), // 临时值
+                is_official: false,         // 临时值
+                is_enabled: true,           // 临时值
+            },
+            configs: model_configs.clone(),
+        };
 
-            let model_config_clone = ConfigBuilder::merge_model_configs(
-                assistant_model_configs,
-                &temp_model_detail,
-                override_model_config,
-            );
+        let model_config_clone = ConfigBuilder::merge_model_configs(
+            assistant_model_configs,
+            &temp_model_detail,
+            override_model_config,
+        );
 
-            let config_map = model_config_clone
-                .iter()
-                .filter_map(|config| {
-                    config
-                        .value
-                        .as_ref()
-                        .map(|value| (config.name.clone(), value.clone()))
-                })
-                .collect::<HashMap<String, String>>();
+        let config_map = model_config_clone
+            .iter()
+            .filter_map(|config| {
+                config
+                    .value
+                    .as_ref()
+                    .map(|value| (config.name.clone(), value.clone()))
+            })
+            .collect::<HashMap<String, String>>();
 
-            let stream = config_map
-                .get("stream")
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(false);
+        let stream = config_map
+            .get("stream")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(false);
 
-            let model_name = config_map
-                .get("model")
-                .cloned()
-                .unwrap_or_else(|| model_code.clone());
+        let model_name = config_map
+            .get("model")
+            .cloned()
+            .unwrap_or_else(|| model_code.clone());
 
-            let chat_options = ConfigBuilder::build_chat_options(&config_map);
+        let chat_options = ConfigBuilder::build_chat_options(&config_map);
 
-            let chat_config = ChatConfig {
-                model_name,
-                stream,
-                chat_options: chat_options.with_normalize_reasoning_content(true),
-                client,
-            };
+        let chat_config = ChatConfig {
+            model_name,
+            stream,
+            chat_options: chat_options.with_normalize_reasoning_content(true),
+            client,
+        };
 
-            println!(
-                "Using model: {}, stream: {}",
-                chat_config.model_name, chat_config.stream
-            );
+        println!(
+            "Using model: {}, stream: {}",
+            chat_config.model_name, chat_config.stream
+        );
 
-            // Convert messages to ChatMessage format
-            let chat_messages = build_chat_messages(&init_message_list);
-            let chat_request = ChatRequest::new(chat_messages);
+        // Convert messages to ChatMessage format
+        let chat_messages = build_chat_messages(&init_message_list);
+        let chat_request = ChatRequest::new(chat_messages);
 
-            if chat_config.stream {
-                // 使用 genai 流式处理
-                handle_stream_chat(
-                    &chat_config.client,
-                    &chat_config.model_name,
-                    &chat_request,
-                    &chat_config.chat_options,
-                    conversation_id,
-                    temp_message_id,
-                    &cancel_token,
-                    &conversation_db,
-                    &tokens,
-                    &window_clone,
-                    &app_handle_clone,
-                    _need_generate_title,
-                    request.prompt.clone(),
-                    _config_feature_map.clone(),
-                    None, // 普通ask_ai不需要复用generation_group_id
-                    None, // 普通ask_ai不需要parent_group_id
-                    model_id, // 传递模型ID
-                    model_code.clone(), // 传递模型名称
-                )
-                .await?;
-            } else {
-                // Use genai non-streaming
-                handle_non_stream_chat(
-                    &chat_config.client,
-                    &chat_config.model_name,
-                    &chat_request,
-                    &chat_config.chat_options,
-                    conversation_id,
-                    temp_message_id,
-                    &cancel_token,
-                    &conversation_db,
-                    &tokens,
-                    &window_clone,
-                    &app_handle_clone,
-                    _need_generate_title,
-                    request.prompt.clone(),
-                    _config_feature_map.clone(),
-                    None, // 普通ask_ai不需要复用generation_group_id
-                    None, // 普通ask_ai不需要parent_group_id
-                    model_id, // 传递模型ID
-                    model_code.clone(), // 传递模型名称
-                )
-                .await?;
-            }
+        if chat_config.stream {
+            // 使用 genai 流式处理
+            handle_stream_chat(
+                &chat_config.client,
+                &chat_config.model_name,
+                &chat_request,
+                &chat_config.chat_options,
+                conversation_id,
+                temp_message_id,
+                &cancel_token,
+                &conversation_db,
+                &tokens,
+                &window_clone,
+                &app_handle_clone,
+                _need_generate_title,
+                request.prompt.clone(),
+                _config_feature_map.clone(),
+                None,               // 普通ask_ai不需要复用generation_group_id
+                None,               // 普通ask_ai不需要parent_group_id
+                model_id,           // 传递模型ID
+                model_code.clone(), // 传递模型名称
+            )
+            .await?;
+        } else {
+            // Use genai non-streaming
+            handle_non_stream_chat(
+                &chat_config.client,
+                &chat_config.model_name,
+                &chat_request,
+                &chat_config.chat_options,
+                conversation_id,
+                temp_message_id,
+                &cancel_token,
+                &conversation_db,
+                &tokens,
+                &window_clone,
+                &app_handle_clone,
+                _need_generate_title,
+                request.prompt.clone(),
+                _config_feature_map.clone(),
+                None,               // 普通ask_ai不需要复用generation_group_id
+                None,               // 普通ask_ai不需要parent_group_id
+                model_id,           // 传递模型ID
+                model_code.clone(), // 传递模型名称
+            )
+            .await?;
+        }
 
-            Ok::<(), Error>(())
-        });
-
+        Ok::<(), Error>(())
+    });
 
     println!("================================ Ask AI End ===============================================");
 
@@ -1402,7 +1409,7 @@ pub async fn regenerate_ai(
         // 用户消息重发：包含当前用户消息和之前的所有消息，新生成的assistant消息没有parent（新一轮对话）
         let filtered_messages: Vec<(Message, Option<MessageAttachment>)> = messages
             .into_iter()
-            .filter(|m| m.0.id <= message_id)  // 包含当前消息
+            .filter(|m| m.0.id <= message_id) // 包含当前消息
             .collect();
         (filtered_messages, None) // 用户消息重发时，新的AI回复没有parent_id
     } else {
@@ -1465,41 +1472,49 @@ pub async fn regenerate_ai(
     }
 
     // 确定要使用的generation_group_id和parent_group_id
-    let (regenerate_generation_group_id, regenerate_parent_group_id) = if message.message_type == "user" {
-        // 用户消息重发：为新的AI回复生成全新的group_id
-        // 查找该user message后面第一条非user、非system的消息，用它的generation_group_id作为parent_group_id
-        let mut parent_group_id: Option<String> = None;
-        
-        // 获取对话中的所有消息，按ID排序
-        let all_messages = db
-            .message_repo()
-            .unwrap()
-            .list_by_conversation_id(conversation_id)?;
-        
-        // 找到当前user message在列表中的位置
-        if let Some(message_index) = all_messages.iter().position(|(msg, _)| msg.id == message_id) {
-            // 查找该user message后面第一条非user、非system的消息
-            for (next_msg, _) in all_messages.iter().skip(message_index + 1) {
-                if next_msg.message_type != "user" && 
-                   next_msg.message_type != "system" && 
-                   next_msg.generation_group_id.is_some() {
-                    parent_group_id = next_msg.generation_group_id.clone();
-                    println!("Found parent group ID for user message regenerate: {:?}", parent_group_id);
-                    break;
+    let (regenerate_generation_group_id, regenerate_parent_group_id) =
+        if message.message_type == "user" {
+            // 用户消息重发：为新的AI回复生成全新的group_id
+            // 查找该user message后面第一条非user、非system的消息，用它的generation_group_id作为parent_group_id
+            let mut parent_group_id: Option<String> = None;
+
+            // 获取对话中的所有消息，按ID排序
+            let all_messages = db
+                .message_repo()
+                .unwrap()
+                .list_by_conversation_id(conversation_id)?;
+
+            // 找到当前user message在列表中的位置
+            if let Some(message_index) = all_messages
+                .iter()
+                .position(|(msg, _)| msg.id == message_id)
+            {
+                // 查找该user message后面第一条非user、非system的消息
+                for (next_msg, _) in all_messages.iter().skip(message_index + 1) {
+                    if next_msg.message_type != "user"
+                        && next_msg.message_type != "system"
+                        && next_msg.generation_group_id.is_some()
+                    {
+                        parent_group_id = next_msg.generation_group_id.clone();
+                        println!(
+                            "Found parent group ID for user message regenerate: {:?}",
+                            parent_group_id
+                        );
+                        break;
+                    }
                 }
             }
-        }
-        
-        (Some(uuid::Uuid::new_v4().to_string()), parent_group_id)
-    } else {
-        // AI消息重发：生成新的group_id，并将原消息的group_id作为parent_group_id
-        let original_group_id = message.generation_group_id.clone();
-        (Some(uuid::Uuid::new_v4().to_string()), original_group_id)
-    };
+
+            (Some(uuid::Uuid::new_v4().to_string()), parent_group_id)
+        } else {
+            // AI消息重发：生成新的group_id，并将原消息的group_id作为parent_group_id
+            let original_group_id = message.generation_group_id.clone();
+            (Some(uuid::Uuid::new_v4().to_string()), original_group_id)
+        };
 
     // 使用临时ID用于取消令牌管理，实际消息将在流式处理中动态创建
     let temp_message_id = chrono::Utc::now().timestamp_millis();
-    
+
     let cancel_token = CancellationToken::new();
     message_token_manager
         .store_token(temp_message_id, cancel_token.clone())
@@ -1538,19 +1553,19 @@ pub async fn regenerate_ai(
                 id: regenerate_model_id,
                 name: regenerate_model_code.clone(),
                 code: regenerate_model_code.clone(),
-                llm_provider_id: 0, // 临时值
+                llm_provider_id: 0,         // 临时值
                 description: String::new(), // 临时值
-                vision_support: false, // 临时值
-                audio_support: false, // 临时值
-                video_support: false, // 临时值
+                vision_support: false,      // 临时值
+                audio_support: false,       // 临时值
+                video_support: false,       // 临时值
             },
             provider: crate::db::llm_db::LLMProvider {
-                id: 0, // 临时值
+                id: 0,               // 临时值
                 name: String::new(), // 临时值
                 api_type: regenerate_provider_api_type.clone(),
                 description: String::new(), // 临时值
-                is_official: false, // 临时值
-                is_enabled: true, // 临时值
+                is_official: false,         // 临时值
+                is_enabled: true,           // 临时值
             },
             configs: regenerate_model_configs.clone(),
         };
@@ -1592,6 +1607,7 @@ pub async fn regenerate_ai(
 
         // Convert messages to ChatMessage format
         let chat_messages = build_chat_messages(&init_message_list);
+        println!("final chat_messages: {:?}", chat_messages);
         let chat_request = ChatRequest::new(chat_messages);
 
         if chat_config.stream {
@@ -1608,13 +1624,13 @@ pub async fn regenerate_ai(
                 &tokens,
                 &window_clone,
                 &app_handle_clone,
-                false, // regenerate 不需要生成标题
-                String::new(), // regenerate 不需要用户提示
-                HashMap::new(), // regenerate 不需要配置
+                false,                                  // regenerate 不需要生成标题
+                String::new(),                          // regenerate 不需要用户提示
+                HashMap::new(),                         // regenerate 不需要配置
                 regenerate_generation_group_id.clone(), // 传递generation_group_id用于复用
-                regenerate_parent_group_id.clone(), // 传递parent_group_id设置版本关系
-                regenerate_model_id, // 传递模型ID
-                regenerate_model_code.clone(), // 传递模型名称
+                regenerate_parent_group_id.clone(),     // 传递parent_group_id设置版本关系
+                regenerate_model_id,                    // 传递模型ID
+                regenerate_model_code.clone(),          // 传递模型名称
             )
             .await?;
         } else {
@@ -1631,13 +1647,13 @@ pub async fn regenerate_ai(
                 &tokens,
                 &window_clone,
                 &app_handle_clone,
-                false, // regenerate 不需要生成标题
-                String::new(), // regenerate 不需要用户提示
-                HashMap::new(), // regenerate 不需要配置
+                false,                                  // regenerate 不需要生成标题
+                String::new(),                          // regenerate 不需要用户提示
+                HashMap::new(),                         // regenerate 不需要配置
                 regenerate_generation_group_id.clone(), // 传递generation_group_id用于复用
-                regenerate_parent_group_id.clone(), // 传递parent_group_id设置版本关系
-                regenerate_model_id, // 传递模型ID
-                regenerate_model_code.clone(), // 传递模型名称
+                regenerate_parent_group_id.clone(),     // 传递parent_group_id设置版本关系
+                regenerate_model_id,                    // 传递模型ID
+                regenerate_model_code.clone(),          // 传递模型名称
             )
             .await?;
         }
@@ -1997,7 +2013,10 @@ async fn generate_title(
                         eprintln!("Title generation failed after {} attempts: {}", attempts, e);
                         break Err(e.to_string());
                     }
-                    eprintln!("Title generation attempt {} failed: {}, retrying...", attempts, e);
+                    eprintln!(
+                        "Title generation attempt {} failed: {}, retrying...",
+                        attempts, e
+                    );
                     sleep(Duration::from_millis(RETRY_DELAY_MS)).await;
                 }
             }
@@ -2058,7 +2077,7 @@ pub async fn regenerate_conversation_title(
         .find(|(msg, _)| msg.message_type == "user")
         .map(|(msg, _)| msg)
         .ok_or_else(|| AppError::InsufficientMessages)?;
-    
+
     // 获取第一条AI回答（可选）
     let response_message = messages
         .iter()
@@ -2072,7 +2091,7 @@ pub async fn regenerate_conversation_title(
     let response_content = response_message
         .map(|msg| msg.content.clone())
         .unwrap_or_default(); // 如果没有回答，使用空字符串
-    
+
     generate_title(
         &app_handle,
         conversation_id,
@@ -2104,7 +2123,7 @@ fn finish_stream_messages(
                 .unwrap()
                 .update_finish_time(msg_id)
                 .unwrap();
-            
+
             let complete_event = ConversationEvent {
                 r#type: "message_update".to_string(),
                 data: serde_json::to_value(MessageUpdateEvent {
@@ -2112,15 +2131,16 @@ fn finish_stream_messages(
                     message_type: "reasoning".to_string(),
                     content: reasoning_content.to_string(),
                     is_done: true,
-                }).unwrap(),
+                })
+                .unwrap(),
             };
             let _ = window.emit(
                 format!("conversation_event_{}", conversation_id).as_str(),
-                complete_event
+                complete_event,
             );
         }
     }
-    
+
     // 结束 response 消息
     if let Some(msg_id) = response_message_id {
         conversation_db
@@ -2128,7 +2148,7 @@ fn finish_stream_messages(
             .unwrap()
             .update_finish_time(msg_id)
             .unwrap();
-        
+
         let complete_event = ConversationEvent {
             r#type: "message_update".to_string(),
             data: serde_json::to_value(MessageUpdateEvent {
@@ -2136,13 +2156,14 @@ fn finish_stream_messages(
                 message_type: "response".to_string(),
                 content: response_content.to_string(),
                 is_done: true,
-            }).unwrap(),
+            })
+            .unwrap(),
         };
         let _ = window.emit(
             format!("conversation_event_{}", conversation_id).as_str(),
-            complete_event
+            complete_event,
         );
     }
-    
+
     Ok(())
 }

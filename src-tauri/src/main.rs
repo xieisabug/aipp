@@ -15,7 +15,9 @@ mod window;
 
 use crate::api::ai_api::{ask_ai, cancel_ai, regenerate_ai, regenerate_conversation_title};
 use crate::api::artifacts_api::{
-    check_bun_version, check_uv_version, install_bun, install_uv, run_artifacts, open_react_component_preview, preview_react_component, confirm_environment_install, retry_preview_after_install,
+    check_bun_version, check_uv_version, confirm_environment_install, install_bun, install_uv,
+    open_react_component_preview, preview_react_component, retry_preview_after_install,
+    run_artifacts,
 };
 use crate::api::assistant_api::{
     add_assistant, copy_assistant, delete_assistant, get_assistant, get_assistant_field_value,
@@ -23,7 +25,8 @@ use crate::api::assistant_api::{
 };
 use crate::api::attachment_api::{add_attachment, open_attachment_with_default_app};
 use crate::api::conversation_api::{
-    delete_conversation, get_conversation_with_messages, list_conversations, update_conversation, update_message_content,
+    delete_conversation, get_conversation_with_messages, list_conversations, update_conversation,
+    update_message_content,
 };
 use crate::api::llm_api::{
     add_llm_model, add_llm_provider, delete_llm_model, delete_llm_provider, fetch_model_list,
@@ -34,13 +37,18 @@ use crate::api::system_api::{
     get_all_feature_config, get_bang_list, get_selected_text_api, open_data_folder,
     save_feature_config,
 };
-use crate::artifacts::react_preview::{create_react_preview, create_react_preview_for_artifact, close_react_preview};
-use crate::artifacts::vue_preview::{create_vue_preview, create_vue_preview_for_artifact, close_vue_preview};
+use crate::artifacts::react_preview::{
+    close_react_preview, create_react_preview, create_react_preview_for_artifact,
+};
+use crate::artifacts::vue_preview::{
+    close_vue_preview, create_vue_preview, create_vue_preview_for_artifact,
+};
 use crate::db::assistant_db::AssistantDatabase;
 use crate::db::llm_db::LLMDatabase;
 use crate::db::system_db::SystemDatabase;
 use crate::window::{
-    create_ask_window, open_chat_ui_window, open_config_window, open_plugin_window, open_preview_frontend_window, open_artifact_preview_window,
+    create_ask_window, open_artifact_preview_window, open_chat_ui_window, open_config_window,
+    open_plugin_window, open_preview_frontend_window,
 };
 use chrono::Local;
 use db::conversation_db::ConversationDatabase;
@@ -324,7 +332,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         RunEvent::ExitRequested { api, .. } => {
             api.prevent_exit();
         }
-        RunEvent::Reopen { .. } => {
+        RunEvent::Resumed { .. } => {
             handle_open_ask_window(app_handle);
         }
         _ => {}

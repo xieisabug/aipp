@@ -211,6 +211,9 @@ function ConversationUI({
     const [editDialogIsOpen, setEditDialogIsOpen] = useState<boolean>(false);
     const [editingMessage, setEditingMessage] = useState<Message | null>(null);
 
+    // ShineBorder 动画状态管理
+    const [shiningMessageIds, setShiningMessageIds] = useState<Set<number>>(new Set());
+
     // ============= 助手运行时API接口实现 =============
     
     // 助手运行时API接口，提供给插件在运行时使用
@@ -379,6 +382,11 @@ function ConversationUI({
                                 content: messageUpdateData.content,
                                 is_done: messageUpdateData.is_done,
                             };
+                            
+                            // 当开始收到新的AI响应时（不是is_done时），清除所有shine-border
+                            if (!messageUpdateData.is_done) {
+                                setShiningMessageIds(new Set());
+                            }
                             
                             // 处理插件兼容性
                             const streamMessageListener = functionMap.get(
@@ -566,6 +574,7 @@ function ConversationUI({
             setMessages([]);
             setConversation(undefined);
             setStreamingMessages(new Map());
+            setShiningMessageIds(new Set()); // 清除shine-border状态
 
             invoke<Array<AssistantListItem>>("get_assistants").then(
                 (assistantList) => {
@@ -582,6 +591,7 @@ function ConversationUI({
         setIsLoadingShow(true);
         setStreamingMessages(new Map()); // 切换对话时清理流式消息状态
         setGroupMergeMap(new Map()); // 切换对话时清理组合并状态
+        setShiningMessageIds(new Set()); // 切换对话时清除shine-border状态
         console.log(`conversationId change : ${conversationId}`);
         
         invoke<ConversationWithMessages>("get_conversation_with_messages", {
@@ -647,6 +657,11 @@ function ConversationUI({
                         content: messageUpdateData.content,
                         is_done: messageUpdateData.is_done,
                     };
+                    
+                    // 当开始收到新的AI响应时（不是is_done时），清除所有shine-border
+                    if (!messageUpdateData.is_done) {
+                        setShiningMessageIds(new Set());
+                    }
                     
                     // 处理插件兼容性
                     const streamMessageListener = functionMap.get(
@@ -894,6 +909,9 @@ function ConversationUI({
             // 设置AI响应状态
             setAiIsResponsing(true);
             
+            // 设置被点击的消息显示shine-border
+            setShiningMessageIds(new Set([regenerateMessageId]));
+            
             invoke<AiResponse>("regenerate_ai", {
                 messageId: regenerateMessageId,
             }).then((res) => {
@@ -903,6 +921,8 @@ function ConversationUI({
             }).catch((error) => {
                 console.error("Regenerate error:", error);
                 setAiIsResponsing(false);
+                // 错误时清除shine-border
+                setShiningMessageIds(new Set());
                 toast.error("重新生成失败: " + error);
             });
         },
@@ -977,6 +997,8 @@ function ConversationUI({
             console.log(messageId);
             invoke("cancel_ai", { messageId }).then(() => {
                 setAiIsResponsing(false);
+                // 取消AI响应时清除shine-border
+                setShiningMessageIds(new Set());
             });
         } else {
             // 正常发送消息流程
@@ -1028,6 +1050,9 @@ function ConversationUI({
                     ]);
                 });
                 
+                // 设置用户消息显示border-beam（这里userMessage.id是0，实际会在后端分配真实ID）
+                // 我们需要等到后端返回真实ID后再设置border-beam
+                
                 invoke<AiResponse>("ask_ai", {
                     request: {
                         prompt: inputText,
@@ -1058,6 +1083,9 @@ function ConversationUI({
                                     ...newMessages[index],
                                     content: res.request_prompt_result_with_context,
                                 };
+                                
+                                // 设置用户消息显示shine-border（使用实际的消息对象）
+                                setShiningMessageIds(new Set([newMessages[index].id]));
                             }
                             return newMessages;
                         });
@@ -1114,6 +1142,11 @@ function ConversationUI({
                                 content: messageUpdateData.content,
                                 is_done: messageUpdateData.is_done,
                             };
+                            
+                            // 当开始收到新的AI响应时（不是is_done时），清除所有shine-border
+                            if (!messageUpdateData.is_done) {
+                                setShiningMessageIds(new Set());
+                            }
                             
                             if (messageUpdateData.is_done) {
                                 setAiIsResponsing(false);
@@ -1172,6 +1205,9 @@ function ConversationUI({
 
                     unsubscribeRef.current = listen(`conversation_event_${res.conversation_id}`, handleConversationEvent);
                 }).catch((error) => {
+                    setAiIsResponsing(false);
+                    // 发送消息失败时清除shine-border
+                    setShiningMessageIds(new Set());
                     toast.error("发送消息失败: " + error);
                 });
             }
@@ -1199,6 +1235,9 @@ function ConversationUI({
                     // 检查是否需要显示版本控制
                     const groupControl = getGenerationGroupControl(message);
                     
+                    // 检查是否需要显示shine-border
+                    const shouldShowShineBorder = shiningMessageIds.has(message.id);
+                    
                     return (
                         <React.Fragment key={message.id}>
                             <MessageItem
@@ -1212,6 +1251,8 @@ function ConversationUI({
                                 // Reasoning 展开状态相关 props
                                 isReasoningExpanded={reasoningExpandStates.get(message.id) || false}
                                 onToggleReasoningExpand={() => toggleReasoningExpand(message.id)}
+                                // ShineBorder 动画状态
+                                shouldShowShineBorder={shouldShowShineBorder}
                             />
                             {/* 在 generation group 的最后一个消息下方显示版本控制 */}
                             {groupControl && (
@@ -1280,7 +1321,7 @@ function ConversationUI({
             
             return result;
         },
-        [allDisplayMessages, streamingMessages, getMessageVersionInfo, getGenerationGroupControl, handleGenerationVersionChange, reasoningExpandStates, toggleReasoningExpand, generationGroups, selectedVersions],
+        [allDisplayMessages, streamingMessages, getMessageVersionInfo, getGenerationGroupControl, handleGenerationVersionChange, reasoningExpandStates, toggleReasoningExpand, generationGroups, selectedVersions, shiningMessageIds],
     );
 
     // ============= 组件渲染 =============
