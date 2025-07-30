@@ -47,8 +47,8 @@ use crate::db::assistant_db::AssistantDatabase;
 use crate::db::llm_db::LLMDatabase;
 use crate::db::system_db::SystemDatabase;
 use crate::window::{
-    create_ask_window, open_artifact_preview_window, open_chat_ui_window, open_config_window,
-    open_plugin_window, open_preview_frontend_window,
+    awaken_aipp, create_ask_window, handle_open_ask_window, open_artifact_preview_window,
+    open_chat_ui_window, open_config_window, open_plugin_window, open_preview_frontend_window,
 };
 use chrono::Local;
 use db::conversation_db::ConversationDatabase;
@@ -151,7 +151,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     std::process::exit(0);
                 }
                 "show" => {
-                    handle_open_ask_window(&app);
+                    awaken_aipp(&app);
                 }
                 _ => {}
             });
@@ -334,7 +334,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => {
-            handle_open_ask_window(app_handle);
+            awaken_aipp(app_handle);
         }
         _ => {}
     });
@@ -342,31 +342,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn handle_open_ask_window(app_handle: &tauri::AppHandle) {
-    let ask_window = app_handle.get_webview_window("ask");
-    let chat_ui_window = app_handle.get_webview_window("chat_ui");
-
-    match (ask_window, chat_ui_window) {
-        (None, _) => {
-            println!(
-                "Creating ask window, at time: {}",
-                &Local::now().to_string()
-            );
-            create_ask_window(app_handle);
-        }
-        (Some(window), _) => {
-            println!(
-                "Focusing ask window, at time: {}",
-                &Local::now().to_string()
-            );
-            if window.is_minimized().unwrap_or(false) {
-                window.unminimize().unwrap();
-            }
-            window.show().unwrap();
-            window.set_focus().unwrap();
-        }
-    }
-}
 
 fn initialize_state(app_handle: &tauri::AppHandle) -> FeatureConfigState {
     let db = SystemDatabase::new(app_handle).expect("Failed to connect to database");

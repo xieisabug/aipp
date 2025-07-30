@@ -511,3 +511,72 @@ pub async fn open_preview_vue_window(
     )
     .await
 }
+
+pub fn handle_open_ask_window(app_handle: &AppHandle) {
+    use chrono::Local;
+    
+    let ask_window = app_handle.get_webview_window("ask");
+
+    match ask_window {
+        None => {
+            println!(
+                "Creating ask window, at time: {}",
+                &Local::now().to_string()
+            );
+            create_ask_window(app_handle);
+        }
+        Some(window) => {
+            println!(
+                "Focusing ask window, at time: {}",
+                &Local::now().to_string()
+            );
+            if window.is_minimized().unwrap_or(false) {
+                window.unminimize().unwrap();
+            }
+            window.show().unwrap();
+            window.set_focus().unwrap();
+        }
+    }
+}
+
+pub fn awaken_aipp(app_handle: &AppHandle) {
+    use chrono::Local;
+    
+    let ask_window = app_handle.get_webview_window("ask");
+    let chat_ui_window = app_handle.get_webview_window("chat_ui");
+
+    // 优先检查 chat_ui 窗口
+    if let Some(window) = chat_ui_window {
+        println!(
+            "Focusing chat_ui window, at time: {}",
+            &Local::now().to_string()
+        );
+        if window.is_minimized().unwrap_or(false) {
+            window.unminimize().unwrap();
+        }
+        window.show().unwrap();
+        window.set_focus().unwrap();
+        return;
+    }
+
+    // 其次检查 ask 窗口
+    if let Some(window) = ask_window {
+        println!(
+            "Focusing ask window, at time: {}",
+            &Local::now().to_string()
+        );
+        if window.is_minimized().unwrap_or(false) {
+            window.unminimize().unwrap();
+        }
+        window.show().unwrap();
+        window.set_focus().unwrap();
+        return;
+    }
+
+    // 最后创建 ask 窗口
+    println!(
+        "Creating ask window, at time: {}",
+        &Local::now().to_string()
+    );
+    create_ask_window(app_handle);
+}
