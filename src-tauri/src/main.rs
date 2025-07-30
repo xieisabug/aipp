@@ -332,7 +332,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         RunEvent::ExitRequested { api, .. } => {
             api.prevent_exit();
         }
-        RunEvent::Resumed { .. } => {
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen { .. } => {
             handle_open_ask_window(app_handle);
         }
         _ => {}
