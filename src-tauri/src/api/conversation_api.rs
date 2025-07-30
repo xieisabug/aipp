@@ -259,7 +259,7 @@ pub fn update_conversation(
         .update(&conversation)
         .map_err(|e| e.to_string())?;
 
-    let _ = app_handle.emit("title_change", [conversation_id.to_string(), name]);
+    let _ = app_handle.emit("title_change", (conversation_id, name));
     Ok(())
 }
 

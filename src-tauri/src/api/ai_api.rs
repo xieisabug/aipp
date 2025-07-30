@@ -1894,32 +1894,69 @@ async fn generate_title(
         let mut context = String::new();
 
         if summary_length == -1 {
-            context.push_str(
-                format!(
-                    "# user\n {} \n\n#assistant\n {} \n\n请总结上述对话为标题，不需要包含标点符号",
-                    user_prompt, content
-                )
-                .as_str(),
-            );
-        } else {
-            let unsize_summary_length: usize = summary_length.try_into().unwrap();
-            if user_prompt.len() > unsize_summary_length {
+            if content.is_empty() {
+                // 只有用户消息，没有助手回答
                 context.push_str(
                     format!(
-                        "# user\n {} \n\n请总结上述对话为标题，不需要包含标点符号",
+                        "# user\n {} \n\n请为上述用户问题生成一个简洁的标题，不需要包含标点符号",
                         user_prompt
-                            .chars()
-                            .take(unsize_summary_length)
-                            .collect::<String>()
                     )
                     .as_str(),
                 );
             } else {
-                let assistant_summary_length = unsize_summary_length - user_prompt.len();
-                if content.len() > assistant_summary_length {
-                    context.push_str(format!("# user\n {} \n\n#assistant\n {} \n\n请总结上述对话为标题，不需要包含标点符号", user_prompt, content.chars().take(assistant_summary_length).collect::<String>()).as_str());
+                // 有用户消息和助手回答
+                context.push_str(
+                    format!(
+                        "# user\n {} \n\n#assistant\n {} \n\n请总结上述对话为标题，不需要包含标点符号",
+                        user_prompt, content
+                    )
+                    .as_str(),
+                );
+            }
+        } else {
+            let unsize_summary_length: usize = summary_length.try_into().unwrap();
+            if content.is_empty() {
+                // 只有用户消息，没有助手回答
+                if user_prompt.len() > unsize_summary_length {
+                    context.push_str(
+                        format!(
+                            "# user\n {} \n\n请为上述用户问题生成一个简洁的标题，不需要包含标点符号",
+                            user_prompt
+                                .chars()
+                                .take(unsize_summary_length)
+                                .collect::<String>()
+                        )
+                        .as_str(),
+                    );
                 } else {
-                    context.push_str(format!("# user\n {} \n\n#assistant\n {} \n\n请总结上述对话为标题，不需要包含标点符号", user_prompt, content).as_str());
+                    context.push_str(
+                        format!(
+                            "# user\n {} \n\n请为上述用户问题生成一个简洁的标题，不需要包含标点符号",
+                            user_prompt
+                        )
+                        .as_str(),
+                    );
+                }
+            } else {
+                // 有用户消息和助手回答
+                if user_prompt.len() > unsize_summary_length {
+                    context.push_str(
+                        format!(
+                            "# user\n {} \n\n请总结上述对话为标题，不需要包含标点符号",
+                            user_prompt
+                                .chars()
+                                .take(unsize_summary_length)
+                                .collect::<String>()
+                        )
+                        .as_str(),
+                    );
+                } else {
+                    let assistant_summary_length = unsize_summary_length - user_prompt.len();
+                    if content.len() > assistant_summary_length {
+                        context.push_str(format!("# user\n {} \n\n#assistant\n {} \n\n请总结上述对话为标题，不需要包含标点符号", user_prompt, content.chars().take(assistant_summary_length).collect::<String>()).as_str());
+                    } else {
+                        context.push_str(format!("# user\n {} \n\n#assistant\n {} \n\n请总结上述对话为标题，不需要包含标点符号", user_prompt, content).as_str());
+                    }
                 }
             }
         }
@@ -2005,37 +2042,42 @@ pub async fn regenerate_conversation_title(
 ) -> Result<(), AppError> {
     let conversation_db = ConversationDatabase::new(&app_handle).map_err(AppError::from)?;
 
-    // 获取对话的前两条消息（通常是用户提问和AI回答）
+    // 获取对话的消息
     let messages = conversation_db
         .message_repo()
         .unwrap()
         .list_by_conversation_id(conversation_id)?;
 
-    if messages.len() < 2 {
+    if messages.is_empty() {
         return Err(AppError::InsufficientMessages);
     }
 
-    // 获取第一条用户消息和第一条AI回答
+    // 获取第一条用户消息（必须有）
     let user_message = messages
         .iter()
         .find(|(msg, _)| msg.message_type == "user")
         .map(|(msg, _)| msg)
         .ok_or_else(|| AppError::InsufficientMessages)?;
-    let assistant_message = messages
+    
+    // 获取第一条AI回答（可选）
+    let response_message = messages
         .iter()
-        .find(|(msg, _)| msg.message_type == "assistant")
-        .map(|(msg, _)| msg)
-        .ok_or_else(|| AppError::InsufficientMessages)?;
+        .find(|(msg, _)| msg.message_type == "response")
+        .map(|(msg, _)| msg);
 
     // 获取特性配置
     let config_feature_map = feature_config_state.config_feature_map.lock().await;
 
     // 调用内部的 generate_title 函数
+    let response_content = response_message
+        .map(|msg| msg.content.clone())
+        .unwrap_or_default(); // 如果没有回答，使用空字符串
+    
     generate_title(
         &app_handle,
         conversation_id,
         user_message.content.clone(),
-        assistant_message.content.clone(),
+        response_content,
         config_feature_map.clone(),
         window,
     )

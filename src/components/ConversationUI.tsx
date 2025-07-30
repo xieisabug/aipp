@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import React, { useCallback, useEffect, useMemo, useRef, useState, startTransition } from "react";
 import { toast } from "sonner";
-import { Sparkles } from "lucide-react";
 
 import { Conversation, FileInfo, Message, StreamEvent, ConversationEvent, MessageUpdateEvent, ConversationWithMessages, GroupMergeEvent } from "../data/Conversation";
 import "katex/dist/katex.min.css";
@@ -14,8 +13,8 @@ import VersionPagination from "./VersionPagination";
 import ConversationTitle from "./conversation/ConversationTitle";
 import useFileDropHandler from "../hooks/useFileDropHandler";
 import InputArea from "./conversation/InputArea";
-import FormDialog from "./FormDialog";
 import MessageEditDialog from "./MessageEditDialog";
+import ConversationTitleEditDialog from "./ConversationTitleEditDialog";
 import useConversationManager from "../hooks/useConversationManager";
 import { useMessageGroups } from '../hooks/useMessageGroups';
 import useFileManagement from "@/hooks/useFileManagement";
@@ -206,9 +205,7 @@ function ConversationUI({
     const [inputText, setInputText] = useState("");
 
     // 对话标题管理相关状态
-    const [formDialogIsOpen, setFormDialogIsOpen] = useState<boolean>(false);
-    const [formConversationTitle, setFormConversationTitle] = useState<string>("");
-    const [isRegeneratingTitle, setIsRegeneratingTitle] = useState<boolean>(false);
+    const [titleEditDialogIsOpen, setTitleEditDialogIsOpen] = useState<boolean>(false);
 
     // 消息编辑相关状态
     const [editDialogIsOpen, setEditDialogIsOpen] = useState<boolean>(false);
@@ -744,12 +741,6 @@ function ConversationUI({
         };
     }, [conversation]);
 
-    // 监听标题变化，同步到表单
-    useEffect(() => {
-        if (formDialogIsOpen && conversation?.name) {
-            setFormConversationTitle(conversation.name);
-        }
-    }, [formDialogIsOpen, conversation?.name]);
 
     // ============= 数据计算和处理 =============
 
@@ -887,26 +878,15 @@ function ConversationUI({
             });
     }, []);
 
-    // 打开表单对话框
-    const openFormDialog = useCallback(() => {
-        setFormConversationTitle(conversation?.name || "");
-        setFormDialogIsOpen(true);
-    }, [conversation]);
-    
-    // 关闭表单对话框
-    const closeFormDialog = useCallback(() => {
-        setFormDialogIsOpen(false);
+    // 打开标题编辑对话框
+    const openTitleEditDialog = useCallback(() => {
+        setTitleEditDialogIsOpen(true);
     }, []);
     
-    // 提交表单处理
-    const handleFormSubmit = useCallback(() => {
-        invoke("update_conversation", {
-            conversationId: conversation?.id,
-            name: formConversationTitle,
-        }).then(() => {
-            closeFormDialog();
-        });
-    }, [conversation, formConversationTitle]);
+    // 关闭标题编辑对话框
+    const closeTitleEditDialog = useCallback(() => {
+        setTitleEditDialogIsOpen(false);
+    }, []);
 
     // 消息重新生成处理
     const handleMessageRegenerate = useCallback(
@@ -987,24 +967,6 @@ function ConversationUI({
         });
     }, [editingMessage, handleMessageRegenerate]);
 
-    // 重新生成标题处理
-    const handleRegenerateTitle = useCallback(async () => {
-        if (!conversation?.id || isRegeneratingTitle) return;
-
-        setIsRegeneratingTitle(true);
-
-        try {
-            await invoke("regenerate_conversation_title", {
-                conversationId: conversation.id,
-            });
-            toast.success("标题已重新生成");
-        } catch (error) {
-            console.error("重新生成标题失败:", error);
-            toast.error("重新生成标题失败: " + error);
-        } finally {
-            setIsRegeneratingTitle(false);
-        }
-    }, [conversation, isRegeneratingTitle]);
 
     
     // 发送消息的主要处理函数，使用节流防止频繁点击
@@ -1327,7 +1289,7 @@ function ConversationUI({
         <div ref={dropRef} className="h-full relative flex flex-col bg-white rounded-xl">
             {conversationId ? (
                 <ConversationTitle
-                    onEdit={openFormDialog}
+                    onEdit={openTitleEditDialog}
                     onDelete={handleDeleteConversation}
                     conversation={conversation}
                 />
@@ -1370,42 +1332,12 @@ function ConversationUI({
                 placement="bottom"
             />
 
-            <FormDialog
-                title={"修改对话标题"}
-                onSubmit={handleFormSubmit}
-                onClose={closeFormDialog}
-                isOpen={formDialogIsOpen}
-            >
-                <div className="space-y-4">
-                    <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                            <label className="text-sm font-medium leading-none text-gray-700">
-                                标题
-                            </label>
-                            <button
-                                type="button"
-                                onClick={handleRegenerateTitle}
-                                disabled={isRegeneratingTitle}
-                                className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 px-2 py-1"
-                                title="重新生成标题"
-                            >
-                                <Sparkles className={`h-4 w-4 ${isRegeneratingTitle ? 'animate-pulse' : ''}`} />
-                            </button>
-                        </div>
-                        <input
-                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
-                            type="text"
-                            name="name"
-                            value={formConversationTitle}
-                            onChange={(e) =>
-                                setFormConversationTitle(e.target.value)
-                            }
-                            placeholder="请输入对话标题"
-                            autoFocus
-                        />
-                    </div>
-                </div>
-            </FormDialog>
+            <ConversationTitleEditDialog
+                isOpen={titleEditDialogIsOpen}
+                conversationId={conversation?.id || 0}
+                initialTitle={conversation?.name || ""}
+                onClose={closeTitleEditDialog}
+            />
 
             <MessageEditDialog
                 isOpen={editDialogIsOpen}
