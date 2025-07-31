@@ -1,8 +1,24 @@
 import { invoke } from "@tauri-apps/api/core";
-import React, { useCallback, useEffect, useMemo, useRef, useState, startTransition } from "react";
+import React, {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    startTransition,
+} from "react";
 import { toast } from "sonner";
 
-import { Conversation, FileInfo, Message, StreamEvent, ConversationEvent, MessageUpdateEvent, ConversationWithMessages, GroupMergeEvent } from "../data/Conversation";
+import {
+    Conversation,
+    FileInfo,
+    Message,
+    StreamEvent,
+    ConversationEvent,
+    MessageUpdateEvent,
+    ConversationWithMessages,
+    GroupMergeEvent,
+} from "../data/Conversation";
 import "katex/dist/katex.min.css";
 import { listen } from "@tauri-apps/api/event";
 import { throttle } from "lodash";
@@ -16,7 +32,7 @@ import InputArea from "./conversation/InputArea";
 import MessageEditDialog from "./MessageEditDialog";
 import ConversationTitleEditDialog from "./ConversationTitleEditDialog";
 import useConversationManager from "../hooks/useConversationManager";
-import { useMessageGroups } from '../hooks/useMessageGroups';
+import { useMessageGroups } from "../hooks/useMessageGroups";
 import useFileManagement from "@/hooks/useFileManagement";
 
 interface AssistantListItem {
@@ -52,12 +68,12 @@ function ConversationUI({
     pluginList,
 }: ConversationUIProps) {
     // ============= 插件管理相关状态和逻辑 =============
-    
+
     // 助手类型插件映射表，key为助手类型，value为插件实例
     const [assistantTypePluginMap, setAssistantTypePluginMap] = useState<
         Map<number, TeaAssistantTypePlugin>
     >(new Map());
-    
+
     // 插件函数映射表，用于存储每个消息对应的处理函数
     const [functionMap, setFunctionMap] = useState<
         Map<number, AskAssistantApiFunctions>
@@ -76,56 +92,56 @@ function ConversationUI({
                 return newMap;
             });
         },
-        markdownRemarkRegist: (_: any) => {
-
-        },
-        changeFieldLabel: (_: string, __: string) => { },
+        markdownRemarkRegist: (_: any) => {},
+        changeFieldLabel: (_: string, __: string) => {},
         addField: (
             _: string,
             __: string,
             ___: string,
             ____?: FieldConfig,
-        ) => { },
-        addFieldTips: (_: string, __: string) => { },
-        hideField: (_: string) => { },
-        runLogic: (_: (assistantRunApi: AssistantRunApi) => void) => { },
-        forceFieldValue: (_: string, __: string) => { },
+        ) => {},
+        addFieldTips: (_: string, __: string) => {},
+        hideField: (_: string) => {},
+        runLogic: (_: (assistantRunApi: AssistantRunApi) => void) => {},
+        forceFieldValue: (_: string, __: string) => {},
     };
 
     // ============= 对话管理相关状态和逻辑 =============
-    
+
     // 当前对话信息和助手列表
     const [conversation, setConversation] = useState<Conversation>();
     const [assistants, setAssistants] = useState<AssistantListItem[]>([]);
     const [selectedAssistant, setSelectedAssistant] = useState(-1);
-    
+
     // 对话加载状态
     const [isLoadingShow, setIsLoadingShow] = useState(false);
 
     // ============= 消息管理和流式处理相关状态 =============
-    
+
     // 常规消息列表
     const [messages, setMessages] = useState<Array<Message>>([]);
-    
+
     // 流式消息状态管理，存储正在流式传输的消息
-    const [streamingMessages, setStreamingMessages] = useState<Map<number, StreamEvent>>(new Map());
-    
+    const [streamingMessages, setStreamingMessages] = useState<
+        Map<number, StreamEvent>
+    >(new Map());
+
     // AI响应状态管理
     const [aiIsResponsing, setAiIsResponsing] = useState<boolean>(false);
     const [messageId, setMessageId] = useState<number>(-1);
-    
+
     // 事件监听取消订阅引用
     const unsubscribeRef = useRef<Promise<() => void> | null>(null);
 
     // ============= UI 状态管理和交互相关逻辑 =============
-    
+
     // 滚动相关状态和逻辑
     const messagesEndRef = useRef<HTMLDivElement | null>(null);
     const scrollContainerRef = useRef<HTMLDivElement | null>(null);
     const isUserScrolledUpRef = useRef(false); // 使用 Ref 来跟踪滚动状态，避免闭包问题
     const isAutoScrolling = useRef(false);
     const resizeObserverRef = useRef<ResizeObserver | null>(null);
-    
+
     // 处理用户滚动事件
     const handleScroll = useCallback(() => {
         // 如果是程序触发的自动滚动，则忽略此次事件
@@ -169,7 +185,8 @@ function ConversationUI({
             }
 
             isAutoScrolling.current = true;
-            scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+            scrollContainerRef.current.scrollTop =
+                scrollContainerRef.current.scrollHeight;
 
             if (resizeObserverRef.current) {
                 resizeObserverRef.current.disconnect();
@@ -185,10 +202,10 @@ function ConversationUI({
             resizeObserverRef.current.observe(lastMessageElement);
         }
     }, []); // 依赖项为空，函数是稳定的
-    
+
     // 选中文本相关状态和逻辑
     const [selectedText, setSelectedText] = useState<string>("");
-    
+
     // 文件管理相关状态和逻辑
     const {
         fileInfoList,
@@ -197,25 +214,29 @@ function ConversationUI({
         handleDeleteFile,
         handlePaste,
     } = useFileManagement();
-    
+
     // 文件拖拽相关状态
-    const { isDragging, setIsDragging, dropRef } = useFileDropHandler(handleChooseFile);
-    
+    const { isDragging, setIsDragging, dropRef } =
+        useFileDropHandler(handleChooseFile);
+
     // 输入相关状态
     const [inputText, setInputText] = useState("");
 
     // 对话标题管理相关状态
-    const [titleEditDialogIsOpen, setTitleEditDialogIsOpen] = useState<boolean>(false);
+    const [titleEditDialogIsOpen, setTitleEditDialogIsOpen] =
+        useState<boolean>(false);
 
     // 消息编辑相关状态
     const [editDialogIsOpen, setEditDialogIsOpen] = useState<boolean>(false);
     const [editingMessage, setEditingMessage] = useState<Message | null>(null);
 
     // ShineBorder 动画状态管理
-    const [shiningMessageIds, setShiningMessageIds] = useState<Set<number>>(new Set());
+    const [shiningMessageIds, setShiningMessageIds] = useState<Set<number>>(
+        new Set(),
+    );
 
     // ============= 助手运行时API接口实现 =============
-    
+
     // 助手运行时API接口，提供给插件在运行时使用
     const assistantRunApi: AssistantRunApi = {
         askAI: function (
@@ -338,66 +359,110 @@ function ConversationUI({
 
                     // 处理流式事件的统一函数
                     const handleConversationEvent = (event: any) => {
-                        const conversationEvent = event.payload as ConversationEvent;
-                        
-                        if (conversationEvent.type === 'message_add') {
+                        const conversationEvent =
+                            event.payload as ConversationEvent;
+
+                        if (conversationEvent.type === "message_add") {
                             // 处理消息添加事件
-                            const messageAddData = conversationEvent.data as any;
-                            console.log('Received message_add event:', messageAddData);
-                            
+                            const messageAddData =
+                                conversationEvent.data as any;
+                            console.log(
+                                "Received message_add event:",
+                                messageAddData,
+                            );
+
                             // 如果是用户消息，设置shine border
-                            if (messageAddData.message_type === 'user') {
-                                console.log('[ShineBorder Debug] Setting shine border for user message:', messageAddData.message_id, 'in askAssistant event handler');
-                                setShiningMessageIds(new Set([messageAddData.message_id]));
+                            if (messageAddData.message_type === "user") {
+                                console.log(
+                                    "[ShineBorder Debug] Setting shine border for user message:",
+                                    messageAddData.message_id,
+                                    "in askAssistant event handler",
+                                );
+                                setShiningMessageIds(
+                                    new Set([messageAddData.message_id]),
+                                );
                             } else {
-                                console.log('[ShineBorder Debug] Not setting shine border - message type:', messageAddData.message_type);
+                                console.log(
+                                    "[ShineBorder Debug] Not setting shine border - message type:",
+                                    messageAddData.message_type,
+                                );
                             }
-                            
+
                             // 重新获取对话消息，以确保获得完整的消息数据（包括generation_group_id等）
-                            invoke<ConversationWithMessages>("get_conversation_with_messages", {
-                                conversationId: res.conversation_id,
-                            }).then((updatedConversation) => {
-                                setMessages(updatedConversation.messages);
-                                console.log('Updated messages after message_add:', updatedConversation.messages.length);
-                                console.log('[ShineBorder Debug] Messages reloaded, current shiningMessageIds:', Array.from(shiningMessageIds));
-                            }).catch((error) => {
-                                console.error('Failed to reload conversation after message_add:', error);
-                                
-                                // 降级处理：仍然添加基本的消息信息
-                                const newMessage: Message = {
-                                    id: messageAddData.message_id,
-                                    conversation_id: res.conversation_id,
-                                    message_type: messageAddData.message_type,
-                                    content: "", // 初始内容为空，会通过后续的message_update事件更新
-                                    llm_model_id: null,
-                                    created_time: new Date(),
-                                    start_time: new Date(),
-                                    finish_time: null,
-                                    token_count: 0,
-                                    generation_group_id: null, // 这些字段会在数据库查询时填充
-                                    parent_group_id: null,
-                                    regenerate: null,
-                                };
-                                
-                                setMessages((prevMessages) => [...prevMessages, newMessage]);
-                            });
-                        } else if (conversationEvent.type === 'message_update') {
-                            const messageUpdateData = conversationEvent.data as MessageUpdateEvent;
-                            console.log('Received message_update event:', messageUpdateData);
-                            
+                            invoke<ConversationWithMessages>(
+                                "get_conversation_with_messages",
+                                {
+                                    conversationId: res.conversation_id,
+                                },
+                            )
+                                .then((updatedConversation) => {
+                                    setMessages(updatedConversation.messages);
+                                    console.log(
+                                        "Updated messages after message_add:",
+                                        updatedConversation.messages.length,
+                                    );
+                                    console.log(
+                                        "[ShineBorder Debug] Messages reloaded, current shiningMessageIds:",
+                                        Array.from(shiningMessageIds),
+                                    );
+                                })
+                                .catch((error) => {
+                                    console.error(
+                                        "Failed to reload conversation after message_add:",
+                                        error,
+                                    );
+
+                                    // 降级处理：仍然添加基本的消息信息
+                                    const newMessage: Message = {
+                                        id: messageAddData.message_id,
+                                        conversation_id: res.conversation_id,
+                                        message_type:
+                                            messageAddData.message_type,
+                                        content: "", // 初始内容为空，会通过后续的message_update事件更新
+                                        llm_model_id: null,
+                                        created_time: new Date(),
+                                        start_time: new Date(),
+                                        finish_time: null,
+                                        token_count: 0,
+                                        generation_group_id: null, // 这些字段会在数据库查询时填充
+                                        parent_group_id: null,
+                                        regenerate: null,
+                                    };
+
+                                    setMessages((prevMessages) => [
+                                        ...prevMessages,
+                                        newMessage,
+                                    ]);
+                                });
+                        } else if (
+                            conversationEvent.type === "message_update"
+                        ) {
+                            const messageUpdateData =
+                                conversationEvent.data as MessageUpdateEvent;
+                            console.log(
+                                "Received message_update event:",
+                                messageUpdateData,
+                            );
+
                             const streamEvent: StreamEvent = {
                                 message_id: messageUpdateData.message_id,
-                                message_type: messageUpdateData.message_type as any,
+                                message_type:
+                                    messageUpdateData.message_type as any,
                                 content: messageUpdateData.content,
                                 is_done: messageUpdateData.is_done,
                             };
-                            
+
                             // 当开始收到新的AI响应时（不是is_done时），清除所有shine-border
-                            if (!messageUpdateData.is_done && messageUpdateData.content) {
-                                console.log('[ShineBorder Debug] Clearing shine border - AI started responding');
+                            if (
+                                !messageUpdateData.is_done &&
+                                messageUpdateData.content
+                            ) {
+                                console.log(
+                                    "[ShineBorder Debug] Clearing shine border - AI started responding",
+                                );
                                 setShiningMessageIds(new Set());
                             }
-                            
+
                             // 处理插件兼容性
                             const streamMessageListener = functionMap.get(
                                 res.add_message_id,
@@ -409,23 +474,32 @@ function ConversationUI({
                                     setAiIsResponsing,
                                 );
                             }
-                            
+
                             if (messageUpdateData.is_done) {
-                                if (messageUpdateData.message_type === 'response') {
+                                if (
+                                    messageUpdateData.message_type ===
+                                    "response"
+                                ) {
                                     setAiIsResponsing(false);
                                 }
-                                
+
                                 // 在清理streamingMessages之前，先将消息添加到messages状态
                                 handleMessageCompletion(streamEvent);
-                                
+
                                 // 标记流式消息为完成状态，但不立即删除，让消息能正常显示
                                 setStreamingMessages((prev) => {
                                     const newMap = new Map(prev);
-                                    const completedEvent = { ...streamEvent, is_done: true };
-                                    newMap.set(streamEvent.message_id, completedEvent);
+                                    const completedEvent = {
+                                        ...streamEvent,
+                                        is_done: true,
+                                    };
+                                    newMap.set(
+                                        streamEvent.message_id,
+                                        completedEvent,
+                                    );
                                     return newMap;
                                 });
-                                
+
                                 // 延迟清理已完成的流式消息，给足够时间让消息保存到 messages 中
                                 setTimeout(() => {
                                     setStreamingMessages((prev) => {
@@ -439,36 +513,55 @@ function ConversationUI({
                                 startTransition(() => {
                                     setStreamingMessages((prev) => {
                                         const newMap = new Map(prev);
-                                        newMap.set(streamEvent.message_id, streamEvent);
+                                        newMap.set(
+                                            streamEvent.message_id,
+                                            streamEvent,
+                                        );
                                         return newMap;
                                     });
                                 });
                                 smartScroll();
                             }
-                        } else if (conversationEvent.type === 'group_merge') {
+                        } else if (conversationEvent.type === "group_merge") {
                             // 处理组合并事件
-                            const groupMergeData = conversationEvent.data as GroupMergeEvent;
-                            console.log('Received group merge event:', groupMergeData);
-                            
+                            const groupMergeData =
+                                conversationEvent.data as GroupMergeEvent;
+                            console.log(
+                                "Received group merge event:",
+                                groupMergeData,
+                            );
+
                             // 设置组合并关系
-                            setGroupMergeMap(prev => {
+                            setGroupMergeMap((prev) => {
                                 const newMap = new Map(prev);
-                                newMap.set(groupMergeData.new_group_id, groupMergeData.original_group_id);
-                                console.log('Updated groupMergeMap:', Array.from(newMap.entries()));
+                                newMap.set(
+                                    groupMergeData.new_group_id,
+                                    groupMergeData.original_group_id,
+                                );
+                                console.log(
+                                    "Updated groupMergeMap:",
+                                    Array.from(newMap.entries()),
+                                );
                                 return newMap;
                             });
-                            
+
                             // 如果是重新生成，标记这个组需要自动切换到最新版本
                             if (groupMergeData.is_regeneration) {
-                                const originalGroupId = groupMergeData.original_group_id;
-                                console.log(`Group ${originalGroupId} will auto-switch to latest version when new version is available`);
+                                const originalGroupId =
+                                    groupMergeData.original_group_id;
+                                console.log(
+                                    `Group ${originalGroupId} will auto-switch to latest version when new version is available`,
+                                );
                                 // 不需要在这里做任何操作，useEffect 会处理自动切换
                             }
                         }
                     };
-                    
-                    unsubscribeRef.current = listen(`conversation_event_${res.conversation_id}`, handleConversationEvent);
-                    
+
+                    unsubscribeRef.current = listen(
+                        `conversation_event_${res.conversation_id}`,
+                        handleConversationEvent,
+                    );
+
                     return res;
                 })
                 .catch((e) => {
@@ -539,7 +632,7 @@ function ConversationUI({
     };
 
     // ============= 初始化逻辑 =============
-    
+
     // 初始化助手类型插件
     useEffect(() => {
         pluginList
@@ -596,14 +689,14 @@ function ConversationUI({
             );
             return;
         }
-        
+
         // 加载指定对话的消息和信息
         setIsLoadingShow(true);
         setStreamingMessages(new Map()); // 切换对话时清理流式消息状态
         setGroupMergeMap(new Map()); // 切换对话时清理组合并状态
         setShiningMessageIds(new Set()); // 切换对话时清除shine-border状态
         console.log(`conversationId change : ${conversationId}`);
-        
+
         invoke<ConversationWithMessages>("get_conversation_with_messages", {
             conversationId: +conversationId,
         }).then((res: ConversationWithMessages) => {
@@ -621,70 +714,96 @@ function ConversationUI({
 
             const lastMessageId = res.messages[res.messages.length - 1].id;
             setMessageId(lastMessageId);
-            
+
             // 为已存在的对话设置事件监听器
             const handleConversationEvent = (event: any) => {
                 const conversationEvent = event.payload as ConversationEvent;
-                
-                if (conversationEvent.type === 'message_add') {
+
+                if (conversationEvent.type === "message_add") {
                     // 处理消息添加事件
                     const messageAddData = conversationEvent.data as any;
-                    console.log('Received message_add event:', messageAddData);
-                    
+                    console.log("Received message_add event:", messageAddData);
+
                     // 如果是用户消息，设置shine border
-                    if (messageAddData.message_type === 'user') {
-                        console.log('[ShineBorder Debug] Setting shine border for user message:', messageAddData.message_id, 'in existing conversation event handler');
-                        setShiningMessageIds(new Set([messageAddData.message_id]));
+                    if (messageAddData.message_type === "user") {
+                        console.log(
+                            "[ShineBorder Debug] Setting shine border for user message:",
+                            messageAddData.message_id,
+                            "in existing conversation event handler",
+                        );
+                        setShiningMessageIds(
+                            new Set([messageAddData.message_id]),
+                        );
                     } else {
-                        console.log('[ShineBorder Debug] Not setting shine border - message type:', messageAddData.message_type);
+                        console.log(
+                            "[ShineBorder Debug] Not setting shine border - message type:",
+                            messageAddData.message_type,
+                        );
                     }
-                    
+
                     // 重新获取对话消息，以确保获得完整的消息数据（包括generation_group_id等）
-                    invoke<ConversationWithMessages>("get_conversation_with_messages", {
-                        conversationId: +conversationId,
-                    }).then((updatedConversation) => {
-                        setMessages(updatedConversation.messages);
-                        console.log('Updated messages after message_add:', updatedConversation.messages.length);
-                    }).catch((error) => {
-                        console.error('Failed to reload conversation after message_add:', error);
-                        
-                        // 降级处理：仍然添加基本的消息信息
-                        const newMessage: Message = {
-                            id: messageAddData.message_id,
-                            conversation_id: +conversationId,
-                            message_type: messageAddData.message_type,
-                            content: "", // 初始内容为空，会通过后续的message_update事件更新
-                            llm_model_id: null,
-                            created_time: new Date(),
-                            start_time: new Date(),
-                            finish_time: null,
-                            token_count: 0,
-                            generation_group_id: null, // 这些字段会在数据库查询时填充
-                            parent_group_id: null,
-                            regenerate: null,
-                        };
-                        
-                        setMessages((prevMessages) => [...prevMessages, newMessage]);
-                    });
-                } else if (conversationEvent.type === 'message_update') {
-                    const messageUpdateData = conversationEvent.data as MessageUpdateEvent;
-                    
+                    invoke<ConversationWithMessages>(
+                        "get_conversation_with_messages",
+                        {
+                            conversationId: +conversationId,
+                        },
+                    )
+                        .then((updatedConversation) => {
+                            setMessages(updatedConversation.messages);
+                            console.log(
+                                "Updated messages after message_add:",
+                                updatedConversation.messages.length,
+                            );
+                        })
+                        .catch((error) => {
+                            console.error(
+                                "Failed to reload conversation after message_add:",
+                                error,
+                            );
+
+                            // 降级处理：仍然添加基本的消息信息
+                            const newMessage: Message = {
+                                id: messageAddData.message_id,
+                                conversation_id: +conversationId,
+                                message_type: messageAddData.message_type,
+                                content: "", // 初始内容为空，会通过后续的message_update事件更新
+                                llm_model_id: null,
+                                created_time: new Date(),
+                                start_time: new Date(),
+                                finish_time: null,
+                                token_count: 0,
+                                generation_group_id: null, // 这些字段会在数据库查询时填充
+                                parent_group_id: null,
+                                regenerate: null,
+                            };
+
+                            setMessages((prevMessages) => [
+                                ...prevMessages,
+                                newMessage,
+                            ]);
+                        });
+                } else if (conversationEvent.type === "message_update") {
+                    const messageUpdateData =
+                        conversationEvent.data as MessageUpdateEvent;
+
                     const streamEvent: StreamEvent = {
                         message_id: messageUpdateData.message_id,
                         message_type: messageUpdateData.message_type as any,
                         content: messageUpdateData.content,
                         is_done: messageUpdateData.is_done,
                     };
-                    
+
                     // 当开始收到新的AI响应时（不是is_done时），清除所有shine-border
-                    if (!messageUpdateData.is_done && messageUpdateData.content) {
+                    if (
+                        !messageUpdateData.is_done &&
+                        messageUpdateData.content
+                    ) {
                         setShiningMessageIds(new Set());
                     }
-                    
+
                     // 处理插件兼容性
-                    const streamMessageListener = functionMap.get(
-                        lastMessageId,
-                    )?.onStreamMessageListener;
+                    const streamMessageListener =
+                        functionMap.get(lastMessageId)?.onStreamMessageListener;
                     if (streamMessageListener) {
                         streamMessageListener(
                             messageUpdateData.content,
@@ -696,23 +815,26 @@ function ConversationUI({
                             setAiIsResponsing,
                         );
                     }
-                    
+
                     if (messageUpdateData.is_done) {
-                        if (messageUpdateData.message_type === 'response') {
+                        if (messageUpdateData.message_type === "response") {
                             setAiIsResponsing(false);
                         }
-                        
+
                         // 在清理streamingMessages之前，先将消息添加到messages状态
                         handleMessageCompletion(streamEvent);
-                        
+
                         // 标记流式消息为完成状态，但不立即删除，让消息能正常显示
                         setStreamingMessages((prev) => {
                             const newMap = new Map(prev);
-                            const completedEvent = { ...streamEvent, is_done: true };
+                            const completedEvent = {
+                                ...streamEvent,
+                                is_done: true,
+                            };
                             newMap.set(streamEvent.message_id, completedEvent);
                             return newMap;
                         });
-                        
+
                         // 延迟清理已完成的流式消息，给足够时间让消息保存到 messages 中
                         setTimeout(() => {
                             setStreamingMessages((prev) => {
@@ -729,22 +851,26 @@ function ConversationUI({
                         });
                         smartScroll();
                     }
-                } else if (conversationEvent.type === 'group_merge') {
+                } else if (conversationEvent.type === "group_merge") {
                     // 处理组合并事件
-                    const groupMergeData = conversationEvent.data as GroupMergeEvent;
-                    console.log('Received group merge event:', groupMergeData);
-                    
-                    setGroupMergeMap(prev => {
+                    const groupMergeData =
+                        conversationEvent.data as GroupMergeEvent;
+                    console.log("Received group merge event:", groupMergeData);
+
+                    setGroupMergeMap((prev) => {
                         const newMap = new Map(prev);
-                        newMap.set(groupMergeData.new_group_id, groupMergeData.original_group_id);
+                        newMap.set(
+                            groupMergeData.new_group_id,
+                            groupMergeData.original_group_id,
+                        );
                         return newMap;
                     });
                 }
             };
-            
+
             unsubscribeRef.current = listen(
                 `conversation_event_${conversationId}`,
-                handleConversationEvent
+                handleConversationEvent,
             );
         });
 
@@ -774,21 +900,25 @@ function ConversationUI({
         };
     }, [conversation]);
 
-
     // ============= 数据计算和处理 =============
 
     // 合并常规消息和流式消息，按时间排序显示
     const allDisplayMessages = useMemo(() => {
         const combinedMessages = [...messages];
-        
+
         // 将流式消息添加到显示列表中
         streamingMessages.forEach((streamEvent) => {
             // 检查是否已经存在同样ID的消息
-            const existingIndex = combinedMessages.findIndex(msg => msg.id === streamEvent.message_id);
+            const existingIndex = combinedMessages.findIndex(
+                (msg) => msg.id === streamEvent.message_id,
+            );
             if (existingIndex === -1) {
                 // 推断合理的时间戳：基于最后一条消息的时间稍微往后一点
-                const lastMessage = combinedMessages[combinedMessages.length - 1];
-                const baseTime = lastMessage ? new Date(lastMessage.created_time) : new Date();
+                const lastMessage =
+                    combinedMessages[combinedMessages.length - 1];
+                const baseTime = lastMessage
+                    ? new Date(lastMessage.created_time)
+                    : new Date();
                 const tempMessage: Message = {
                     id: streamEvent.message_id,
                     conversation_id: conversation?.id || 0,
@@ -796,8 +926,13 @@ function ConversationUI({
                     content: streamEvent.content,
                     llm_model_id: null,
                     created_time: new Date(baseTime.getTime() + 1000), // 基于最后消息时间+1秒
-                    start_time: streamEvent.message_type === 'reasoning' ? baseTime : null,
-                    finish_time: streamEvent.is_done ? (streamEvent.end_time || new Date()) : null,
+                    start_time:
+                        streamEvent.message_type === "reasoning"
+                            ? baseTime
+                            : null,
+                    finish_time: streamEvent.is_done
+                        ? streamEvent.end_time || new Date()
+                        : null,
                     token_count: 0,
                     generation_group_id: null, // 流式消息暂时不设置generation_group_id
                     parent_group_id: null, // 流式消息暂时不设置parent_group_id
@@ -810,19 +945,27 @@ function ConversationUI({
                     ...combinedMessages[existingIndex],
                     content: streamEvent.content,
                     message_type: streamEvent.message_type, // 确保消息类型也被更新
-                    finish_time: streamEvent.is_done ? (streamEvent.end_time || new Date()) : combinedMessages[existingIndex].finish_time,
+                    finish_time: streamEvent.is_done
+                        ? streamEvent.end_time || new Date()
+                        : combinedMessages[existingIndex].finish_time,
                 };
             }
         });
 
-        const sorted = combinedMessages.sort((a, b) => new Date(a.created_time).getTime() - new Date(b.created_time).getTime());
+        const sorted = combinedMessages.sort(
+            (a, b) =>
+                new Date(a.created_time).getTime() -
+                new Date(b.created_time).getTime(),
+        );
         return sorted;
     }, [messages, streamingMessages, conversation?.id]);
 
     // ============= Generation Group 版本管理 =============
-    
+
     // 管理组合并关系：new_group_id -> original_group_id
-    const [groupMergeMap, setGroupMergeMap] = useState<Map<string, string>>(new Map());
+    const [groupMergeMap, setGroupMergeMap] = useState<Map<string, string>>(
+        new Map(),
+    );
 
     // 使用自定义钩子获取所有分组相关的数据和逻辑
     const {
@@ -834,13 +977,15 @@ function ConversationUI({
     } = useMessageGroups({ allDisplayMessages, groupMergeMap });
 
     // ============= Reasoning 展开状态管理 =============
-    
+
     // 管理每个 reasoning 消息的展开状态
-    const [reasoningExpandStates, setReasoningExpandStates] = useState<Map<number, boolean>>(new Map());
-    
+    const [reasoningExpandStates, setReasoningExpandStates] = useState<
+        Map<number, boolean>
+    >(new Map());
+
     // 切换 reasoning 消息的展开状态
     const toggleReasoningExpand = useCallback((messageId: number) => {
-        setReasoningExpandStates(prev => {
+        setReasoningExpandStates((prev) => {
             const newMap = new Map(prev);
             newMap.set(messageId, !newMap.get(messageId));
             return newMap;
@@ -848,48 +993,58 @@ function ConversationUI({
     }, []);
 
     // ============= 消息状态管理辅助函数 =============
-    
+
     // 处理消息完成时的状态更新，确保消息在streamingMessages清理后仍能显示
-    const handleMessageCompletion = useCallback((streamEvent: StreamEvent) => {
-        // 检查messages中是否已存在该消息
-        setMessages(prevMessages => {
-            const existingIndex = prevMessages.findIndex(msg => msg.id === streamEvent.message_id);
-            
-            if (existingIndex !== -1) {
-                // 消息已存在，更新其内容和完成状态
-                const updatedMessages = [...prevMessages];
-                updatedMessages[existingIndex] = {
-                    ...updatedMessages[existingIndex],
-                    content: streamEvent.content,
-                    message_type: streamEvent.message_type,
-                    finish_time: new Date(), // 标记为完成
-                };
-                return updatedMessages;
-            } else {
-                // 消息不存在，添加新消息
-                const lastMessage = prevMessages[prevMessages.length - 1];
-                const baseTime = lastMessage ? new Date(lastMessage.created_time) : new Date();
-                const newMessage: Message = {
-                    id: streamEvent.message_id,
-                    conversation_id: conversation?.id || 0,
-                    message_type: streamEvent.message_type,
-                    content: streamEvent.content,
-                    llm_model_id: null,
-                    created_time: new Date(baseTime.getTime() + 1000),
-                    start_time: streamEvent.message_type === 'reasoning' ? baseTime : null,
-                    finish_time: new Date(), // 标记为完成
-                    token_count: 0,
-                    generation_group_id: null, // 流式消息暂时不设置generation_group_id
-                    parent_group_id: null, // 流式消息暂时不设置parent_group_id
-                    regenerate: null,
-                };
-                return [...prevMessages, newMessage];
-            }
-        });
-    }, [conversation?.id]);
+    const handleMessageCompletion = useCallback(
+        (streamEvent: StreamEvent) => {
+            // 检查messages中是否已存在该消息
+            setMessages((prevMessages) => {
+                const existingIndex = prevMessages.findIndex(
+                    (msg) => msg.id === streamEvent.message_id,
+                );
+
+                if (existingIndex !== -1) {
+                    // 消息已存在，更新其内容和完成状态
+                    const updatedMessages = [...prevMessages];
+                    updatedMessages[existingIndex] = {
+                        ...updatedMessages[existingIndex],
+                        content: streamEvent.content,
+                        message_type: streamEvent.message_type,
+                        finish_time: new Date(), // 标记为完成
+                    };
+                    return updatedMessages;
+                } else {
+                    // 消息不存在，添加新消息
+                    const lastMessage = prevMessages[prevMessages.length - 1];
+                    const baseTime = lastMessage
+                        ? new Date(lastMessage.created_time)
+                        : new Date();
+                    const newMessage: Message = {
+                        id: streamEvent.message_id,
+                        conversation_id: conversation?.id || 0,
+                        message_type: streamEvent.message_type,
+                        content: streamEvent.content,
+                        llm_model_id: null,
+                        created_time: new Date(baseTime.getTime() + 1000),
+                        start_time:
+                            streamEvent.message_type === "reasoning"
+                                ? baseTime
+                                : null,
+                        finish_time: new Date(), // 标记为完成
+                        token_count: 0,
+                        generation_group_id: null, // 流式消息暂时不设置generation_group_id
+                        parent_group_id: null, // 流式消息暂时不设置parent_group_id
+                        regenerate: null,
+                    };
+                    return [...prevMessages, newMessage];
+                }
+            });
+        },
+        [conversation?.id],
+    );
 
     // ============= 业务逻辑处理函数 =============
-    
+
     // 对话管理相关操作
     const { deleteConversation } = useConversationManager();
     const handleDeleteConversation = useCallback(() => {
@@ -915,7 +1070,7 @@ function ConversationUI({
     const openTitleEditDialog = useCallback(() => {
         setTitleEditDialogIsOpen(true);
     }, []);
-    
+
     // 关闭标题编辑对话框
     const closeTitleEditDialog = useCallback(() => {
         setTitleEditDialogIsOpen(false);
@@ -926,23 +1081,25 @@ function ConversationUI({
         (regenerateMessageId: number) => {
             // 设置AI响应状态
             setAiIsResponsing(true);
-            
+
             // 设置被点击的消息显示shine-border
             setShiningMessageIds(new Set([regenerateMessageId]));
-            
+
             invoke<AiResponse>("regenerate_ai", {
                 messageId: regenerateMessageId,
-            }).then((res) => {
-                console.log("regenerate ai response", res);
-                // 重新生成消息的处理逻辑
-                setMessageId(res.add_message_id);
-            }).catch((error) => {
-                console.error("Regenerate error:", error);
-                setAiIsResponsing(false);
-                // 错误时清除shine-border
-                setShiningMessageIds(new Set());
-                toast.error("重新生成失败: " + error);
-            });
+            })
+                .then((res) => {
+                    console.log("regenerate ai response", res);
+                    // 重新生成消息的处理逻辑
+                    setMessageId(res.add_message_id);
+                })
+                .catch((error) => {
+                    console.error("Regenerate error:", error);
+                    setAiIsResponsing(false);
+                    // 错误时清除shine-border
+                    setShiningMessageIds(new Set());
+                    toast.error("重新生成失败: " + error);
+                });
         },
         [],
     );
@@ -958,58 +1115,69 @@ function ConversationUI({
         setEditingMessage(null);
     }, []);
 
-    const handleEditSave = useCallback((content: string) => {
-        if (!editingMessage) return;
-        
-        invoke("update_message_content", {
-            messageId: editingMessage.id,
-            content: content,
-        }).then(() => {
-            // 更新本地消息状态
-            setMessages(prevMessages => 
-                prevMessages.map(msg => 
-                    msg.id === editingMessage.id 
-                        ? { ...msg, content: content }
-                        : msg
-                )
-            );
-            toast.success("消息已更新");
-        }).catch((error) => {
-            toast.error("更新消息失败: " + error);
-        });
-    }, [editingMessage]);
+    const handleEditSave = useCallback(
+        (content: string) => {
+            if (!editingMessage) return;
 
-    const handleEditSaveAndRegenerate = useCallback((content: string) => {
-        if (!editingMessage) return;
-        
-        // 先更新消息内容
-        invoke("update_message_content", {
-            messageId: editingMessage.id,
-            content: content,
-        }).then(() => {
-            // 更新本地消息状态
-            setMessages(prevMessages => 
-                prevMessages.map(msg => 
-                    msg.id === editingMessage.id 
-                        ? { ...msg, content: content }
-                        : msg
-                )
-            );
-            
-            // 然后触发重新生成
-            handleMessageRegenerate(editingMessage.id);
-            
-            toast.success("消息已更新并开始重新生成");
-        }).catch((error) => {
-            toast.error("更新消息失败: " + error);
-        });
-    }, [editingMessage, handleMessageRegenerate]);
+            invoke("update_message_content", {
+                messageId: editingMessage.id,
+                content: content,
+            })
+                .then(() => {
+                    // 更新本地消息状态
+                    setMessages((prevMessages) =>
+                        prevMessages.map((msg) =>
+                            msg.id === editingMessage.id
+                                ? { ...msg, content: content }
+                                : msg,
+                        ),
+                    );
+                    toast.success("消息已更新");
+                })
+                .catch((error) => {
+                    toast.error("更新消息失败: " + error);
+                });
+        },
+        [editingMessage],
+    );
 
+    const handleEditSaveAndRegenerate = useCallback(
+        (content: string) => {
+            if (!editingMessage) return;
 
-    
+            // 先更新消息内容
+            invoke("update_message_content", {
+                messageId: editingMessage.id,
+                content: content,
+            })
+                .then(() => {
+                    // 更新本地消息状态
+                    setMessages((prevMessages) =>
+                        prevMessages.map((msg) =>
+                            msg.id === editingMessage.id
+                                ? { ...msg, content: content }
+                                : msg,
+                        ),
+                    );
+
+                    // 然后触发重新生成
+                    handleMessageRegenerate(editingMessage.id);
+
+                    toast.success("消息已更新并开始重新生成");
+                })
+                .catch((error) => {
+                    toast.error("更新消息失败: " + error);
+                });
+        },
+        [editingMessage, handleMessageRegenerate],
+    );
+
     // 发送消息的主要处理函数，使用节流防止频繁点击
     const handleSend = throttle(() => {
-        console.log('[ShineBorder Debug] handleSend called, aiIsResponsing:', aiIsResponsing);
+        console.log(
+            "[ShineBorder Debug] handleSend called, aiIsResponsing:",
+            aiIsResponsing,
+        );
         if (aiIsResponsing) {
             // AI正在响应时，点击取消
             console.log("Cancelling AI");
@@ -1068,10 +1236,10 @@ function ConversationUI({
                         userMessage,
                     ]);
                 });
-                
+
                 // 设置用户消息显示border-beam（这里userMessage.id是0，实际会在后端分配真实ID）
                 // 我们需要等到后端返回真实ID后再设置border-beam
-                
+
                 invoke<AiResponse>("ask_ai", {
                     request: {
                         prompt: inputText,
@@ -1079,164 +1247,246 @@ function ConversationUI({
                         assistant_id: +assistantId,
                         attachment_list: fileInfoList?.map((i) => i.id),
                     },
-                }).then((res) => {
-                    console.log("ask ai response", res);
-                    console.log('[ShineBorder Debug] ask_ai response received, conversation_id:', res.conversation_id, 'add_message_id:', res.add_message_id);
-                    
-                    // 取消之前的事件监听
-                    if (unsubscribeRef.current) {
-                        console.log("Unsubscribing from previous event listener");
-                        unsubscribeRef.current.then((f) => f());
-                    }
+                })
+                    .then((res) => {
+                        console.log("ask ai response", res);
+                        console.log(
+                            "[ShineBorder Debug] ask_ai response received, conversation_id:",
+                            res.conversation_id,
+                        );
 
-                    setMessageId(res.add_message_id);
-
-                    // 更新用户消息内容（后端处理后的版本）
-                    startTransition(() => {
-                        setMessages((prevMessages) => {
-                            const newMessages = [...prevMessages];
-                            const index = prevMessages.findIndex(
-                                (msg) => msg == userMessage,
+                        // 取消之前的事件监听
+                        if (unsubscribeRef.current) {
+                            console.log(
+                                "Unsubscribing from previous event listener",
                             );
-                            if (index !== -1) {
-                                newMessages[index] = {
-                                    ...newMessages[index],
-                                    content: res.request_prompt_result_with_context,
-                                };
-                            }
-                            return newMessages;
-                        });
-                    });
+                            unsubscribeRef.current.then((f) => f());
+                        }
 
-                    // 如果是新对话，更新对话 ID
-                    if (conversationId != res.conversation_id + "") {
-                        onChangeConversationId(res.conversation_id + "");
-                    }
-
-                    // 处理对话事件
-                    const handleConversationEvent = (event: any) => {
-                        const conversationEvent = event.payload as ConversationEvent;
-                        
-                        if (conversationEvent.type === 'message_add') {
-                            // 处理消息添加事件
-                            const messageAddData = conversationEvent.data as any;
-                            console.log('Received message_add event:', messageAddData);
-                            
-                            // 如果是用户消息，设置shine border
-                            if (messageAddData.message_type === 'user') {
-                                console.log('[ShineBorder Debug] Setting shine border for user message:', messageAddData.message_id, 'in handleSend event handler');
-                                setShiningMessageIds(new Set([messageAddData.message_id]));
-                            } else {
-                                console.log('[ShineBorder Debug] Not setting shine border - message type:', messageAddData.message_type);
-                            }
-                            
-                            // 重新获取对话消息，以确保获得完整的消息数据（包括generation_group_id等）
-                            invoke<ConversationWithMessages>("get_conversation_with_messages", {
-                                conversationId: res.conversation_id,
-                            }).then((updatedConversation) => {
-                                setMessages(updatedConversation.messages);
-                                console.log('Updated messages after message_add:', updatedConversation.messages.length);
-                                console.log('[ShineBorder Debug] Messages reloaded, current shiningMessageIds:', Array.from(shiningMessageIds));
-                            }).catch((error) => {
-                                console.error('Failed to reload conversation after message_add:', error);
-                                
-                                // 降级处理：仍然添加基本的消息信息
-                                const newMessage: Message = {
-                                    id: messageAddData.message_id,
-                                    conversation_id: res.conversation_id,
-                                    message_type: messageAddData.message_type,
-                                    content: "", // 初始内容为空，会通过后续的message_update事件更新
-                                    llm_model_id: null,
-                                    created_time: new Date(),
-                                    start_time: new Date(),
-                                    finish_time: null,
-                                    token_count: 0,
-                                    generation_group_id: null, // 这些字段会在数据库查询时填充
-                                    parent_group_id: null,
-                                    regenerate: null,
-                                };
-                                
-                                setMessages((prevMessages) => [...prevMessages, newMessage]);
+                        // 更新用户消息内容（后端处理后的版本）
+                        startTransition(() => {
+                            setMessages((prevMessages) => {
+                                const newMessages = [...prevMessages];
+                                const index = prevMessages.findIndex(
+                                    (msg) => msg == userMessage,
+                                );
+                                if (index !== -1) {
+                                    newMessages[index] = {
+                                        ...newMessages[index],
+                                        content:
+                                            res.request_prompt_result_with_context,
+                                    };
+                                }
+                                return newMessages;
                             });
-                        } else if (conversationEvent.type === 'message_update') {
-                            const messageUpdateData = conversationEvent.data as MessageUpdateEvent;
-                            console.log('Received message_update event:', messageUpdateData);
-                            
-                            const streamEvent: StreamEvent = {
-                                message_id: messageUpdateData.message_id,
-                                message_type: messageUpdateData.message_type as any,
-                                content: messageUpdateData.content,
-                                is_done: messageUpdateData.is_done,
-                            };
-                            
-                            // 当开始收到新的AI响应时（不是is_done时），清除所有shine-border
-                            if (!messageUpdateData.is_done && messageUpdateData.content) {
-                                console.log('[ShineBorder Debug] Clearing shine border - AI started responding');
-                                setShiningMessageIds(new Set());
-                            }
-                            
-                            if (messageUpdateData.is_done) {
-                                setAiIsResponsing(false);
-                                
-                                // 在清理streamingMessages之前，先将消息添加到messages状态
-                                handleMessageCompletion(streamEvent);
-                                
-                                // 标记流式消息为完成状态，但不立即删除，让消息能正常显示
-                                setStreamingMessages((prev) => {
+                        });
+
+                        // 如果是新对话，更新对话 ID
+                        if (conversationId != res.conversation_id + "") {
+                            onChangeConversationId(res.conversation_id + "");
+                        }
+
+                        // 处理对话事件
+                        const handleConversationEvent = (event: any) => {
+                            const conversationEvent =
+                                event.payload as ConversationEvent;
+
+                            if (conversationEvent.type === "message_add") {
+                                // 处理消息添加事件
+                                const messageAddData =
+                                    conversationEvent.data as any;
+                                console.log(
+                                    "Received message_add event:",
+                                    messageAddData,
+                                );
+
+                                // 如果是用户消息，设置shine border
+                                if (messageAddData.message_type === "user") {
+                                    console.log(
+                                        "[ShineBorder Debug] Setting shine border for user message:",
+                                        messageAddData.message_id,
+                                        "in handleSend event handler",
+                                    );
+                                    setShiningMessageIds(
+                                        new Set([messageAddData.message_id]),
+                                    );
+                                } else {
+                                    console.log(
+                                        "[ShineBorder Debug] Not setting shine border - message type:",
+                                        messageAddData.message_type,
+                                    );
+                                }
+
+                                // 重新获取对话消息，以确保获得完整的消息数据（包括generation_group_id等）
+                                invoke<ConversationWithMessages>(
+                                    "get_conversation_with_messages",
+                                    {
+                                        conversationId: res.conversation_id,
+                                    },
+                                )
+                                    .then((updatedConversation) => {
+                                        setMessages(
+                                            updatedConversation.messages,
+                                        );
+                                        console.log(
+                                            "Updated messages after message_add:",
+                                            updatedConversation.messages.length,
+                                        );
+                                        console.log(
+                                            "[ShineBorder Debug] Messages reloaded, current shiningMessageIds:",
+                                            Array.from(shiningMessageIds),
+                                        );
+                                    })
+                                    .catch((error) => {
+                                        console.error(
+                                            "Failed to reload conversation after message_add:",
+                                            error,
+                                        );
+
+                                        // 降级处理：仍然添加基本的消息信息
+                                        const newMessage: Message = {
+                                            id: messageAddData.message_id,
+                                            conversation_id:
+                                                res.conversation_id,
+                                            message_type:
+                                                messageAddData.message_type,
+                                            content: "", // 初始内容为空，会通过后续的message_update事件更新
+                                            llm_model_id: null,
+                                            created_time: new Date(),
+                                            start_time: new Date(),
+                                            finish_time: null,
+                                            token_count: 0,
+                                            generation_group_id: null, // 这些字段会在数据库查询时填充
+                                            parent_group_id: null,
+                                            regenerate: null,
+                                        };
+
+                                        setMessages((prevMessages) => [
+                                            ...prevMessages,
+                                            newMessage,
+                                        ]);
+                                    });
+                            } else if (
+                                conversationEvent.type === "message_update"
+                            ) {
+                                const messageUpdateData =
+                                    conversationEvent.data as MessageUpdateEvent;
+                                console.log(
+                                    "Received message_update event:",
+                                    messageUpdateData,
+                                );
+
+                                const streamEvent: StreamEvent = {
+                                    message_id: messageUpdateData.message_id,
+                                    message_type:
+                                        messageUpdateData.message_type as any,
+                                    content: messageUpdateData.content,
+                                    is_done: messageUpdateData.is_done,
+                                };
+
+                                // 当开始收到新的AI响应时（不是is_done时），清除所有shine-border
+                                if (
+                                    !messageUpdateData.is_done &&
+                                    messageUpdateData.content
+                                ) {
+                                    console.log(
+                                        "[ShineBorder Debug] Clearing shine border - AI started responding",
+                                    );
+                                    setShiningMessageIds(new Set());
+                                }
+
+                                if (messageUpdateData.is_done) {
+                                    setAiIsResponsing(false);
+
+                                    // 在清理streamingMessages之前，先将消息添加到messages状态
+                                    handleMessageCompletion(streamEvent);
+
+                                    // 标记流式消息为完成状态，但不立即删除，让消息能正常显示
+                                    setStreamingMessages((prev) => {
+                                        const newMap = new Map(prev);
+                                        const completedEvent = {
+                                            ...streamEvent,
+                                            is_done: true,
+                                        };
+                                        newMap.set(
+                                            streamEvent.message_id,
+                                            completedEvent,
+                                        );
+                                        return newMap;
+                                    });
+
+                                    // 延迟清理已完成的流式消息，给足够时间让消息保存到 messages 中
+                                    setTimeout(() => {
+                                        setStreamingMessages((prev) => {
+                                            const newMap = new Map(prev);
+                                            newMap.delete(
+                                                streamEvent.message_id,
+                                            );
+                                            return newMap;
+                                        });
+                                    }, 1000); // 1秒后清理
+                                } else {
+                                    // 使用 startTransition 将流式消息更新标记为低优先级，保持界面响应性
+                                    startTransition(() => {
+                                        setStreamingMessages((prev) => {
+                                            const newMap = new Map(prev);
+                                            newMap.set(
+                                                streamEvent.message_id,
+                                                streamEvent,
+                                            );
+                                            return newMap;
+                                        });
+                                    });
+                                    smartScroll();
+                                }
+                            } else if (
+                                conversationEvent.type === "group_merge"
+                            ) {
+                                // 处理组合并事件
+                                const groupMergeData =
+                                    conversationEvent.data as GroupMergeEvent;
+                                console.log(
+                                    "Received group merge event:",
+                                    groupMergeData,
+                                );
+
+                                // 设置组合并关系
+                                setGroupMergeMap((prev) => {
                                     const newMap = new Map(prev);
-                                    const completedEvent = { ...streamEvent, is_done: true };
-                                    newMap.set(streamEvent.message_id, completedEvent);
+                                    newMap.set(
+                                        groupMergeData.new_group_id,
+                                        groupMergeData.original_group_id,
+                                    );
+                                    console.log(
+                                        "Updated groupMergeMap:",
+                                        Array.from(newMap.entries()),
+                                    );
                                     return newMap;
                                 });
-                                
-                                // 延迟清理已完成的流式消息，给足够时间让消息保存到 messages 中
-                                setTimeout(() => {
-                                    setStreamingMessages((prev) => {
-                                        const newMap = new Map(prev);
-                                        newMap.delete(streamEvent.message_id);
-                                        return newMap;
-                                    });
-                                }, 1000); // 1秒后清理
-                            } else {
-                                // 使用 startTransition 将流式消息更新标记为低优先级，保持界面响应性
-                                startTransition(() => {
-                                    setStreamingMessages((prev) => {
-                                        const newMap = new Map(prev);
-                                        newMap.set(streamEvent.message_id, streamEvent);
-                                        return newMap;
-                                    });
-                                });
-                                smartScroll();
-                            }
-                        } else if (conversationEvent.type === 'group_merge') {
-                            // 处理组合并事件
-                            const groupMergeData = conversationEvent.data as GroupMergeEvent;
-                            console.log('Received group merge event:', groupMergeData);
-                            
-                            // 设置组合并关系
-                            setGroupMergeMap(prev => {
-                                const newMap = new Map(prev);
-                                newMap.set(groupMergeData.new_group_id, groupMergeData.original_group_id);
-                                console.log('Updated groupMergeMap:', Array.from(newMap.entries()));
-                                return newMap;
-                            });
-                            
-                            // 如果是重新生成，标记这个组需要自动切换到最新版本
-                            if (groupMergeData.is_regeneration) {
-                                const originalGroupId = groupMergeData.original_group_id;
-                                console.log(`Group ${originalGroupId} will auto-switch to latest version when new version is available`);
-                                // 不需要在这里做任何操作，useEffect 会处理自动切换
-                            }
-                        }
-                    };
 
-                    unsubscribeRef.current = listen(`conversation_event_${res.conversation_id}`, handleConversationEvent);
-                }).catch((error) => {
-                    setAiIsResponsing(false);
-                    // 发送消息失败时清除shine-border
-                    setShiningMessageIds(new Set());
-                    toast.error("发送消息失败: " + error);
-                });
+                                // 如果是重新生成，标记这个组需要自动切换到最新版本
+                                if (groupMergeData.is_regeneration) {
+                                    const originalGroupId =
+                                        groupMergeData.original_group_id;
+                                    console.log(
+                                        `Group ${originalGroupId} will auto-switch to latest version when new version is available`,
+                                    );
+                                    // 不需要在这里做任何操作，useEffect 会处理自动切换
+                                }
+                            }
+                        };
+
+                        unsubscribeRef.current = listen(
+                            `conversation_event_${res.conversation_id}`,
+                            handleConversationEvent,
+                        );
+                    })
+                    .catch((error) => {
+                        setAiIsResponsing(false);
+                        // 发送消息失败时清除shine-border
+                        setShiningMessageIds(new Set());
+                        toast.error("发送消息失败: " + error);
+                    });
             }
 
             setInputText("");
@@ -1245,119 +1495,155 @@ function ConversationUI({
     }, 200);
 
     // 过滤系统消息并渲染MessageItem组件
-    const filteredMessages = useMemo(
-        () => {
-            const result = allDisplayMessages
-                .filter((m) => m.message_type !== "system")
-                .map((message) => {
-                    // 查找对应的流式消息信息（如果存在）
-                    const streamEvent = streamingMessages.get(message.id);
-                    
-                    // 检查是否需要根据版本管理隐藏消息
-                    const versionInfo = getMessageVersionInfo(message);
-                    if (versionInfo && !versionInfo.shouldShow) {
-                        return null; // 不显示非当前版本的消息
-                    }
-                    
-                    // 检查是否需要显示版本控制
-                    const groupControl = getGenerationGroupControl(message);
-                    
-                    // 检查是否需要显示shine-border
-                    const shouldShowShineBorder = shiningMessageIds.has(message.id);
-                    if (message.message_type === 'user') {
-                        console.log('[ShineBorder Debug] shouldShowShineBorder for user message', message.id, ':', shouldShowShineBorder, 'shiningMessageIds:', Array.from(shiningMessageIds));
-                    }
-                    
-                    return (
-                        <React.Fragment key={message.id}>
-                            <MessageItem
-                                message={message}
-                                streamEvent={streamEvent}
-                                onCodeRun={handleArtifact}
-                                onMessageRegenerate={() =>
-                                    handleMessageRegenerate(message.id)
-                                }
-                                onMessageEdit={() => handleMessageEdit(message)}
-                                // Reasoning 展开状态相关 props
-                                isReasoningExpanded={reasoningExpandStates.get(message.id) || false}
-                                onToggleReasoningExpand={() => toggleReasoningExpand(message.id)}
-                                // ShineBorder 动画状态
-                                shouldShowShineBorder={shouldShowShineBorder}
-                            />
-                            {/* 在 generation group 的最后一个消息下方显示版本控制 */}
-                            {groupControl && (
-                                <div className="flex justify-start mt-2">
-                                    <VersionPagination
-                                        currentVersion={groupControl.currentVersion}
-                                        totalVersions={groupControl.totalVersions}
-                                        onVersionChange={(versionIndex) => handleGenerationVersionChange(
-                                            groupControl.groupId, 
-                                            versionIndex
-                                        )}
-                                    />
-                                </div>
-                            )}
-                        </React.Fragment>
+    const filteredMessages = useMemo(() => {
+        const result = allDisplayMessages
+            .filter((m) => m.message_type !== "system")
+            .map((message) => {
+                // 查找对应的流式消息信息（如果存在）
+                const streamEvent = streamingMessages.get(message.id);
+
+                // 检查是否需要根据版本管理隐藏消息
+                const versionInfo = getMessageVersionInfo(message);
+                if (versionInfo && !versionInfo.shouldShow) {
+                    return null; // 不显示非当前版本的消息
+                }
+
+                // 检查是否需要显示版本控制
+                const groupControl = getGenerationGroupControl(message);
+
+                // 检查是否需要显示shine-border
+                const shouldShowShineBorder = shiningMessageIds.has(message.id);
+                if (message.message_type === "user") {
+                    console.log(
+                        "[ShineBorder Debug] shouldShowShineBorder for user message",
+                        message.id,
+                        ":",
+                        shouldShowShineBorder,
+                        "shiningMessageIds:",
+                        Array.from(shiningMessageIds),
                     );
-                })
-                .filter(Boolean); // 过滤掉 null 值
-            
-            // 添加占位符消息渲染
-            generationGroups.forEach((group, groupId) => {
-                const selectedVersionIndex = selectedVersions.get(groupId) ?? (group.versions.length > 0 ? group.versions.length - 1 : 0);
-                const selectedVersionData = group.versions[selectedVersionIndex];
-                
-                // 如果选中的是占位符版本，添加占位符消息
-                if (selectedVersionData?.isPlaceholder) {
-                    // 找到这个组的最后一个消息的位置，在其后添加占位符
-                    const groupMessages = group.versions
-                        .flatMap(version => version.messages)
-                        .filter((msg: any) => msg.message_type !== "system");
-                    if (groupMessages.length > 0) {
-                        const lastMessage = groupMessages[groupMessages.length - 1];
-                        const lastMessageIndex = result.findIndex(item => 
-                            item?.key === lastMessage.id.toString()
-                        );
-                        
-                        if (lastMessageIndex !== -1) {
-                            // 在最后一个消息后添加占位符
-                            const placeholderElement = (
-                                <React.Fragment key={`placeholder_${groupId}`}>
-                                    <div className="flex justify-start mb-4">
-                                        <div className="bg-gray-100 rounded-lg p-4 max-w-3xl">
-                                            <div className="flex items-center space-x-2">
-                                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900"></div>
-                                                <span className="text-sm text-gray-600">正在重新生成...</span>
-                                            </div>
+                }
+
+                return (
+                    <React.Fragment key={message.id}>
+                        <MessageItem
+                            message={message}
+                            streamEvent={streamEvent}
+                            onCodeRun={handleArtifact}
+                            onMessageRegenerate={() =>
+                                handleMessageRegenerate(message.id)
+                            }
+                            onMessageEdit={() => handleMessageEdit(message)}
+                            // Reasoning 展开状态相关 props
+                            isReasoningExpanded={
+                                reasoningExpandStates.get(message.id) || false
+                            }
+                            onToggleReasoningExpand={() =>
+                                toggleReasoningExpand(message.id)
+                            }
+                            // ShineBorder 动画状态
+                            shouldShowShineBorder={shouldShowShineBorder}
+                        />
+                        {/* 在 generation group 的最后一个消息下方显示版本控制 */}
+                        {groupControl && (
+                            <div className="flex justify-start mt-2">
+                                <VersionPagination
+                                    currentVersion={groupControl.currentVersion}
+                                    totalVersions={groupControl.totalVersions}
+                                    onVersionChange={(versionIndex) =>
+                                        handleGenerationVersionChange(
+                                            groupControl.groupId,
+                                            versionIndex,
+                                        )
+                                    }
+                                />
+                            </div>
+                        )}
+                    </React.Fragment>
+                );
+            })
+            .filter(Boolean); // 过滤掉 null 值
+
+        // 添加占位符消息渲染
+        generationGroups.forEach((group, groupId) => {
+            const selectedVersionIndex =
+                selectedVersions.get(groupId) ??
+                (group.versions.length > 0 ? group.versions.length - 1 : 0);
+            const selectedVersionData = group.versions[selectedVersionIndex];
+
+            // 如果选中的是占位符版本，添加占位符消息
+            if (selectedVersionData?.isPlaceholder) {
+                // 找到这个组的最后一个消息的位置，在其后添加占位符
+                const groupMessages = group.versions
+                    .flatMap((version) => version.messages)
+                    .filter((msg: any) => msg.message_type !== "system");
+                if (groupMessages.length > 0) {
+                    const lastMessage = groupMessages[groupMessages.length - 1];
+                    const lastMessageIndex = result.findIndex(
+                        (item) => item?.key === lastMessage.id.toString(),
+                    );
+
+                    if (lastMessageIndex !== -1) {
+                        // 在最后一个消息后添加占位符
+                        const placeholderElement = (
+                            <React.Fragment key={`placeholder_${groupId}`}>
+                                <div className="flex justify-start mb-4">
+                                    <div className="bg-gray-100 rounded-lg p-4 max-w-3xl">
+                                        <div className="flex items-center space-x-2">
+                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900"></div>
+                                            <span className="text-sm text-gray-600">
+                                                正在重新生成...
+                                            </span>
                                         </div>
                                     </div>
-                                    <div className="flex justify-start mt-2">
-                                        <VersionPagination
-                                            currentVersion={selectedVersionIndex + 1}
-                                            totalVersions={group.versions.length}
-                                            onVersionChange={(versionIndex) => handleGenerationVersionChange(
-                                                groupId, 
-                                                versionIndex
-                                            )}
-                                        />
-                                    </div>
-                                </React.Fragment>
-                            );
-                            result.splice(lastMessageIndex + 1, 0, placeholderElement);
-                        }
+                                </div>
+                                <div className="flex justify-start mt-2">
+                                    <VersionPagination
+                                        currentVersion={
+                                            selectedVersionIndex + 1
+                                        }
+                                        totalVersions={group.versions.length}
+                                        onVersionChange={(versionIndex) =>
+                                            handleGenerationVersionChange(
+                                                groupId,
+                                                versionIndex,
+                                            )
+                                        }
+                                    />
+                                </div>
+                            </React.Fragment>
+                        );
+                        result.splice(
+                            lastMessageIndex + 1,
+                            0,
+                            placeholderElement,
+                        );
                     }
                 }
-            });
-            
-            return result;
-        },
-        [allDisplayMessages, streamingMessages, getMessageVersionInfo, getGenerationGroupControl, handleGenerationVersionChange, reasoningExpandStates, toggleReasoningExpand, generationGroups, selectedVersions, shiningMessageIds],
-    );
+            }
+        });
+
+        return result;
+    }, [
+        allDisplayMessages,
+        streamingMessages,
+        getMessageVersionInfo,
+        getGenerationGroupControl,
+        handleGenerationVersionChange,
+        reasoningExpandStates,
+        toggleReasoningExpand,
+        generationGroups,
+        selectedVersions,
+        shiningMessageIds,
+    ]);
 
     // ============= 组件渲染 =============
-    
+
     return (
-        <div ref={dropRef} className="h-full relative flex flex-col bg-white rounded-xl">
+        <div
+            ref={dropRef}
+            className="h-full relative flex flex-col bg-white rounded-xl"
+        >
             {conversationId ? (
                 <ConversationTitle
                     onEdit={openTitleEditDialog}
@@ -1366,7 +1652,7 @@ function ConversationUI({
                 />
             ) : null}
 
-            <div 
+            <div
                 ref={scrollContainerRef}
                 onScroll={handleScroll}
                 className="h-full flex-1 overflow-y-auto flex flex-col p-6 box-border gap-4"
@@ -1422,7 +1708,9 @@ function ConversationUI({
             {isLoadingShow ? (
                 <div className="bg-white/95 w-full h-full absolute flex items-center justify-center backdrop-blur rounded-xl">
                     <div className="loading-icon"></div>
-                    <div className="text-indigo-500 text-base font-medium">加载中...</div>
+                    <div className="text-indigo-500 text-base font-medium">
+                        加载中...
+                    </div>
                 </div>
             ) : null}
         </div>
