@@ -55,8 +55,6 @@ export function useMessageGroups({
     // - 不再有副作用，成为一个纯粹的计算过程
     // =================================================================================
     const pureGenerationGroups = useMemo(() => {
-        const startTime = performance.now();
-
         // 步骤 1: 一次遍历，收集所有版本数据和父子关系
         const versionDataMap = new Map<
             string,
@@ -72,7 +70,9 @@ export function useMessageGroups({
             if (msg.parent_group_id) {
                 groupToParentMap.set(versionKey, msg.parent_group_id);
             }
-            const versionData = versionDataMap.get(versionKey) ?? { messages: [] };
+            const versionData = versionDataMap.get(versionKey) ?? {
+                messages: [],
+            };
             versionData.messages.push(msg);
             if (msg.parent_group_id)
                 versionData.parentGroupId = msg.parent_group_id;
@@ -105,7 +105,11 @@ export function useMessageGroups({
                 ...data,
                 versionId,
                 timestamp: new Date(
-                    Math.min(...data.messages.map(m => new Date(m.created_time || 0).getTime()).filter(t => t > 0)) || 0
+                    Math.min(
+                        ...data.messages
+                            .map((m) => new Date(m.created_time || 0).getTime())
+                            .filter((t) => t > 0),
+                    ) || 0,
                 ),
             });
             groups.set(rootId, group);
@@ -120,10 +124,6 @@ export function useMessageGroups({
             });
         });
 
-        const duration = performance.now() - startTime;
-        console.log(
-            `[useMessageGroups] 计算完成，耗时: ${duration.toFixed(2)}ms，生成组数: ${groups.size}`,
-        );
         return groups;
     }, [allDisplayMessages, groupMergeMap]);
 
@@ -235,7 +235,10 @@ export function useMessageGroups({
             const selectedVersionIndex =
                 selectedVersions.get(rootGroupId) ?? group.versions.length - 1;
             const currentVersionData = group.versions[selectedVersionIndex];
-            const lastMessageInGroup = currentVersionData?.messages[currentVersionData.messages.length - 1];
+            const lastMessageInGroup =
+                currentVersionData?.messages[
+                    currentVersionData.messages.length - 1
+                ];
 
             return lastMessageInGroup?.id === message.id;
         },
@@ -289,9 +292,10 @@ export function useMessageGroups({
                 return { shouldShow: false };
             }
 
-            const isMessageInSelectedVersion = selectedVersionData.messages.some(
-                msg => msg.id === message.id
-            );
+            const isMessageInSelectedVersion =
+                selectedVersionData.messages.some(
+                    (msg) => msg.id === message.id,
+                );
             return { shouldShow: isMessageInSelectedVersion };
         },
         [generationGroups, selectedVersions, messageIdToRootGroupIdMap],

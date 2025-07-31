@@ -1284,6 +1284,15 @@ function ConversationUI({
                         // 如果是新对话，更新对话 ID
                         if (conversationId != res.conversation_id + "") {
                             onChangeConversationId(res.conversation_id + "");
+
+                            if (conversationId) {
+                                console.log(
+                                    "这是一个新生成的 Conversation:",
+                                    conversationId,
+                                );
+                            } else {
+                                console.log("这是老 Conversation 继续聊天");
+                            }
                         }
 
                         // 处理对话事件

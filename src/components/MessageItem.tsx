@@ -21,7 +21,10 @@ import MessageFileAttachment from "./MessageFileAttachment";
 import MessageWebContent from "./conversation/MessageWebContent";
 import ReasoningMessage from "./ReasoningMessage";
 import { Message, StreamEvent } from "../data/Conversation";
-import { usePerformanceMonitor, measureSync } from "../hooks/usePerformanceMonitor";
+import {
+    usePerformanceMonitor,
+    measureSync,
+} from "../hooks/usePerformanceMonitor";
 import { ShineBorder } from "./magicui/shine-border";
 
 interface CustomComponents extends Components {
@@ -36,8 +39,7 @@ const CUSTOM_TAGS = {
         `\n<fileattachment ${match[1]}></fileattachment>\n`,
     bangwebtomarkdown: (match: RegExpExecArray) =>
         `\n<bangwebtomarkdown ${match[1]}></bangwebtomarkdown>\n`,
-    bangweb: (match: RegExpExecArray) =>
-        `\n<bangweb ${match[1]}></bangweb>\n`,
+    bangweb: (match: RegExpExecArray) => `\n<bangweb ${match[1]}></bangweb>\n`,
 };
 
 // 定义允许的自定义标签及其属性，结合默认 schema
@@ -61,9 +63,7 @@ const SANITIZE_SCHEMA = {
         bangwebtomarkdown: [
             ...(defaultSchema.attributes?.bangwebtomarkdown || []),
         ],
-        bangweb: [
-            ...(defaultSchema.attributes?.bangweb || []),
-        ],
+        bangweb: [...(defaultSchema.attributes?.bangweb || [])],
     },
 };
 
@@ -104,15 +104,28 @@ interface MessageItemProps {
 }
 
 const MessageItem = React.memo(
-    ({ message, streamEvent, onCodeRun, onMessageRegenerate, onMessageEdit, isReasoningExpanded = false, onToggleReasoningExpand, shouldShowShineBorder = false }: MessageItemProps) => {
+    ({
+        message,
+        streamEvent,
+        onCodeRun,
+        onMessageRegenerate,
+        onMessageEdit,
+        isReasoningExpanded = false,
+        onToggleReasoningExpand,
+        shouldShowShineBorder = false,
+    }: MessageItemProps) => {
         // 性能监控
-        usePerformanceMonitor('MessageItem', [
-            message.id,
-            message.content,
-            message.message_type,
-            streamEvent?.is_done,
-            isReasoningExpanded
-        ]);
+        usePerformanceMonitor(
+            "MessageItem",
+            [
+                message.id,
+                message.content,
+                message.message_type,
+                streamEvent?.is_done,
+                isReasoningExpanded,
+            ],
+            false,
+        );
         const [copyIconState, setCopyIconState] = useState<"copy" | "ok">(
             "copy",
         );
@@ -151,86 +164,122 @@ const MessageItem = React.memo(
         }, [copyIconState]);
 
         // 自定义解析器来处理自定义标签（移除了 think 标签处理）
-        const customParser = useCallback((
-            markdown: string,
-            customTags: { [key: string]: (match: RegExpExecArray) => string },
-        ) => {
-            let result = markdown;
+        const customParser = useCallback(
+            (
+                markdown: string,
+                customTags: {
+                    [key: string]: (match: RegExpExecArray) => string;
+                },
+            ) => {
+                let result = markdown;
 
-            Object.keys(customTags).forEach((tag) => {
-                // 匹配完整的标签对
-                const completeRegex = new RegExp(
-                    `<${tag}([^>]*)>([\\s\\S]*?)<\\/${tag}>`,
-                    "g",
-                );
-                let match;
-                while ((match = completeRegex.exec(markdown)) !== null) {
-                    const replacement = customTags[tag](match);
-                    result = result.replace(match[0], replacement);
-                }
-            });
+                Object.keys(customTags).forEach((tag) => {
+                    // 匹配完整的标签对
+                    const completeRegex = new RegExp(
+                        `<${tag}([^>]*)>([\\s\\S]*?)<\\/${tag}>`,
+                        "g",
+                    );
+                    let match;
+                    while ((match = completeRegex.exec(markdown)) !== null) {
+                        const replacement = customTags[tag](match);
+                        result = result.replace(match[0], replacement);
+                    }
+                });
 
-            return result;
-        }, []);
+                return result;
+            },
+            [],
+        );
 
         const markdownContent = useMemo(
-            () => measureSync(`markdown-parsing-${message.id}`, () => customParser(displayedContent, CUSTOM_TAGS)),
+            () =>
+                measureSync(
+                    `markdown-parsing-${message.id}`,
+                    () => customParser(displayedContent, CUSTOM_TAGS),
+                    false,
+                ),
             [displayedContent, customParser],
         );
 
         // 使用 useMemo 缓存 markdown 组件配置
-        const markdownComponents = useMemo(() => ({
-            ...MARKDOWN_COMPONENTS_BASE,
-            code: ({ className, children }: { className?: string; children: React.ReactNode }) => {
-                const match = /language-(\w+)/.exec(className || "");
-                return match ? (
-                    <CodeBlock
-                        language={match[1]}
-                        onCodeRun={onCodeRun || (() => { })}
-                    >
-                        {children}
-                    </CodeBlock>
-                ) : (
-                    <code
-                        className={className}
-                        style={{
-                            overflow: "auto",
-                        }}
-                    >
-                        {children}
-                    </code>
-                );
-            },
-            a: ({ href, children, ...props }: { href?: string; children: React.ReactNode;[key: string]: any }) => {
-                const handleClick = useCallback((e: React.MouseEvent) => {
-                    e.preventDefault();
-                    if (href) {
-                        open(href).catch(console.error);
-                    }
-                }, [href]);
+        const markdownComponents = useMemo(
+            () =>
+                ({
+                    ...MARKDOWN_COMPONENTS_BASE,
+                    code: ({
+                        className,
+                        children,
+                    }: {
+                        className?: string;
+                        children: React.ReactNode;
+                    }) => {
+                        const match = /language-(\w+)/.exec(className || "");
+                        return match ? (
+                            <CodeBlock
+                                language={match[1]}
+                                onCodeRun={onCodeRun || (() => {})}
+                            >
+                                {children}
+                            </CodeBlock>
+                        ) : (
+                            <code
+                                className={className}
+                                style={{
+                                    overflow: "auto",
+                                }}
+                            >
+                                {children}
+                            </code>
+                        );
+                    },
+                    a: ({
+                        href,
+                        children,
+                        ...props
+                    }: {
+                        href?: string;
+                        children: React.ReactNode;
+                        [key: string]: any;
+                    }) => {
+                        const handleClick = useCallback(
+                            (e: React.MouseEvent) => {
+                                e.preventDefault();
+                                if (href) {
+                                    open(href).catch(console.error);
+                                }
+                            },
+                            [href],
+                        );
 
-                return (
-                    <a
-                        href={href}
-                        onClick={handleClick}
-                        className="text-blue-600 hover:text-blue-800 underline cursor-pointer"
-                        {...props}
-                    >
-                        {children}
-                    </a>
-                );
-            },
-        } as CustomComponents), [onCodeRun]);
+                        return (
+                            <a
+                                href={href}
+                                onClick={handleClick}
+                                className="text-blue-600 hover:text-blue-800 underline cursor-pointer"
+                                {...props}
+                            >
+                                {children}
+                            </a>
+                        );
+                    },
+                }) as CustomComponents,
+            [onCodeRun],
+        );
 
         const markdownElement = useMemo(
-            () => measureSync(`markdown-render-${message.id}`, () => (
-                <ReactMarkdown
-                    children={markdownContent}
-                    remarkPlugins={REMARK_PLUGINS as any}
-                    rehypePlugins={REHYPE_PLUGINS as any}
-                    components={markdownComponents}
-                />
-            )),
+            () =>
+                measureSync(
+                    `markdown-render-${message.id}`,
+                    () => (
+                        <ReactMarkdown
+                            children={markdownContent}
+                            remarkPlugins={REMARK_PLUGINS as any}
+                            rehypePlugins={REHYPE_PLUGINS as any}
+                            components={markdownComponents}
+                        />
+                    ),
+                    false,
+                ),
             [markdownContent, markdownComponents],
         );
 
@@ -244,15 +293,19 @@ const MessageItem = React.memo(
                 }
             >
                 {shouldShowShineBorder && (
-                    <ShineBorder shineColor={["#A07CFE", "#FE8FB5", "#FFBE7B"]} borderWidth={2} duration={8} />
+                    <ShineBorder
+                        shineColor={["#A07CFE", "#FE8FB5", "#FFBE7B"]}
+                        borderWidth={2}
+                        duration={8}
+                    />
                 )}
-                <div className="prose prose-sm max-w-none">{markdownElement}</div>
+                <div className="prose prose-sm max-w-none">
+                    {markdownElement}
+                </div>
                 {message.attachment_list?.filter(
                     (a: any) => a.attachment_type === "Image",
                 ).length ? (
-                    <div
-                        className="w-[300px] flex flex-col"
-                    >
+                    <div className="w-[300px] flex flex-col">
                         {message.attachment_list
                             .filter((a: any) => a.attachment_type === "Image")
                             .map((attachment: any) => {
@@ -269,14 +322,22 @@ const MessageItem = React.memo(
                     </div>
                 ) : null}
 
-                <div className={`hidden group-hover:flex items-center absolute -bottom-9 py-3 px-4 box-border h-10 rounded-[21px] border border-border bg-background ${message.message_type === "user" ? "right-0" : "left-0"}`}>
-                    {((message.message_type === "assistant" || message.message_type === "response") || message.message_type === "user") && onMessageEdit ? (
+                <div
+                    className={`hidden group-hover:flex items-center absolute -bottom-9 py-3 px-4 box-border h-10 rounded-[21px] border border-border bg-background ${message.message_type === "user" ? "right-0" : "left-0"}`}
+                >
+                    {(message.message_type === "assistant" ||
+                        message.message_type === "response" ||
+                        message.message_type === "user") &&
+                    onMessageEdit ? (
                         <IconButton
                             icon={<Edit2 size={16} color="black" />}
                             onClick={onMessageEdit}
                         />
                     ) : null}
-                    {((message.message_type === "assistant" || message.message_type === "response") || message.message_type === "user") && onMessageRegenerate ? (
+                    {(message.message_type === "assistant" ||
+                        message.message_type === "response" ||
+                        message.message_type === "user") &&
+                    onMessageRegenerate ? (
                         <IconButton
                             icon={<Refresh fill="black" />}
                             onClick={onMessageRegenerate}
@@ -300,8 +361,10 @@ const MessageItem = React.memo(
     (prevProps, nextProps) => {
         // 基本消息属性比较
         if (prevProps.message.id !== nextProps.message.id) return false;
-        if (prevProps.message.content !== nextProps.message.content) return false;
-        if (prevProps.message.message_type !== nextProps.message.message_type) return false;
+        if (prevProps.message.content !== nextProps.message.content)
+            return false;
+        if (prevProps.message.message_type !== nextProps.message.message_type)
+            return false;
 
         // regenerate 数组比较
         const prevRegenerate = prevProps.message.regenerate;
@@ -315,19 +378,26 @@ const MessageItem = React.memo(
         if (prevStreamEvent?.content !== nextStreamEvent?.content) return false;
 
         // reasoning 展开状态比较
-        if (prevProps.isReasoningExpanded !== nextProps.isReasoningExpanded) return false;
+        if (prevProps.isReasoningExpanded !== nextProps.isReasoningExpanded)
+            return false;
 
         // ShineBorder 动画状态比较
-        if (prevProps.shouldShowShineBorder !== nextProps.shouldShowShineBorder) return false;
+        if (prevProps.shouldShowShineBorder !== nextProps.shouldShowShineBorder)
+            return false;
 
         // 回调函数比较（通常应该是稳定的）
         if (prevProps.onCodeRun !== nextProps.onCodeRun) return false;
-        if (prevProps.onMessageRegenerate !== nextProps.onMessageRegenerate) return false;
+        if (prevProps.onMessageRegenerate !== nextProps.onMessageRegenerate)
+            return false;
         if (prevProps.onMessageEdit !== nextProps.onMessageEdit) return false;
-        if (prevProps.onToggleReasoningExpand !== nextProps.onToggleReasoningExpand) return false;
+        if (
+            prevProps.onToggleReasoningExpand !==
+            nextProps.onToggleReasoningExpand
+        )
+            return false;
 
         return true; // 所有关键属性都相同，不需要重新渲染
-    }
+    },
 );
 
 export default MessageItem;
