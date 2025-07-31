@@ -204,9 +204,6 @@ const LLMProviderConfig: React.FC = () => {
                     <div className="flex items-center w-full">
                         <div className="flex-1 truncate">
                             <div className="font-medium truncate">{provider.name}</div>
-                            <div className={`text-xs ${selectedProvider?.id === provider.id ? 'text-gray-300' : 'text-gray-500'}`}>
-                                {apiTypes.find(type => type.value === provider.api_type)?.label || provider.api_type}
-                            </div>
                         </div>
                         {provider.is_enabled && (
                             <Zap className="h-3 w-3 ml-2 flex-shrink-0" />

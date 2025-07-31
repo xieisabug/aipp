@@ -88,7 +88,7 @@ function ConfigWindow() {
 
     return (
         <div className="flex justify-center items-center h-screen bg-background">
-            <div className="bg-card shadow-lg w-full h-screen grid grid-cols-[250px_1fr] md:grid-cols-[200px_1fr] lg:grid-cols-[250px_1fr]" data-tauri-drag-region>
+            <div className="bg-card shadow-lg w-full h-screen grid grid-cols-[1fr_3fr] md:grid-cols-[1fr_4fr] lg:grid-cols-[1fr_5fr]" data-tauri-drag-region>
                 {/* 侧边栏 */}
                 <div className="bg-muted/30 border-r border-border px-3 md:px-4 py-6 overflow-y-auto">
                     <div className="flex flex-col gap-1 mt-2">
