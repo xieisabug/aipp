@@ -345,19 +345,28 @@ function ConversationUI({
                             const messageAddData = conversationEvent.data as any;
                             console.log('Received message_add event:', messageAddData);
                             
+                            // 如果是用户消息，设置shine border
+                            if (messageAddData.message_type === 'user') {
+                                console.log('[ShineBorder Debug] Setting shine border for user message:', messageAddData.message_id, 'in askAssistant event handler');
+                                setShiningMessageIds(new Set([messageAddData.message_id]));
+                            } else {
+                                console.log('[ShineBorder Debug] Not setting shine border - message type:', messageAddData.message_type);
+                            }
+                            
                             // 重新获取对话消息，以确保获得完整的消息数据（包括generation_group_id等）
                             invoke<ConversationWithMessages>("get_conversation_with_messages", {
-                                conversationId: conversation?.id || 0,
+                                conversationId: res.conversation_id,
                             }).then((updatedConversation) => {
                                 setMessages(updatedConversation.messages);
                                 console.log('Updated messages after message_add:', updatedConversation.messages.length);
+                                console.log('[ShineBorder Debug] Messages reloaded, current shiningMessageIds:', Array.from(shiningMessageIds));
                             }).catch((error) => {
                                 console.error('Failed to reload conversation after message_add:', error);
                                 
                                 // 降级处理：仍然添加基本的消息信息
                                 const newMessage: Message = {
                                     id: messageAddData.message_id,
-                                    conversation_id: conversation?.id || 0,
+                                    conversation_id: res.conversation_id,
                                     message_type: messageAddData.message_type,
                                     content: "", // 初始内容为空，会通过后续的message_update事件更新
                                     llm_model_id: null,
@@ -384,7 +393,8 @@ function ConversationUI({
                             };
                             
                             // 当开始收到新的AI响应时（不是is_done时），清除所有shine-border
-                            if (!messageUpdateData.is_done) {
+                            if (!messageUpdateData.is_done && messageUpdateData.content) {
+                                console.log('[ShineBorder Debug] Clearing shine border - AI started responding');
                                 setShiningMessageIds(new Set());
                             }
                             
@@ -621,6 +631,14 @@ function ConversationUI({
                     const messageAddData = conversationEvent.data as any;
                     console.log('Received message_add event:', messageAddData);
                     
+                    // 如果是用户消息，设置shine border
+                    if (messageAddData.message_type === 'user') {
+                        console.log('[ShineBorder Debug] Setting shine border for user message:', messageAddData.message_id, 'in existing conversation event handler');
+                        setShiningMessageIds(new Set([messageAddData.message_id]));
+                    } else {
+                        console.log('[ShineBorder Debug] Not setting shine border - message type:', messageAddData.message_type);
+                    }
+                    
                     // 重新获取对话消息，以确保获得完整的消息数据（包括generation_group_id等）
                     invoke<ConversationWithMessages>("get_conversation_with_messages", {
                         conversationId: +conversationId,
@@ -659,7 +677,7 @@ function ConversationUI({
                     };
                     
                     // 当开始收到新的AI响应时（不是is_done时），清除所有shine-border
-                    if (!messageUpdateData.is_done) {
+                    if (!messageUpdateData.is_done && messageUpdateData.content) {
                         setShiningMessageIds(new Set());
                     }
                     
@@ -991,11 +1009,12 @@ function ConversationUI({
     
     // 发送消息的主要处理函数，使用节流防止频繁点击
     const handleSend = throttle(() => {
+        console.log('[ShineBorder Debug] handleSend called, aiIsResponsing:', aiIsResponsing);
         if (aiIsResponsing) {
             // AI正在响应时，点击取消
             console.log("Cancelling AI");
-            console.log(messageId);
-            invoke("cancel_ai", { messageId }).then(() => {
+            console.log(conversationId);
+            invoke("cancel_ai", { conversationId: conversationId }).then(() => {
                 setAiIsResponsing(false);
                 // 取消AI响应时清除shine-border
                 setShiningMessageIds(new Set());
@@ -1062,6 +1081,7 @@ function ConversationUI({
                     },
                 }).then((res) => {
                     console.log("ask ai response", res);
+                    console.log('[ShineBorder Debug] ask_ai response received, conversation_id:', res.conversation_id, 'add_message_id:', res.add_message_id);
                     
                     // 取消之前的事件监听
                     if (unsubscribeRef.current) {
@@ -1083,9 +1103,6 @@ function ConversationUI({
                                     ...newMessages[index],
                                     content: res.request_prompt_result_with_context,
                                 };
-                                
-                                // 设置用户消息显示shine-border（使用实际的消息对象）
-                                setShiningMessageIds(new Set([newMessages[index].id]));
                             }
                             return newMessages;
                         });
@@ -1105,12 +1122,21 @@ function ConversationUI({
                             const messageAddData = conversationEvent.data as any;
                             console.log('Received message_add event:', messageAddData);
                             
+                            // 如果是用户消息，设置shine border
+                            if (messageAddData.message_type === 'user') {
+                                console.log('[ShineBorder Debug] Setting shine border for user message:', messageAddData.message_id, 'in handleSend event handler');
+                                setShiningMessageIds(new Set([messageAddData.message_id]));
+                            } else {
+                                console.log('[ShineBorder Debug] Not setting shine border - message type:', messageAddData.message_type);
+                            }
+                            
                             // 重新获取对话消息，以确保获得完整的消息数据（包括generation_group_id等）
                             invoke<ConversationWithMessages>("get_conversation_with_messages", {
                                 conversationId: res.conversation_id,
                             }).then((updatedConversation) => {
                                 setMessages(updatedConversation.messages);
                                 console.log('Updated messages after message_add:', updatedConversation.messages.length);
+                                console.log('[ShineBorder Debug] Messages reloaded, current shiningMessageIds:', Array.from(shiningMessageIds));
                             }).catch((error) => {
                                 console.error('Failed to reload conversation after message_add:', error);
                                 
@@ -1144,7 +1170,8 @@ function ConversationUI({
                             };
                             
                             // 当开始收到新的AI响应时（不是is_done时），清除所有shine-border
-                            if (!messageUpdateData.is_done) {
+                            if (!messageUpdateData.is_done && messageUpdateData.content) {
+                                console.log('[ShineBorder Debug] Clearing shine border - AI started responding');
                                 setShiningMessageIds(new Set());
                             }
                             
@@ -1237,6 +1264,9 @@ function ConversationUI({
                     
                     // 检查是否需要显示shine-border
                     const shouldShowShineBorder = shiningMessageIds.has(message.id);
+                    if (message.message_type === 'user') {
+                        console.log('[ShineBorder Debug] shouldShowShineBorder for user message', message.id, ':', shouldShowShineBorder, 'shiningMessageIds:', Array.from(shiningMessageIds));
+                    }
                     
                     return (
                         <React.Fragment key={message.id}>

@@ -29,7 +29,6 @@ struct ConversationEvent {
 struct MessageAddEvent {
     message_id: i64,
     message_type: String,
-    temp_message_id: i64, // 用于取消操作的临时ID
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -412,7 +411,6 @@ pub struct AiRequest {
 #[derive(Serialize, Deserialize)]
 pub struct AiResponse {
     conversation_id: i64,
-    add_message_id: i64,
     request_prompt_result_with_context: String,
 }
 
@@ -423,7 +421,6 @@ async fn handle_stream_chat(
     chat_request: &ChatRequest,
     chat_options: &ChatOptions,
     conversation_id: i64,
-    initial_message_id: i64,
     cancel_token: &CancellationToken,
     conversation_db: &ConversationDatabase,
     tokens: &Arc<tokio::sync::Mutex<HashMap<i64, CancellationToken>>>,
@@ -549,7 +546,6 @@ async fn handle_stream_chat(
                                                 data: serde_json::to_value(MessageAddEvent {
                                                     message_id: new_message.id,
                                                     message_type: "response".to_string(),
-                                                    temp_message_id: initial_message_id,
                                                 }).unwrap(),
                                             };
                                             let _ = window.emit(
@@ -651,7 +647,6 @@ async fn handle_stream_chat(
                                                 data: serde_json::to_value(MessageAddEvent {
                                                     message_id: new_message.id,
                                                     message_type: "reasoning".to_string(),
-                                                    temp_message_id: initial_message_id,
                                                 }).unwrap(),
                                             };
                                             let _ = window.emit(
@@ -789,7 +784,7 @@ async fn handle_stream_chat(
                             },
                             Some(Err(e)) => {
                                 eprintln!("Stream error: {}", e);
-                                cleanup_token(tokens, initial_message_id).await;
+                                cleanup_token(tokens, conversation_id).await;
                                 let err_msg = format!("Chat stream error: {}", e);
 
                                 // 发送错误事件到任一存在的消息
@@ -891,17 +886,40 @@ async fn handle_stream_chat(
             }
         }
         Err(e) => {
-            cleanup_token(tokens, initial_message_id).await;
+            cleanup_token(tokens, conversation_id).await;
             let err_msg = format!("Chat stream error: {}", e);
+
+            // 为这次生成确定组ID：优先使用传入的group_id，否则创建新的
+            let generation_group_id =
+                generation_group_id_override.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            let now = chrono::Utc::now();
+
+            let error_message = conversation_db
+                .message_repo()
+                .unwrap()
+                .create(&Message {
+                    id: 0,
+                    parent_id: None,
+                    conversation_id,
+                    message_type: "error".to_string(),
+                    content: err_msg.clone(),
+                    llm_model_id: Some(llm_model_id),
+                    llm_model_name: Some(llm_model_name.clone()),
+                    created_time: now,
+                    start_time: Some(now),
+                    finish_time: None,
+                    token_count: 0,
+                    generation_group_id: Some(generation_group_id.clone()),
+                    parent_group_id: parent_group_id_override.clone(),
+                })
+                .unwrap();
 
             // 发送错误事件
             let error_event = ConversationEvent {
-                r#type: "message_update".to_string(),
-                data: serde_json::to_value(MessageUpdateEvent {
-                    message_id: initial_message_id,
+                r#type: "message_add".to_string(),
+                data: serde_json::to_value(MessageAddEvent {
+                    message_id: error_message.id,
                     message_type: "error".to_string(),
-                    content: err_msg,
-                    is_done: true,
                 })
                 .unwrap(),
             };
@@ -909,6 +927,23 @@ async fn handle_stream_chat(
                 format!("conversation_event_{}", conversation_id).as_str(),
                 error_event,
             );
+
+            // 发送消息更新事件（完成状态）
+            let update_event = ConversationEvent {
+                r#type: "message_update".to_string(),
+                data: serde_json::to_value(MessageUpdateEvent {
+                    message_id: error_message.id,
+                    message_type: "error".to_string(),
+                    content: err_msg.clone(),
+                    is_done: true,
+                })
+                .unwrap(),
+            };
+            let _ = window.emit(
+                format!("conversation_event_{}", conversation_id).as_str(),
+                update_event,
+            );
+
             eprintln!("Chat stream error: {}", e);
             return Err(anyhow::anyhow!("Chat stream error: {}", e));
         }
@@ -922,7 +957,6 @@ async fn handle_non_stream_chat(
     chat_request: &ChatRequest,
     chat_options: &ChatOptions,
     conversation_id: i64,
-    initial_message_id: i64,
     cancel_token: &CancellationToken,
     conversation_db: &ConversationDatabase,
     tokens: &Arc<tokio::sync::Mutex<HashMap<i64, CancellationToken>>>,
@@ -937,8 +971,9 @@ async fn handle_non_stream_chat(
     llm_model_name: String,                       // 模型名称
 ) -> Result<(), anyhow::Error> {
     // 为这次生成确定组ID：优先使用传入的group_id，否则创建新的
-    let generation_group_id =
-        generation_group_id_override.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let generation_group_id = generation_group_id_override
+        .clone()
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     // 创建一个 response 类型的消息
     let response_message = conversation_db
@@ -957,7 +992,7 @@ async fn handle_non_stream_chat(
             finish_time: None,
             token_count: 0,
             generation_group_id: Some(generation_group_id),
-            parent_group_id: parent_group_id_override,
+            parent_group_id: parent_group_id_override.clone(),
         })
         .unwrap();
     let response_message_id = response_message.id;
@@ -968,7 +1003,6 @@ async fn handle_non_stream_chat(
         data: serde_json::to_value(MessageAddEvent {
             message_id: response_message_id,
             message_type: "response".to_string(),
-            temp_message_id: initial_message_id,
         })
         .unwrap(),
     };
@@ -997,7 +1031,7 @@ async fn handle_non_stream_chat(
             }
         } => result,
         _ = cancel_token.cancelled() => {
-            cleanup_token(tokens, initial_message_id).await;
+            cleanup_token(tokens, conversation_id).await;
             return Err(anyhow::anyhow!("Request cancelled"));
         }
     };
@@ -1070,23 +1104,62 @@ async fn handle_non_stream_chat(
             Ok(())
         }
         Err(e) => {
-            cleanup_token(tokens, initial_message_id).await;
+            cleanup_token(tokens, conversation_id).await;
             let err_msg = format!("Chat error: {}", e);
+            let now = chrono::Utc::now();
+            // 为这次生成确定组ID：优先使用传入的group_id，否则创建新的
+            let generation_group_id = generation_group_id_override
+                .clone()
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+            let error_message = conversation_db
+                .message_repo()
+                .unwrap()
+                .create(&Message {
+                    id: 0,
+                    parent_id: None,
+                    conversation_id,
+                    message_type: "error".to_string(),
+                    content: err_msg.clone(),
+                    llm_model_id: Some(llm_model_id),
+                    llm_model_name: Some(llm_model_name.clone()),
+                    created_time: now,
+                    start_time: Some(now),
+                    finish_time: None,
+                    token_count: 0,
+                    generation_group_id: Some(generation_group_id.clone()),
+                    parent_group_id: parent_group_id_override.clone(),
+                })
+                .unwrap();
 
             // 发送错误事件
             let error_event = ConversationEvent {
-                r#type: "message_update".to_string(),
-                data: serde_json::to_value(MessageUpdateEvent {
-                    message_id: response_message_id,
+                r#type: "message_add".to_string(),
+                data: serde_json::to_value(MessageAddEvent {
+                    message_id: error_message.id,
                     message_type: "error".to_string(),
-                    content: err_msg,
-                    is_done: true,
                 })
                 .unwrap(),
             };
             let _ = window.emit(
                 format!("conversation_event_{}", conversation_id).as_str(),
                 error_event,
+            );
+
+            // 发送消息更新事件（完成状态）
+            let update_event = ConversationEvent {
+                r#type: "message_update".to_string(),
+                data: serde_json::to_value(MessageUpdateEvent {
+                    message_id: error_message.id,
+                    message_type: "error".to_string(),
+                    content: err_msg.clone(),
+                    is_done: true,
+                })
+                .unwrap(),
+            };
+            let _ = window.emit(
+                format!("conversation_event_{}", conversation_id).as_str(),
+                update_event,
             );
 
             eprintln!("Chat error: {}", e);
@@ -1153,10 +1226,9 @@ pub async fn ask_ai(
     let app_handle_clone = app_handle.clone();
 
     let cancel_token = CancellationToken::new();
-    // 使用一个临时的 message_id，在流式处理中会被动态创建的消息替换
-    let temp_message_id = chrono::Utc::now().timestamp_millis();
+
     message_token_manager
-        .store_token(temp_message_id, cancel_token.clone())
+        .store_token(conversation_id, cancel_token.clone())
         .await;
 
     // 在异步任务外获取模型详情（避免线程安全问题）
@@ -1260,7 +1332,6 @@ pub async fn ask_ai(
                 &chat_request,
                 &chat_config.chat_options,
                 conversation_id,
-                temp_message_id,
                 &cancel_token,
                 &conversation_db,
                 &tokens,
@@ -1283,7 +1354,6 @@ pub async fn ask_ai(
                 &chat_request,
                 &chat_config.chat_options,
                 conversation_id,
-                temp_message_id,
                 &cancel_token,
                 &conversation_db,
                 &tokens,
@@ -1307,7 +1377,6 @@ pub async fn ask_ai(
 
     Ok(AiResponse {
         conversation_id,
-        add_message_id: temp_message_id, // 使用临时 message_id 作为返回值
         request_prompt_result_with_context,
     })
 }
@@ -1315,9 +1384,9 @@ pub async fn ask_ai(
 #[tauri::command]
 pub async fn cancel_ai(
     message_token_manager: State<'_, MessageTokenManager>,
-    message_id: i64,
+    conversation_id: i64,
 ) -> Result<(), String> {
-    message_token_manager.cancel_request(message_id).await;
+    message_token_manager.cancel_request(conversation_id).await;
     Ok(())
 }
 
@@ -1512,12 +1581,9 @@ pub async fn regenerate_ai(
             (Some(uuid::Uuid::new_v4().to_string()), original_group_id)
         };
 
-    // 使用临时ID用于取消令牌管理，实际消息将在流式处理中动态创建
-    let temp_message_id = chrono::Utc::now().timestamp_millis();
-
     let cancel_token = CancellationToken::new();
     message_token_manager
-        .store_token(temp_message_id, cancel_token.clone())
+        .store_token(conversation_id, cancel_token.clone())
         .await;
 
     // 在异步任务外获取模型详情（避免线程安全问题）
@@ -1618,7 +1684,6 @@ pub async fn regenerate_ai(
                 &chat_request,
                 &chat_config.chat_options,
                 conversation_id,
-                temp_message_id,
                 &cancel_token,
                 &conversation_db,
                 &tokens,
@@ -1641,7 +1706,6 @@ pub async fn regenerate_ai(
                 &chat_request,
                 &chat_config.chat_options,
                 conversation_id,
-                temp_message_id,
                 &cancel_token,
                 &conversation_db,
                 &tokens,
@@ -1665,7 +1729,6 @@ pub async fn regenerate_ai(
 
     Ok(AiResponse {
         conversation_id,
-        add_message_id: temp_message_id,
         request_prompt_result_with_context: String::new(),
     })
 }
