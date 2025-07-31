@@ -64,6 +64,7 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
     ]);
 
     const [tags, setTags] = useState<string[]>([]);
+    const [isModelListExpanded, setIsModelListExpanded] = useState<boolean>(false);
 
     const defaultValues = useMemo(
         () => ({
@@ -169,9 +170,11 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
                 llmProviderId={id}
                 tags={tags}
                 onTagsChange={onTagsChange}
+                isExpanded={isModelListExpanded}
+                onExpandedChange={setIsModelListExpanded}
             />
         ),
-        [id, tags],
+        [id, tags, onTagsChange, isModelListExpanded],
     );
 
     // 表单字段定义

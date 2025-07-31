@@ -10,13 +10,26 @@ interface TagInputProps {
     placeholder?: string;
     onAddTag: (tag: string) => void;
     onRemoveTag: (index: number) => void;
+    isExpanded?: boolean;
+    onExpandedChange?: (expanded: boolean) => void;
 }
 
 // TagInput组件
-const TagInput: React.FC<TagInputProps> = ({ tags, placeholder, onAddTag, onRemoveTag }) => {
+const TagInput: React.FC<TagInputProps> = ({ 
+    tags, 
+    placeholder, 
+    onAddTag, 
+    onRemoveTag, 
+    isExpanded: externalIsExpanded,
+    onExpandedChange 
+}) => {
     const [inputValue, setInputValue] = useState<string>('');
-    const [isExpanded, setIsExpanded] = useState<boolean>(false);
+    const [internalIsExpanded, setInternalIsExpanded] = useState<boolean>(false);
     const [shouldShowExpandButton, setShouldShowExpandButton] = useState<boolean>(false);
+    
+    // 使用外部传入的展开状态，如果没有则使用内部状态
+    const isExpanded = externalIsExpanded !== undefined ? externalIsExpanded : internalIsExpanded;
+    const setIsExpanded = onExpandedChange || setInternalIsExpanded;
     const tagsContainerRef = useRef<HTMLDivElement>(null);
 
     const handleKeyDown = useCallback((e: KeyboardEvent<HTMLInputElement>) => {
@@ -54,7 +67,7 @@ const TagInput: React.FC<TagInputProps> = ({ tags, placeholder, onAddTag, onRemo
 
     const toggleExpansion = useCallback(() => {
         setIsExpanded(!isExpanded);
-    }, [isExpanded]);
+    }, [isExpanded, setIsExpanded]);
 
     return (
         <div className="space-y-4">
