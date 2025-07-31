@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen, once, emitTo } from "@tauri-apps/api/event";
@@ -20,6 +20,8 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import CodeBlock from "./components/CodeBlock";
 import useFileManagement from "./hooks/useFileManagement";
 import InputArea from "./components/conversation/InputArea";
+import { useConversationEvents } from "./hooks/useConversationEvents";
+import { StreamEvent } from "./data/Conversation";
 const appWindow = getCurrentWebviewWindow();
 
 interface AiResponse {
@@ -40,7 +42,20 @@ function AskWindow() {
     // 当前对话 id，用于在 ChatUIWindow 中自动选中
     const [conversationId, setConversationId] = useState<string>("");
 
-    let unsubscribe: Promise<() => void> | null = null;
+    // 使用共享的消息事件处理 hook
+    const { streamingMessages } = useConversationEvents({
+        conversationId: conversationId,
+        onMessageUpdate: (streamEvent: StreamEvent) => {
+            // 更新响应内容
+            if (!streamEvent.is_done) {
+                setResponse(streamEvent.content);
+                setMessageId(streamEvent.message_id);
+            }
+        },
+        onAiResponseComplete: () => {
+            setAiIsResponsing(false);
+        },
+    });
 
     useEffect(() => {
         invoke<string>("get_selected_text_api").then((text) => {
@@ -82,26 +97,7 @@ function AskWindow() {
                 }
 
                 console.log("ask ai response", res);
-                // if (unsubscribe) {
-                //     console.log("Unsubscribing from previous event listener");
-                //     unsubscribe.then((f) => f());
-                // }
-
-                // console.log(
-                //     "Listening for response",
-                //     `message_${res.add_message_id}`,
-                // );
-                // unsubscribe = listen(
-                //     `message_${res.add_message_id}`,
-                //     (event) => {
-                //         const payload = event.payload as string;
-                //         if (payload !== "Tea::Event::MessageFinish") {
-                //             setResponse(payload);
-                //         } else {
-                //             setAiIsResponsing(false);
-                //         }
-                //     },
-                // );
+                // 事件处理现在由共享的 useConversationEvents hook 管理
             });
         } catch (error) {
             console.error("Error:", error);
@@ -140,9 +136,7 @@ function AskWindow() {
 
         return () => {
             window.removeEventListener("keydown", handleShortcut);
-            // if (unsubscribe) {
-            //     unsubscribe.then((f) => f());
-            // }
+            // 清理逻辑现在由 useConversationEvents hook 处理
         };
     }, []);
 
@@ -190,6 +184,14 @@ function AskWindow() {
     const { fileInfoList, handleChooseFile, handleDeleteFile, handlePaste } =
         useFileManagement();
 
+    // 合并响应显示（支持流式和最终响应）
+    const displayResponse = useMemo(() => {
+        if (messageId !== -1 && streamingMessages.has(messageId)) {
+            return streamingMessages.get(messageId)?.content || response;
+        }
+        return response;
+    }, [messageId, streamingMessages, response]);
+
     return (
         <div className="flex justify-center items-center h-screen">
             <div
@@ -213,7 +215,7 @@ function AskWindow() {
                             <AskAIHint />
                         ) : (
                             <ReactMarkdown
-                                children={response}
+                                children={displayResponse}
                                 remarkPlugins={[remarkMath]}
                                 rehypePlugins={[rehypeRaw, rehypeKatex]}
                                 components={
@@ -289,7 +291,7 @@ function AskWindow() {
                                 )
                             }
                             onClick={() => {
-                                writeText(response);
+                                writeText(displayResponse);
                                 setCopySuccess(true);
                                 setTimeout(() => {
                                     setCopySuccess(false);
