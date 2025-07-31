@@ -91,18 +91,18 @@ function ConversationUI({
                 return newMap;
             });
         },
-        markdownRemarkRegist: (_: any) => {},
-        changeFieldLabel: (_: string, __: string) => {},
+        markdownRemarkRegist: (_: any) => { },
+        changeFieldLabel: (_: string, __: string) => { },
         addField: (
             _: string,
             __: string,
             ___: string,
             ____?: FieldConfig,
-        ) => {},
-        addFieldTips: (_: string, __: string) => {},
-        hideField: (_: string) => {},
-        runLogic: (_: (assistantRunApi: AssistantRunApi) => void) => {},
-        forceFieldValue: (_: string, __: string) => {},
+        ) => { },
+        addFieldTips: (_: string, __: string) => { },
+        hideField: (_: string) => { },
+        runLogic: (_: (assistantRunApi: AssistantRunApi) => void) => { },
+        forceFieldValue: (_: string, __: string) => { },
     };
 
     // ============= 对话管理相关状态和逻辑 =============
@@ -147,7 +147,7 @@ function ConversationUI({
                 setMessages(updatedConversation.messages);
                 console.log(
                     "Updated messages after message_add:",
-                    updatedConversation.messages.length,
+                    updatedConversation.messages,
                 );
             })
             .catch((error) => {
@@ -204,19 +204,25 @@ function ConversationUI({
     // handleMessageUpdate 将在后面定义，这里先声明一个空的引用
     let handleMessageUpdateRef: ((streamEvent: StreamEvent) => void) | undefined;
 
+    // 使用 useMemo 稳定 options 对象，避免频繁触发 useConversationEvents 内部的 useEffect
+    const conversationEventsOptions = useMemo(
+        () => ({
+            conversationId: conversationId,
+            onMessageAdd: handleMessageAdd,
+            onMessageUpdate: (streamEvent: StreamEvent) => handleMessageUpdateRef?.(streamEvent),
+            onGroupMerge: handleGroupMerge,
+            onAiResponseComplete: handleAiResponseComplete,
+        }),
+        [conversationId, handleMessageAdd, handleGroupMerge, handleAiResponseComplete]
+    );
+
     // 使用共享的消息事件处理 hook
     const {
         streamingMessages,
         shiningMessageIds,
         setShiningMessageIds,
         clearShiningMessages,
-    } = useConversationEvents({
-        conversationId: conversationId,
-        onMessageAdd: handleMessageAdd,
-        onMessageUpdate: (streamEvent) => handleMessageUpdateRef?.(streamEvent),
-        onGroupMerge: handleGroupMerge,
-        onAiResponseComplete: handleAiResponseComplete,
-    });
+    } = useConversationEvents(conversationEventsOptions);
 
     // ============= UI 状态管理和交互相关逻辑 =============
 
@@ -393,7 +399,7 @@ function ConversationUI({
             })
                 .then((res) => {
                     console.log("ask assistant response", res);
-                    
+
                     if (conversationId != res.conversation_id + "") {
                         onChangeConversationId(res.conversation_id + "");
                     }
@@ -739,10 +745,10 @@ function ConversationUI({
             // 在清理streamingMessages之前，先将消息添加到messages状态
             handleMessageCompletion(streamEvent);
         }
-        
+
         smartScroll();
     }, [conversationId, functionMap, handleMessageCompletion, smartScroll]);
-    
+
     // 设置引用
     handleMessageUpdateRef = handleMessageUpdate;
 
@@ -865,10 +871,6 @@ function ConversationUI({
 
     // 发送消息的主要处理函数，使用节流防止频繁点击
     const handleSend = throttle(() => {
-        console.log(
-            "[ShineBorder Debug] handleSend called, aiIsResponsing:",
-            aiIsResponsing,
-        );
         if (aiIsResponsing) {
             // AI正在响应时，点击取消
             console.log("Cancelling AI");
@@ -903,34 +905,6 @@ function ConversationUI({
                     .get(assistantData?.assistant_type ?? 0)
                     ?.onAssistantTypeRun(assistantRunApi);
             } else {
-                // 使用标准AI助手 - 创建用户消息并发送请求
-                const userMessage = {
-                    id: 0,
-                    conversation_id: conversationId ? +conversationId : -1,
-                    llm_model_id: -1,
-                    content: inputText,
-                    token_count: 0,
-                    message_type: "user",
-                    created_time: new Date(),
-                    start_time: null,
-                    finish_time: null,
-                    generation_group_id: null,
-                    parent_group_id: null,
-                    attachment_list: [],
-                    regenerate: null,
-                };
-
-                // 使用 startTransition 优化用户消息的添加，避免阻塞界面
-                startTransition(() => {
-                    setMessages((prevMessages) => [
-                        ...prevMessages,
-                        userMessage,
-                    ]);
-                });
-
-                // 设置用户消息显示border-beam（这里userMessage.id是0，实际会在后端分配真实ID）
-                // 我们需要等到后端返回真实ID后再设置border-beam
-
                 invoke<AiResponse>("ask_ai", {
                     request: {
                         prompt: inputText,
@@ -941,49 +915,9 @@ function ConversationUI({
                 })
                     .then((res) => {
                         console.log("ask ai response", res);
-                        console.log(
-                            "[ShineBorder Debug] ask_ai response received, conversation_id:",
-                            res.conversation_id,
-                        );
-
-                        // 事件监听现在由 useConversationEvents hook 管理
-
-                        // 更新用户消息内容（后端处理后的版本）
-                        startTransition(() => {
-                            setMessages((prevMessages) => {
-                                const newMessages = [...prevMessages];
-                                const index = prevMessages.findIndex(
-                                    (msg) => msg == userMessage,
-                                );
-                                if (index !== -1) {
-                                    newMessages[index] = {
-                                        ...newMessages[index],
-                                        content:
-                                            res.request_prompt_result_with_context,
-                                    };
-                                }
-                                return newMessages;
-                            });
-                        });
 
                         // 如果是新对话，更新对话 ID
                         if (conversationId != res.conversation_id + "") {
-                            console.log("old conversation id:", conversationId);
-                            console.log(
-                                "new conversation id:",
-                                res.conversation_id,
-                            );
-
-                            if (!conversationId) {
-                                console.log(
-                                    "这是一个新生成的 Conversation:",
-                                    conversationId,
-                                    res.conversation_id,
-                                );
-                            } else {
-                                console.log("这是老 Conversation 继续聊天");
-                            }
-
                             onChangeConversationId(res.conversation_id + "");
                         }
 
@@ -1021,16 +955,6 @@ function ConversationUI({
 
                 // 检查是否需要显示shine-border
                 const shouldShowShineBorder = shiningMessageIds.has(message.id);
-                if (message.message_type === "user") {
-                    console.log(
-                        "[ShineBorder Debug] shouldShowShineBorder for user message",
-                        message.id,
-                        ":",
-                        shouldShowShineBorder,
-                        "shiningMessageIds:",
-                        Array.from(shiningMessageIds),
-                    );
-                }
 
                 return (
                     <React.Fragment key={message.id}>

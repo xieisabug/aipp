@@ -29,10 +29,10 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
 
     // 事件监听取消订阅引用
     const unsubscribeRef = useRef<Promise<() => void> | null>(null);
-    
+
     // 使用 ref 存储最新的回调函数，避免依赖项变化
     const callbacksRef = useRef(options);
-    
+
     // 更新 ref 中的回调函数
     useEffect(() => {
         callbacksRef.current = options;
@@ -50,18 +50,8 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
 
                 // 如果是用户消息，设置shine border
                 if (messageAddData.message_type === "user") {
-                    console.log(
-                        "[ShineBorder Debug] Setting shine border for user message:",
-                        messageAddData.message_id,
-                        "in useConversationEvents",
-                    );
                     setShiningMessageIds(
                         new Set([messageAddData.message_id]),
-                    );
-                } else {
-                    console.log(
-                        "[ShineBorder Debug] Not setting shine border - message type:",
-                        messageAddData.message_type,
                     );
                 }
 
@@ -70,7 +60,6 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
             } else if (conversationEvent.type === "message_update") {
                 const messageUpdateData =
                     conversationEvent.data as MessageUpdateEvent;
-                console.log("Received message_update event:", messageUpdateData);
 
                 const streamEvent: StreamEvent = {
                     message_id: messageUpdateData.message_id,
@@ -84,10 +73,9 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
                     !messageUpdateData.is_done &&
                     messageUpdateData.content
                 ) {
-                    console.log(
-                        "[ShineBorder Debug] Clearing shine border - AI started responding",
-                    );
-                    setShiningMessageIds(new Set());
+                    if (messageUpdateData.message_type !== "user") {
+                        setShiningMessageIds(new Set());
+                    }
                     callbacksRef.current.onAiResponseStart?.();
                 }
 

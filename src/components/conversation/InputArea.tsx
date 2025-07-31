@@ -88,7 +88,7 @@ const InputArea: React.FC<InputAreaProps> = React.memo(
         // 图片区域的高度
         const IMAGE_AREA_HEIGHT = 80;
         const textareaRef = useRef<HTMLTextAreaElement>(null);
-        
+
         // WebKit2 GTK 中文输入法兼容性：手动跟踪 IME 组合状态
         // 因为 WebKit2 下 event.isComposing 在确认候选词时会错误地返回 false
         const isComposingRef = useRef(false);
@@ -218,7 +218,6 @@ const InputArea: React.FC<InputAreaProps> = React.memo(
                     maxHeight,
                 );
                 textarea.style.height = `${newHeight}px`;
-                console.log("fileInfoList", fileInfoList, fileInfoList?.length != 0);
                 textarea.parentElement!.style.height = `${newHeight + ((fileInfoList?.length && IMAGE_AREA_HEIGHT) || 0)}px`;
             }
         };
@@ -304,7 +303,7 @@ const InputArea: React.FC<InputAreaProps> = React.memo(
             // 2. !e.nativeEvent.isComposing: 原生 API 状态（作为补充）
             // 只有两个条件都满足时才认为不在 IME 组合状态，可以安全地处理回车键
             const isEnterPressed = e.key === "Enter" && !isComposingRef.current && !e.nativeEvent.isComposing;
-            
+
             if (isEnterPressed) {
                 if (e.shiftKey) {
                     // Shift + Enter for new line

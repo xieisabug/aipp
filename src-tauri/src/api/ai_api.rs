@@ -435,7 +435,7 @@ async fn handle_stream_chat(
     llm_model_name: String,                       // 模型名称
 ) -> Result<(), anyhow::Error> {
     // 添加重试逻辑
-    let mut attempts = 0;
+    let mut attempts: u32 = 0;
     let chat_stream_result = loop {
         match client
             .exec_chat_stream(model_name, chat_request.clone(), Some(chat_options))
@@ -1904,7 +1904,7 @@ async fn initialize_conversation(
             let request_prompt_result_with_context =
                 format!("{}\n{}", request_prompt_result, context);
             // 添加用户消息
-            let _ = add_message(
+            let user_message = add_message(
                 app_handle,
                 None,
                 conversation_id,
@@ -1918,6 +1918,37 @@ async fn initialize_conversation(
                 None, // 用户消息不需要 generation_group_id
                 None, // 用户消息不需要 parent_group_id
             )?;
+
+            // 发送消息添加事件
+            let add_event = ConversationEvent {
+                r#type: "message_add".to_string(),
+                data: serde_json::to_value(MessageAddEvent {
+                    message_id: user_message.id,
+                    message_type: "user".to_string(),
+                })
+                .unwrap(),
+            };
+
+            let _ = app_handle.emit(
+                format!("conversation_event_{}", conversation_id).as_str(),
+                add_event,
+            );
+
+            let update_event = ConversationEvent {
+                r#type: "message_update".to_string(),
+                data: serde_json::to_value(MessageUpdateEvent {
+                    message_id: user_message.id,
+                    message_type: "user".to_string(),
+                    content: request_prompt_result_with_context.clone(),
+                    is_done: false,
+                })
+                .unwrap(),
+            };
+            let _ = app_handle.emit(
+                format!("conversation_event_{}", conversation_id).as_str(),
+                update_event,
+            );
+
             let mut updated_message_list = message_list;
             updated_message_list.push((
                 String::from("user"),
