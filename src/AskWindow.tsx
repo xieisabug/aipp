@@ -24,15 +24,6 @@ const appWindow = getCurrentWebviewWindow();
 
 interface AiResponse {
     conversation_id: number;
-    add_message_id: number;
-}
-interface CustomComponents extends Components {
-    antthinking: React.ElementType;
-}
-
-interface AiResponse {
-    conversation_id: number;
-    add_message_id: number;
 }
 interface CustomComponents extends Components {
     antthinking: React.ElementType;
@@ -78,34 +69,39 @@ function AskWindow() {
                     attachment_list: fileInfoList?.map((i) => i.id),
                 },
             }).then((res) => {
-                setMessageId(res.add_message_id);
                 // 记录新的 conversationId，便于后续在 ChatUIWindow 中定位
-                if (res.conversation_id !== undefined && res.conversation_id !== null) {
+                if (
+                    res.conversation_id !== undefined &&
+                    res.conversation_id !== null
+                ) {
                     setConversationId(res.conversation_id.toString());
-                    console.log("AskWindow 获取到 conversation_id", res.conversation_id);
+                    console.log(
+                        "AskWindow 获取到 conversation_id",
+                        res.conversation_id,
+                    );
                 }
 
                 console.log("ask ai response", res);
-                if (unsubscribe) {
-                    console.log("Unsubscribing from previous event listener");
-                    unsubscribe.then((f) => f());
-                }
+                // if (unsubscribe) {
+                //     console.log("Unsubscribing from previous event listener");
+                //     unsubscribe.then((f) => f());
+                // }
 
-                console.log(
-                    "Listening for response",
-                    `message_${res.add_message_id}`,
-                );
-                unsubscribe = listen(
-                    `message_${res.add_message_id}`,
-                    (event) => {
-                        const payload = event.payload as string;
-                        if (payload !== "Tea::Event::MessageFinish") {
-                            setResponse(payload);
-                        } else {
-                            setAiIsResponsing(false);
-                        }
-                    },
-                );
+                // console.log(
+                //     "Listening for response",
+                //     `message_${res.add_message_id}`,
+                // );
+                // unsubscribe = listen(
+                //     `message_${res.add_message_id}`,
+                //     (event) => {
+                //         const payload = event.payload as string;
+                //         if (payload !== "Tea::Event::MessageFinish") {
+                //             setResponse(payload);
+                //         } else {
+                //             setAiIsResponsing(false);
+                //         }
+                //     },
+                // );
             });
         } catch (error) {
             console.error("Error:", error);
@@ -144,9 +140,9 @@ function AskWindow() {
 
         return () => {
             window.removeEventListener("keydown", handleShortcut);
-            if (unsubscribe) {
-                unsubscribe.then((f) => f());
-            }
+            // if (unsubscribe) {
+            //     unsubscribe.then((f) => f());
+            // }
         };
     }, []);
 
@@ -157,7 +153,9 @@ function AskWindow() {
     const openChatUI = async () => {
         const sendSelect = () => {
             if (!conversationId) {
-                console.warn("AskWindow：当前 conversationId 为空，无法自动选中对话");
+                console.warn(
+                    "AskWindow：当前 conversationId 为空，无法自动选中对话",
+                );
                 return;
             }
             emitTo("chat_ui", "select_conversation", conversationId);
@@ -194,7 +192,10 @@ function AskWindow() {
 
     return (
         <div className="flex justify-center items-center h-screen">
-            <div className="bg-white shadow-lg w-full h-screen" data-tauri-drag-region>
+            <div
+                className="bg-white shadow-lg w-full h-screen"
+                data-tauri-drag-region
+            >
                 <InputArea
                     inputText={query}
                     setInputText={setQuery}
@@ -268,7 +269,10 @@ function AskWindow() {
                         <AskWindowPrepare selectedText={selectedText} />
                     )}
                 </div>
-                <div className="w-full h-8 fixed bottom-0 left-0 flex items-center justify-end pr-2.5 bg-gray-100" data-tauri-drag-region>
+                <div
+                    className="w-full h-8 fixed bottom-0 left-0 flex items-center justify-end pr-2.5 bg-gray-100"
+                    data-tauri-drag-region
+                >
                     {messageId !== -1 && !aiIsResponsing && (
                         <IconButton
                             icon={<Add fill="black" />}

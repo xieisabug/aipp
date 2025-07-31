@@ -128,7 +128,6 @@ function ConversationUI({
 
     // AI响应状态管理
     const [aiIsResponsing, setAiIsResponsing] = useState<boolean>(false);
-    const [messageId, setMessageId] = useState<number>(-1);
 
     // 事件监听取消订阅引用
     const unsubscribeRef = useRef<Promise<() => void> | null>(null);
@@ -318,40 +317,6 @@ function ConversationUI({
                         );
                         unsubscribeRef.current.then((f) => f());
                     }
-                    console.log(`init ${res.add_message_id} function map`);
-                    setFunctionMap((prev) => {
-                        const newMap = new Map(prev);
-                        newMap.set(res.add_message_id, {
-                            onCustomUserMessage,
-                            onCustomUserMessageComing,
-                            onStreamMessageListener,
-                        });
-                        return newMap;
-                    });
-
-                    const customUserMessageComing = functionMap.get(
-                        res.add_message_id,
-                    )?.onCustomUserMessageComing;
-                    if (customUserMessageComing) {
-                        customUserMessageComing(res);
-                    } else {
-                        setMessageId(res.add_message_id);
-
-                        setMessages((prevMessages) => {
-                            const newMessages = [...prevMessages];
-                            const index = prevMessages.findIndex(
-                                (msg) => msg == userMessage,
-                            );
-                            if (index !== -1) {
-                                newMessages[index] = {
-                                    ...newMessages[index],
-                                    content:
-                                        res.request_prompt_result_with_context,
-                                };
-                            }
-                            return newMessages;
-                        });
-                    }
 
                     if (conversationId != res.conversation_id + "") {
                         onChangeConversationId(res.conversation_id + "");
@@ -386,6 +351,24 @@ function ConversationUI({
                                     "[ShineBorder Debug] Not setting shine border - message type:",
                                     messageAddData.message_type,
                                 );
+                            }
+
+                            setFunctionMap((prev) => {
+                                const newMap = new Map(prev);
+                                newMap.set(messageAddData.message_id, {
+                                    onCustomUserMessage,
+                                    onCustomUserMessageComing,
+                                    onStreamMessageListener,
+                                });
+                                return newMap;
+                            });
+
+                            const customUserMessageComing = functionMap.get(
+                                messageAddData.message_id,
+                            )?.onCustomUserMessageComing;
+
+                            if (customUserMessageComing) {
+                                customUserMessageComing(res);
                             }
 
                             // 重新获取对话消息，以确保获得完整的消息数据（包括generation_group_id等）
@@ -465,7 +448,7 @@ function ConversationUI({
 
                             // 处理插件兼容性
                             const streamMessageListener = functionMap.get(
-                                res.add_message_id,
+                                messageUpdateData.message_id,
                             )?.onStreamMessageListener;
                             if (streamMessageListener) {
                                 streamMessageListener(
@@ -713,7 +696,6 @@ function ConversationUI({
             }
 
             const lastMessageId = res.messages[res.messages.length - 1].id;
-            setMessageId(lastMessageId);
 
             // 为已存在的对话设置事件监听器
             const handleConversationEvent = (event: any) => {
@@ -809,7 +791,6 @@ function ConversationUI({
                             messageUpdateData.content,
                             {
                                 conversation_id: +conversationId,
-                                add_message_id: lastMessageId,
                                 request_prompt_result_with_context: "",
                             },
                             setAiIsResponsing,
@@ -1091,7 +1072,7 @@ function ConversationUI({
                 .then((res) => {
                     console.log("regenerate ai response", res);
                     // 重新生成消息的处理逻辑
-                    setMessageId(res.add_message_id);
+                    // setMessageId(res.add_message_id);
                 })
                 .catch((error) => {
                     console.error("Regenerate error:", error);
@@ -1283,16 +1264,23 @@ function ConversationUI({
 
                         // 如果是新对话，更新对话 ID
                         if (conversationId != res.conversation_id + "") {
-                            onChangeConversationId(res.conversation_id + "");
+                            console.log("old conversation id:", conversationId);
+                            console.log(
+                                "new conversation id:",
+                                res.conversation_id,
+                            );
 
-                            if (conversationId) {
+                            if (!conversationId) {
                                 console.log(
                                     "这是一个新生成的 Conversation:",
                                     conversationId,
+                                    res.conversation_id,
                                 );
                             } else {
                                 console.log("这是老 Conversation 继续聊天");
                             }
+
+                            onChangeConversationId(res.conversation_id + "");
                         }
 
                         // 处理对话事件
