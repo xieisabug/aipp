@@ -520,7 +520,6 @@ function ConversationUI({
             // 无对话 ID时，清理状态并加载助手列表
             setMessages([]);
             setConversation(undefined);
-            // 流式消息和 shine-border 状态现在由 useConversationEvents hook 管理
 
             invoke<Array<AssistantListItem>>("get_assistants").then(
                 (assistantList) => {
@@ -536,7 +535,7 @@ function ConversationUI({
         // 加载指定对话的消息和信息
         setIsLoadingShow(true);
         setGroupMergeMap(new Map()); // 切换对话时清理组合并状态
-        // 流式消息和 shine-border 状态现在由 useConversationEvents hook 管理
+
         console.log(`conversationId change : ${conversationId}`);
 
         invoke<ConversationWithMessages>("get_conversation_with_messages", {
@@ -546,12 +545,12 @@ function ConversationUI({
             setConversation(res.conversation);
             setIsLoadingShow(false);
 
-            console.log(res);
-
-            // 事件处理现在由共享的 useConversationEvents hook 管理
+            if (res.messages.length === 2) {
+                if (res.messages[0].message_type === "system" && res.messages[1].message_type === "user") {
+                    setShiningMessageIds(new Set([...shiningMessageIds, res.messages[1].id]));
+                }
+            }
         });
-
-        // 清理逻辑现在由 useConversationEvents hook 处理
     }, [conversationId]);
 
     // 监听对话标题变化
@@ -920,8 +919,6 @@ function ConversationUI({
                         if (conversationId != res.conversation_id + "") {
                             onChangeConversationId(res.conversation_id + "");
                         }
-
-                        // 事件处理现在由共享的 useConversationEvents hook 管理
                     })
                     .catch((error) => {
                         setAiIsResponsing(false);
