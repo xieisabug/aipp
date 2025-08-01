@@ -14,6 +14,7 @@ export interface UseConversationEventsOptions {
     onGroupMerge?: (groupMergeData: GroupMergeEvent) => void;
     onAiResponseStart?: () => void;
     onAiResponseComplete?: () => void;
+    onError?: (errorMessage: string) => void;
 }
 
 export function useConversationEvents(options: UseConversationEventsOptions) {
@@ -68,50 +69,83 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
                     is_done: messageUpdateData.is_done,
                 };
 
-                // 当开始收到新的AI响应时（不是is_done时），清除所有shine-border
-                if (
-                    !messageUpdateData.is_done &&
-                    messageUpdateData.content
-                ) {
-                    if (messageUpdateData.message_type !== "user") {
-                        setShiningMessageIds(new Set());
-                    }
-                    callbacksRef.current.onAiResponseStart?.();
-                }
-
-                if (messageUpdateData.is_done) {
-                    if (messageUpdateData.message_type === "response") {
-                        callbacksRef.current.onAiResponseComplete?.();
-                    }
-
-                    // 标记流式消息为完成状态，但不立即删除，让消息能正常显示
-                    setStreamingMessages((prev) => {
-                        const newMap = new Map(prev);
-                        const completedEvent = {
-                            ...streamEvent,
-                            is_done: true,
-                        };
-                        newMap.set(streamEvent.message_id, completedEvent);
-                        return newMap;
-                    });
-
-                    // 延迟清理已完成的流式消息，给足够时间让消息保存到 messages 中
-                    setTimeout(() => {
+                // 检查是否是错误消息
+                if (messageUpdateData.message_type === "error") {
+                    // 对于错误消息，立即触发错误处理
+                    callbacksRef.current.onError?.(messageUpdateData.content);
+                    callbacksRef.current.onAiResponseComplete?.(); // 错误也算作响应完成
+                    
+                    // 清除所有shine-border，因为出现错误
+                    setShiningMessageIds(new Set());
+                    
+                    // 对于错误消息，直接处理完成状态
+                    if (messageUpdateData.is_done) {
                         setStreamingMessages((prev) => {
                             const newMap = new Map(prev);
-                            newMap.delete(streamEvent.message_id);
+                            const completedEvent = {
+                                ...streamEvent,
+                                is_done: true,
+                            };
+                            newMap.set(streamEvent.message_id, completedEvent);
                             return newMap;
                         });
-                    }, 1000); // 1秒后清理
+
+                        // 错误消息保留更长时间，让用户能看到
+                        setTimeout(() => {
+                            setStreamingMessages((prev) => {
+                                const newMap = new Map(prev);
+                                newMap.delete(streamEvent.message_id);
+                                return newMap;
+                            });
+                        }, 5000); // 5秒后清理错误消息
+                    }
                 } else {
-                    // 使用 startTransition 将流式消息更新标记为低优先级，保持界面响应性
-                    startTransition(() => {
+                    // 正常消息处理逻辑
+                    // 当开始收到新的AI响应时（不是is_done时），清除所有shine-border
+                    if (
+                        !messageUpdateData.is_done &&
+                        messageUpdateData.content
+                    ) {
+                        if (messageUpdateData.message_type !== "user") {
+                            setShiningMessageIds(new Set());
+                        }
+                        callbacksRef.current.onAiResponseStart?.();
+                    }
+
+                    if (messageUpdateData.is_done) {
+                        if (messageUpdateData.message_type === "response") {
+                            callbacksRef.current.onAiResponseComplete?.();
+                        }
+
+                        // 标记流式消息为完成状态，但不立即删除，让消息能正常显示
                         setStreamingMessages((prev) => {
                             const newMap = new Map(prev);
-                            newMap.set(streamEvent.message_id, streamEvent);
+                            const completedEvent = {
+                                ...streamEvent,
+                                is_done: true,
+                            };
+                            newMap.set(streamEvent.message_id, completedEvent);
                             return newMap;
                         });
-                    });
+
+                        // 延迟清理已完成的流式消息，给足够时间让消息保存到 messages 中
+                        setTimeout(() => {
+                            setStreamingMessages((prev) => {
+                                const newMap = new Map(prev);
+                                newMap.delete(streamEvent.message_id);
+                                return newMap;
+                            });
+                        }, 1000); // 1秒后清理
+                    } else {
+                        // 使用 startTransition 将流式消息更新标记为低优先级，保持界面响应性
+                        startTransition(() => {
+                            setStreamingMessages((prev) => {
+                                const newMap = new Map(prev);
+                                newMap.set(streamEvent.message_id, streamEvent);
+                                return newMap;
+                            });
+                        });
+                    }
                 }
 
                 // 调用外部的消息更新处理函数
@@ -171,11 +205,21 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
         setShiningMessageIds(new Set());
     }, []);
 
+    const handleError = useCallback((errorMessage: string) => {
+        // 清理所有流式消息状态
+        setStreamingMessages(new Map());
+        setShiningMessageIds(new Set());
+        
+        // 调用外部错误处理
+        callbacksRef.current.onError?.(errorMessage);
+    }, []);
+
     return {
         streamingMessages,
         shiningMessageIds,
         setShiningMessageIds,
         clearStreamingMessages,
         clearShiningMessages,
+        handleError,
     };
 }

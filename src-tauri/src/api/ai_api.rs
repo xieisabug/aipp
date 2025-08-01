@@ -787,6 +787,9 @@ async fn handle_stream_chat(
                                 cleanup_token(tokens, conversation_id).await;
                                 let err_msg = format!("Chat stream error: {}", e);
 
+                                // 发送直接错误通知事件到前端
+                                let _ = window.emit(ERROR_NOTIFICATION_EVENT, format!("Stream error: {}", e));
+
                                 // 发送错误事件到任一存在的消息
                                 if let Some(msg_id) = response_message_id.or(reasoning_message_id) {
                                     let error_event = ConversationEvent {
@@ -794,7 +797,7 @@ async fn handle_stream_chat(
                                         data: serde_json::to_value(MessageUpdateEvent {
                                             message_id: msg_id,
                                             message_type: "error".to_string(),
-                                            content: err_msg,
+                                            content: err_msg.clone(),
                                             is_done: true,
                                         }).unwrap(),
                                     };
@@ -802,6 +805,57 @@ async fn handle_stream_chat(
                                         format!("conversation_event_{}", conversation_id).as_str(),
                                         error_event
                                     );
+                                } else {
+                                    // 如果没有现有消息，创建一个新的错误消息
+                                    let now = chrono::Utc::now();
+                                    let error_message_result = conversation_db
+                                        .message_repo()
+                                        .unwrap()
+                                        .create(&Message {
+                                            id: 0,
+                                            parent_id: None,
+                                            conversation_id,
+                                            message_type: "error".to_string(),
+                                            content: err_msg.clone(),
+                                            llm_model_id: Some(llm_model_id),
+                                            llm_model_name: Some(llm_model_name.clone()),
+                                            created_time: now,
+                                            start_time: Some(now),
+                                            finish_time: Some(now),
+                                            token_count: 0,
+                                            generation_group_id: Some(generation_group_id.clone()),
+                                            parent_group_id: parent_group_id_override.clone(),
+                                        });
+
+                                    if let Ok(error_message) = error_message_result {
+                                        // 发送消息添加事件
+                                        let add_event = ConversationEvent {
+                                            r#type: "message_add".to_string(),
+                                            data: serde_json::to_value(MessageAddEvent {
+                                                message_id: error_message.id,
+                                                message_type: "error".to_string(),
+                                            }).unwrap(),
+                                        };
+                                        let _ = window.emit(
+                                            format!("conversation_event_{}", conversation_id).as_str(),
+                                            add_event
+                                        );
+
+                                        // 发送消息更新事件（完成状态）
+                                        let update_event = ConversationEvent {
+                                            r#type: "message_update".to_string(),
+                                            data: serde_json::to_value(MessageUpdateEvent {
+                                                message_id: error_message.id,
+                                                message_type: "error".to_string(),
+                                                content: err_msg.clone(),
+                                                is_done: true,
+                                            }).unwrap(),
+                                        };
+                                        let _ = window.emit(
+                                            format!("conversation_event_{}", conversation_id).as_str(),
+                                            update_event
+                                        );
+                                    }
                                 }
 
                                 return Err(anyhow::anyhow!("Stream error: {}", e));
@@ -889,6 +943,9 @@ async fn handle_stream_chat(
             cleanup_token(tokens, conversation_id).await;
             let err_msg = format!("Chat stream error: {}", e);
 
+            // 发送直接错误通知事件到前端
+            let _ = window.emit(ERROR_NOTIFICATION_EVENT, format!("Stream initialization error: {}", e));
+
             // 为这次生成确定组ID：优先使用传入的group_id，否则创建新的
             let generation_group_id =
                 generation_group_id_override.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
@@ -907,7 +964,7 @@ async fn handle_stream_chat(
                     llm_model_name: Some(llm_model_name.clone()),
                     created_time: now,
                     start_time: Some(now),
-                    finish_time: None,
+                    finish_time: Some(now), // Mark as finished immediately for errors
                     token_count: 0,
                     generation_group_id: Some(generation_group_id.clone()),
                     parent_group_id: parent_group_id_override.clone(),
@@ -1107,6 +1164,10 @@ async fn handle_non_stream_chat(
             cleanup_token(tokens, conversation_id).await;
             let err_msg = format!("Chat error: {}", e);
             let now = chrono::Utc::now();
+
+            // 发送直接错误通知事件到前端
+            let _ = window.emit(ERROR_NOTIFICATION_EVENT, format!("Chat request error: {}", e));
+
             // 为这次生成确定组ID：优先使用传入的group_id，否则创建新的
             let generation_group_id = generation_group_id_override
                 .clone()
@@ -1125,7 +1186,7 @@ async fn handle_non_stream_chat(
                     llm_model_name: Some(llm_model_name.clone()),
                     created_time: now,
                     start_time: Some(now),
-                    finish_time: None,
+                    finish_time: Some(now), // Mark as finished immediately for errors
                     token_count: 0,
                     generation_group_id: Some(generation_group_id.clone()),
                     parent_group_id: parent_group_id_override.clone(),

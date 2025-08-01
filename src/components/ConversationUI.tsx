@@ -200,6 +200,13 @@ function ConversationUI({
         setAiIsResponsing(false);
     }, []);
 
+    const handleError = useCallback((errorMessage: string) => {
+        console.error("Stream error from conversation events:", errorMessage);
+        // 错误处理在useConversationEvents中的错误处理逻辑和直接的error notification listener中都会处理
+        // 这里主要是为了确保响应状态被正确重置
+        setAiIsResponsing(false);
+    }, []);
+
     // handleMessageUpdate 将在后面定义，这里先声明一个空的引用
     let handleMessageUpdateRef: ((streamEvent: StreamEvent) => void) | undefined;
 
@@ -211,8 +218,9 @@ function ConversationUI({
             onMessageUpdate: (streamEvent: StreamEvent) => handleMessageUpdateRef?.(streamEvent),
             onGroupMerge: handleGroupMerge,
             onAiResponseComplete: handleAiResponseComplete,
+            onError: handleError,
         }),
-        [conversationId, handleMessageAdd, handleGroupMerge, handleAiResponseComplete]
+        [conversationId, handleMessageAdd, handleGroupMerge, handleAiResponseComplete, handleError]
     );
 
     // 使用共享的消息事件处理 hook
@@ -569,6 +577,29 @@ function ConversationUI({
             }
         };
     }, [conversation]);
+
+    // 监听错误通知事件
+    useEffect(() => {
+        const unsubscribe = listen("conversation-window-error-notification", (event) => {
+            const errorMessage = event.payload as string;
+            console.error("Received error notification:", errorMessage);
+            
+            // 显示错误通知
+            toast.error(`AI请求失败: ${errorMessage}`);
+            
+            // 重置AI响应状态
+            setAiIsResponsing(false);
+            
+            // 清除闪烁状态
+            clearShiningMessages();
+        });
+
+        return () => {
+            if (unsubscribe) {
+                unsubscribe.then((f) => f());
+            }
+        };
+    }, [clearShiningMessages]);
 
     // ============= 数据计算和处理 =============
 

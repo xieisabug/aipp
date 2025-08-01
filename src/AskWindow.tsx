@@ -6,6 +6,7 @@ import ReactMarkdown, { Components } from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeRaw from "rehype-raw";
 import rehypeKatex from "rehype-katex";
+import { toast } from "sonner";
 
 import Copy from "./assets/copy.svg?react";
 import Ok from "./assets/ok.svg?react";
@@ -42,11 +43,26 @@ function AskWindow() {
     // 当前对话 id，用于在 ChatUIWindow 中自动选中
     const [conversationId, setConversationId] = useState<string>("");
 
+    // 错误处理回调
+    const handleError = useCallback((errorMessage: string) => {
+        console.error("Stream error in AskWindow:", errorMessage);
+        setAiIsResponsing(false);
+        // 在 AskWindow 中，将错误信息显示为响应内容
+        setResponse(`❌ AI Request Failed: ${errorMessage}`);
+    }, []);
+
     // 使用共享的消息事件处理 hook
     const { streamingMessages } = useConversationEvents({
         conversationId: conversationId,
         onMessageUpdate: (streamEvent: StreamEvent) => {
-            // 更新响应内容
+            // 处理错误消息类型
+            if (streamEvent.message_type === "error") {
+                setResponse(`❌ AI Request Failed: ${streamEvent.content}`);
+                setAiIsResponsing(false);
+                return;
+            }
+            
+            // 更新正常响应内容
             if (!streamEvent.is_done) {
                 setResponse(streamEvent.content);
                 setMessageId(streamEvent.message_id);
@@ -55,6 +71,7 @@ function AskWindow() {
         onAiResponseComplete: () => {
             setAiIsResponsing(false);
         },
+        onError: handleError,
     });
 
     useEffect(() => {
@@ -67,6 +84,27 @@ function AskWindow() {
             console.log("get_selected_text_event", event.payload);
             setSelectedText(event.payload);
         });
+
+        // 监听错误通知事件
+        const unsubscribe = listen("conversation-window-error-notification", (event) => {
+            const errorMessage = event.payload as string;
+            console.error("Received error notification in AskWindow:", errorMessage);
+            
+            // 显示错误通知
+            toast.error(`AI请求失败: ${errorMessage}`);
+            
+            // 重置AI响应状态
+            setAiIsResponsing(false);
+            
+            // 显示错误信息作为响应
+            setResponse(`❌ AI Request Failed: ${errorMessage}`);
+        });
+
+        return () => {
+            if (unsubscribe) {
+                unsubscribe.then((f) => f());
+            }
+        };
     }, []);
 
     const handleSubmit = () => {
@@ -75,42 +113,56 @@ function AskWindow() {
         }
         setAiIsResponsing(true);
         setResponse("");
-        try {
-            invoke<AiResponse>("ask_ai", {
-                request: {
-                    prompt: query,
-                    conversation_id: conversationId,
-                    assistant_id: 1,
-                    attachment_list: fileInfoList?.map((i) => i.id),
-                },
-            }).then((res) => {
-                // 记录新的 conversationId，便于后续在 ChatUIWindow 中定位
-                if (
-                    res.conversation_id !== undefined &&
-                    res.conversation_id !== null
-                ) {
-                    setConversationId(res.conversation_id.toString());
-                    console.log(
-                        "AskWindow 获取到 conversation_id",
-                        res.conversation_id,
-                    );
-                }
+        
+        invoke<AiResponse>("ask_ai", {
+            request: {
+                prompt: query,
+                conversation_id: conversationId,
+                assistant_id: 1,
+                attachment_list: fileInfoList?.map((i) => i.id),
+            },
+        })
+        .then((res) => {
+            // 记录新的 conversationId，便于后续在 ChatUIWindow 中定位
+            if (
+                res.conversation_id !== undefined &&
+                res.conversation_id !== null
+            ) {
+                setConversationId(res.conversation_id.toString());
+                console.log(
+                    "AskWindow 获取到 conversation_id",
+                    res.conversation_id,
+                );
+            }
 
-                console.log("ask ai response", res);
-                // 事件处理现在由共享的 useConversationEvents hook 管理
-            });
-        } catch (error) {
-            console.error("Error:", error);
-            setResponse("An error occurred while processing your request.");
-        }
+            console.log("ask ai response", res);
+            // 事件处理现在由共享的 useConversationEvents hook 管理
+        })
+        .catch((error) => {
+            console.error("Ask AI request failed:", error);
+            setAiIsResponsing(false);
+            
+            // 显示错误信息
+            const errorMessage = typeof error === 'string' ? error : 'Unknown error occurred';
+            setResponse(`❌ AI Request Failed: ${errorMessage}`);
+            
+            // 显示错误通知
+            toast.error(`发送消息失败: ${errorMessage}`);
+        });
     };
 
     const onSend = throttle(() => {
         if (aiIsResponsing) {
             console.log("Cancelling AI");
-            invoke("cancel_ai", { conversationId: +conversationId }).then(() => {
-                setAiIsResponsing(false);
-            });
+            invoke("cancel_ai", { conversationId: +conversationId })
+                .then(() => {
+                    setAiIsResponsing(false);
+                })
+                .catch((error) => {
+                    console.error("Cancel AI failed:", error);
+                    setAiIsResponsing(false);
+                    toast.error("取消请求失败");
+                });
         } else {
             console.log("Sending query to AI");
             handleSubmit();
@@ -213,6 +265,25 @@ function AskWindow() {
                     {messageId !== -1 ? (
                         response == "" ? (
                             <AskAIHint />
+                        ) : displayResponse.startsWith("❌ AI Request Failed:") ? (
+                            // 专门为错误消息提供样式
+                            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                                <div className="flex items-start space-x-3">
+                                    <div className="flex-shrink-0 w-5 h-5 mt-0.5">
+                                        <svg className="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                        </svg>
+                                    </div>
+                                    <div className="flex-1">
+                                        <div className="text-sm font-medium text-red-800 mb-1">
+                                            AI Request Failed
+                                        </div>
+                                        <div className="text-sm text-red-700">
+                                            {displayResponse.replace("❌ AI Request Failed: ", "")}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         ) : (
                             <ReactMarkdown
                                 children={displayResponse}
