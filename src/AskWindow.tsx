@@ -108,7 +108,7 @@ function AskWindow() {
     const onSend = throttle(() => {
         if (aiIsResponsing) {
             console.log("Cancelling AI");
-            invoke("cancel_ai", { messageId }).then(() => {
+            invoke("cancel_ai", { conversationId: +conversationId }).then(() => {
                 setAiIsResponsing(false);
             });
         } else {

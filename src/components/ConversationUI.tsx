@@ -873,7 +873,7 @@ function ConversationUI({
             // AI正在响应时，点击取消
             console.log("Cancelling AI");
             console.log(conversationId);
-            invoke("cancel_ai", { conversationId: conversationId }).then(() => {
+            invoke("cancel_ai", { conversationId: +conversationId }).then(() => {
                 setAiIsResponsing(false);
                 // shine-border 状态现在由 useConversationEvents hook 管理
                 clearShiningMessages();
