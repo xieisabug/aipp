@@ -42,13 +42,20 @@ function AskWindow() {
     const [selectedText, setSelectedText] = useState<string>("");
     // 当前对话 id，用于在 ChatUIWindow 中自动选中
     const [conversationId, setConversationId] = useState<string>("");
+    // 独立的错误状态管理
+    const [errorMessage, setErrorMessage] = useState<string>("");
+
+    // 清除错误信息
+    const clearError = useCallback(() => {
+        setErrorMessage("");
+    }, []);
 
     // 错误处理回调
     const handleError = useCallback((errorMessage: string) => {
         console.error("Stream error in AskWindow:", errorMessage);
         setAiIsResponsing(false);
-        // 在 AskWindow 中，将错误信息显示为响应内容
-        setResponse(`❌ AI Request Failed: ${errorMessage}`);
+        // 设置错误信息，而不是替换响应内容
+        setErrorMessage(errorMessage);
     }, []);
 
     // 使用共享的消息事件处理 hook
@@ -57,7 +64,7 @@ function AskWindow() {
         onMessageUpdate: (streamEvent: StreamEvent) => {
             // 处理错误消息类型
             if (streamEvent.message_type === "error") {
-                setResponse(`❌ AI Request Failed: ${streamEvent.content}`);
+                setErrorMessage(streamEvent.content);
                 setAiIsResponsing(false);
                 return;
             }
@@ -87,17 +94,17 @@ function AskWindow() {
 
         // 监听错误通知事件
         const unsubscribe = listen("conversation-window-error-notification", (event) => {
-            const errorMessage = event.payload as string;
-            console.error("Received error notification in AskWindow:", errorMessage);
+            const errorMsg = event.payload as string;
+            console.error("Received error notification in AskWindow:", errorMsg);
             
             // 显示错误通知
-            toast.error(`AI请求失败: ${errorMessage}`);
+            toast.error(`AI请求失败: ${errorMsg}`);
             
             // 重置AI响应状态
             setAiIsResponsing(false);
             
-            // 显示错误信息作为响应
-            setResponse(`❌ AI Request Failed: ${errorMessage}`);
+            // 设置错误信息，而不是替换响应内容
+            setErrorMessage(errorMsg);
         });
 
         return () => {
@@ -113,6 +120,7 @@ function AskWindow() {
         }
         setAiIsResponsing(true);
         setResponse("");
+        setErrorMessage(""); // 清除之前的错误信息
         
         invoke<AiResponse>("ask_ai", {
             request: {
@@ -143,11 +151,11 @@ function AskWindow() {
             setAiIsResponsing(false);
             
             // 显示错误信息
-            const errorMessage = typeof error === 'string' ? error : 'Unknown error occurred';
-            setResponse(`❌ AI Request Failed: ${errorMessage}`);
+            const errorMsg = typeof error === 'string' ? error : 'Unknown error occurred';
+            setErrorMessage(errorMsg);
             
             // 显示错误通知
-            toast.error(`发送消息失败: ${errorMessage}`);
+            toast.error(`发送消息失败: ${errorMsg}`);
         });
     };
 
@@ -231,6 +239,7 @@ function AskWindow() {
         setMessageId(-1);
         setAiIsResponsing(false);
         setConversationId("");
+        setErrorMessage(""); // 清除错误信息
     };
 
     const { fileInfoList, handleChooseFile, handleDeleteFile, handlePaste } =
@@ -262,28 +271,40 @@ function AskWindow() {
                     placement="top"
                 />
                 <div className="prose prose-sm p-5 pb-16 max-w-none bg-white">
+                    {/* 错误信息显示区域 */}
+                    {errorMessage && (
+                        <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-4">
+                            <div className="flex items-start space-x-3">
+                                <div className="flex-shrink-0 w-5 h-5 mt-0.5">
+                                    <svg className="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                    </svg>
+                                </div>
+                                <div className="flex-1">
+                                    <div className="text-sm font-medium text-red-800 mb-1">
+                                        AI Request Failed
+                                    </div>
+                                    <div className="text-sm text-red-700">
+                                        {errorMessage}
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={clearError}
+                                    className="flex-shrink-0 text-red-400 hover:text-red-600 transition-colors"
+                                    title="清除错误信息"
+                                >
+                                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 正常内容显示区域 */}
                     {messageId !== -1 ? (
                         response == "" ? (
                             <AskAIHint />
-                        ) : displayResponse.startsWith("❌ AI Request Failed:") ? (
-                            // 专门为错误消息提供样式
-                            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                                <div className="flex items-start space-x-3">
-                                    <div className="flex-shrink-0 w-5 h-5 mt-0.5">
-                                        <svg className="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-                                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                                        </svg>
-                                    </div>
-                                    <div className="flex-1">
-                                        <div className="text-sm font-medium text-red-800 mb-1">
-                                            AI Request Failed
-                                        </div>
-                                        <div className="text-sm text-red-700">
-                                            {displayResponse.replace("❌ AI Request Failed: ", "")}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
                         ) : (
                             <ReactMarkdown
                                 children={displayResponse}
