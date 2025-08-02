@@ -1,7 +1,7 @@
-use crate::db::llm_db::LLMDatabase;
 use crate::api::genai_client;
+use crate::db::llm_db::LLMDatabase;
+use genai::Modality;
 use serde::{Deserialize, Serialize};
-
 
 #[derive(Serialize, Deserialize)]
 pub struct LlmProvider {
@@ -174,32 +174,30 @@ pub async fn fetch_model_list(
         .map_err(|e| e.to_string())?;
 
     // 使用共用的客户端创建函数
-    let client = genai_client::create_client_with_config(
-        &llm_provider_config,
-        "",
-        &llm_provider.api_type,
-    ).map_err(|e| e.to_string())?;
-    
+    let client =
+        genai_client::create_client_with_config(&llm_provider_config, "", &llm_provider.api_type)
+            .map_err(|e| e.to_string())?;
+
     let adapter_kind = genai_client::infer_adapter_kind_simple(&llm_provider.api_type);
 
-    match client.all_model_names(adapter_kind).await {
-        Ok(model_names) => {
+    match client.all_models(adapter_kind).await {
+        Ok(models) => {
             db.delete_llm_model_by_provider(llm_provider_id)
                 .map_err(|e| e.to_string())?;
-            
-            let mut models = Vec::new();
-            for model_name in &model_names {
+
+            let mut result = Vec::new();
+            for model in &models {
                 let model = LlmModel {
                     id: 0,
-                    name: model_name.clone(),
+                    name: model.name.to_string(),
                     llm_provider_id,
-                    code: model_name.clone(),
-                    description: format!("Model: {}", model_name),
-                    vision_support: false,
-                    audio_support: false,
-                    video_support: false,
+                    code: model.id.to_string(),
+                    description: format!("Model: {}", model.name),
+                    vision_support: model.supports_input_modality(&Modality::Image),
+                    audio_support: model.supports_input_modality(&Modality::Audio),
+                    video_support: model.supports_input_modality(&Modality::Video),
                 };
-                
+
                 db.add_llm_model(
                     &model.name,
                     llm_provider_id,
@@ -210,11 +208,11 @@ pub async fn fetch_model_list(
                     model.video_support,
                 )
                 .map_err(|e| e.to_string())?;
-                
-                models.push(model);
+
+                result.push(model);
             }
 
-            Ok(models)
+            Ok(result)
         }
         Err(e) => {
             eprintln!("获取模型列表错误: {}", e);
@@ -222,8 +220,6 @@ pub async fn fetch_model_list(
         }
     }
 }
-
-
 
 #[tauri::command]
 pub async fn add_llm_model(
