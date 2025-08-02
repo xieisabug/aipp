@@ -2036,8 +2036,8 @@ dependencies = [
 
 [[package]]
 name = "genai"
-version = "0.4.0-WIP"
-source = "git+https://github.com/xieisabug/rust-genai.git?rev=9ec9b21d73626cc9e656decbed08042f6ad9028d#9ec9b21d73626cc9e656decbed08042f6ad9028d"
+version = "0.4.0-alpha.8-WIP"
+source = "git+https://github.com/xieisabug/rust-genai.git?rev=02d13b2af9e73919c420cfae166ce600c9c79f72#02d13b2af9e73919c420cfae166ce600c9c79f72"
 dependencies = [
  "bytes",
  "derive_more 2.0.1",
