@@ -6,3 +6,6 @@ pub mod conversation_api;
 pub mod genai_client;
 pub mod llm_api;
 pub mod system_api;
+
+#[cfg(test)]
+mod tests;

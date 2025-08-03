@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import MenuIcon from "../assets/menu.svg?react";
-import FormDialog from "./FormDialog";
+import ConversationTitleEditDialog from "./ConversationTitleEditDialog";
 import useConversationManager from "../hooks/useConversationManager";
 import { Conversation } from "../data/Conversation";
 import {
@@ -12,6 +11,7 @@ import {
     DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { Button } from "./ui/button";
+import ConfirmDialog from "./ConfirmDialog";
 
 interface ConversationListProps {
     onSelectConversation: (conversation: string) => void;
@@ -57,47 +57,15 @@ function ConversationList({
     }, [conversationId, conversations]);
 
     useEffect(() => {
-        const unsubscribe = listen("title_change", (event) => {
-            const [conversationId, title] = event.payload as [string, string];
-
-            const index = conversations.findIndex(
-                (conversation) => conversation.id.toString() == conversationId,
-            );
-            if (index !== -1) {
-                const newConversations = [...conversations];
-                newConversations[index] = {
-                    ...newConversations[index],
-                    name: title,
-                };
-                setConversations(newConversations);
-            }
-        });
-
         const index = conversations.findIndex(
             (c) => conversationId == c.id.toString(),
         );
         if (index === -1) {
             onSelectConversation("");
         }
-
-        return () => {
-            if (unsubscribe) {
-                unsubscribe.then((f) => f());
-            }
-        };
     }, [conversations]);
 
-    const handleDeleteConversation = useCallback(async (id: string) => {
-        await deleteConversation(id, {
-            onSuccess: async () => {
-                const conversations = await listConversations();
-                setConversations(conversations);
-            },
-        });
-    }, []);
-
     const [menuShow, setMenuShow] = useState(false);
-    const [menuShowConversationId, setMenuShowConversationId] = useState("");
 
     useEffect(() => {
         const handleOutsideClick = () => {
@@ -113,39 +81,66 @@ function ConversationList({
         };
     }, [menuShow]);
 
-    const [formDialogIsOpen, setFormDialogIsOpen] = useState<boolean>(false);
-    const openFormDialog = useCallback((title: string) => {
-        setFormConversationTitle(title || "");
-        setFormDialogIsOpen(true);
+    const [titleEditDialogIsOpen, setTitleEditDialogIsOpen] = useState<boolean>(false);
+    const [editingConversationId, setEditingConversationId] = useState<number>(0);
+    const [editingConversationTitle, setEditingConversationTitle] = useState<string>("");
+    
+    const openTitleEditDialog = useCallback((id: number, title: string) => {
+        setEditingConversationId(id);
+        setEditingConversationTitle(title || "");
+        setTitleEditDialogIsOpen(true);
     }, []);
-    const closeFormDialog = useCallback(() => {
-        setFormDialogIsOpen(false);
+    
+    const closeTitleEditDialog = useCallback(() => {
+        setTitleEditDialogIsOpen(false);
+        setEditingConversationId(0);
+        setEditingConversationTitle("");
     }, []);
-    const [formConversationTitle, setFormConversationTitle] =
-        useState<string>("");
 
-    const handleFormSubmit = useCallback(() => {
-        if (
-            menuShowConversationId === "" ||
-            menuShowConversationId === undefined
-        ) {
-            // TODO 弹出错误提示
-            console.error("menuShowConversationId is empty");
-        }
-        invoke("update_conversation", {
-            conversationId: +menuShowConversationId,
-            name: formConversationTitle,
-        }).then(() => {
-            const newConversations = conversations.map((conversation) => {
-                if (conversation.id.toString() === menuShowConversationId) {
-                    return { ...conversation, name: formConversationTitle };
+    // 监听标题变化事件
+    useEffect(() => {
+        const unsubscribe = listen("title_change", (event) => {
+            const [conversationIdFromEvent, title] = event.payload as [number, string];
+
+            const index = conversations.findIndex(
+                (conversation) => conversation.id === conversationIdFromEvent,
+            );
+            if (index !== -1) {
+                const newConversations = [...conversations];
+                newConversations[index] = {
+                    ...newConversations[index],
+                    name: title,
+                };
+                setConversations(newConversations);
+                
+                // 如果当前正在编辑这个对话的标题，也更新编辑状态
+                if (editingConversationId === conversationIdFromEvent && titleEditDialogIsOpen) {
+                    setEditingConversationTitle(title);
                 }
-                return conversation;
-            });
-            setConversations(newConversations);
-            closeFormDialog();
+            }
         });
-    }, [menuShowConversationId, formConversationTitle]);
+
+        return () => {
+            if (unsubscribe) {
+                unsubscribe.then((f) => f());
+            }
+        };
+    }, [conversations, editingConversationId, titleEditDialogIsOpen]);
+
+    const [deleteDialogIsOpen, setDeleteDialogIsOpen] = useState<boolean>(false);
+    const [deleteConversationId, setDeleteConversationId] = useState<string>("");
+    const [deleteConversationName, setDeleteConversationName] = useState<string>("");
+    const openDeleteDialog = useCallback((id: string, name: string) => {
+        setDeleteConversationId(id);
+        setDeleteConversationName(name);
+        setDeleteDialogIsOpen(true);
+    }, []);
+    const closeDeleteDialog = useCallback(() => {
+        setDeleteDialogIsOpen(false);
+        setDeleteConversationId("");
+        setDeleteConversationName("");
+    }, []);
+
 
     return (
         <div className="flex-1 overflow-y-auto overflow-x-hidden px-3">
@@ -178,20 +173,19 @@ function ConversationList({
                                 <DropdownMenuItem
                                     onClick={() => {
                                         setMenuShow(false);
-                                        setMenuShowConversationId(
-                                            conversationId,
-                                        );
-                                        openFormDialog(conversation.name);
+                                        openTitleEditDialog(conversation.id, conversation.name);
                                     }}
                                 >
                                     修改标题
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
-                                    onClick={() =>
-                                        handleDeleteConversation(
+                                    onClick={() => {
+                                        setMenuShow(false);
+                                        openDeleteDialog(
                                             conversation.id.toString(),
-                                        )
-                                    }
+                                            conversation.name
+                                        );
+                                    }}
                                 >
                                     删除
                                 </DropdownMenuItem>
@@ -201,27 +195,28 @@ function ConversationList({
                 ))}
             </ul>
 
-            <FormDialog
-                title={"修改对话标题"}
-                onSubmit={handleFormSubmit}
-                onClose={closeFormDialog}
-                isOpen={formDialogIsOpen}
-            >
-                <form className="space-y-4">
-                    <div className="space-y-2">
-                        <label className="block text-sm font-medium text-gray-700">标题:</label>
-                        <input
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                            type="text"
-                            name="name"
-                            value={formConversationTitle}
-                            onChange={(e) =>
-                                setFormConversationTitle(e.target.value)
-                            }
-                        />
-                    </div>
-                </form>
-            </FormDialog>
+            <ConversationTitleEditDialog
+                isOpen={titleEditDialogIsOpen}
+                conversationId={editingConversationId}
+                initialTitle={editingConversationTitle}
+                onClose={closeTitleEditDialog}
+            />
+
+            <ConfirmDialog
+                title={"确认删除对话"}
+                confirmText={`确定要删除对话 "${deleteConversationName}" 吗？此操作无法撤销。`}
+                onConfirm={() => {
+                    deleteConversation(deleteConversationId, {
+                        onSuccess: async () => {
+                            const conversations = await listConversations();
+                            setConversations(conversations);
+                            closeDeleteDialog();
+                        },
+                    });
+                }}
+                onCancel={closeDeleteDialog}
+                isOpen={deleteDialogIsOpen}
+            />
         </div>
     );
 }

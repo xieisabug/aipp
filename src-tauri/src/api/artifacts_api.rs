@@ -72,7 +72,7 @@ fn is_vue_component(code: &str) -> bool {
     // 检查代码是否包含 Vue 组件的特征
     let has_template = code.contains("<template>");
     let has_script = code.contains("<script");
-    let has_style = code.contains("<style");
+    let _has_style = code.contains("<style");
     
     // 检查是否有 Vue 3 Composition API 或者 Options API
     let has_setup = code.contains("setup") || code.contains("defineComponent");

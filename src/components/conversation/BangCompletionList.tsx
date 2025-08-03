@@ -10,7 +10,7 @@ interface BangCompletionListProps {
     };
     bangList: string[];
     selectedBangIndex: number;
-    textareaRef: React.RefObject<HTMLTextAreaElement>;
+    textareaRef: React.RefObject<HTMLTextAreaElement | null>;
     setInputText: (value: string) => void;
     setBangListVisible: (value: boolean) => void;
 }

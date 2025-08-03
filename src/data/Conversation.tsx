@@ -6,6 +6,12 @@ export interface Conversation {
     created_time: Date;
 }
 
+// 新增：用于 get_conversation_with_messages API 的响应结构
+export interface ConversationWithMessages {
+    conversation: Conversation;
+    messages: Array<Message>;
+}
+
 export interface Message {
     id: number;
     conversation_id: number;
@@ -16,6 +22,9 @@ export interface Message {
     start_time: Date | null;
     finish_time: Date | null;
     token_count: number;
+    generation_group_id?: string | null;
+    parent_group_id?: string | null; // 添加 parent_group_id 字段
+    parent_id?: number | null; // 添加 parent_id 字段
     regenerate: Array<Message> | null;
     attachment_list?: Array<any>; // 添加附件列表字段
 }
@@ -54,6 +63,14 @@ export interface MessageTypeEndEvent {
     message_type: string;
     duration_ms: number;
     end_time: Date;
+}
+
+export interface GroupMergeEvent {
+    original_group_id: string;
+    new_group_id: string;
+    is_regeneration: boolean;
+    first_message_id?: number;
+    conversation_id?: number;
 }
 
 // 消息类型枚举

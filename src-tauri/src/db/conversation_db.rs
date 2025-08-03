@@ -61,6 +61,8 @@ pub struct Message {
     pub start_time: Option<DateTime<Utc>>,
     pub finish_time: Option<DateTime<Utc>>,
     pub token_count: i32,
+    pub generation_group_id: Option<String>,
+    pub parent_group_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -75,6 +77,8 @@ pub struct MessageDetail {
     pub start_time: Option<DateTime<Utc>>,
     pub finish_time: Option<DateTime<Utc>>,
     pub token_count: i32,
+    pub generation_group_id: Option<String>,
+    pub parent_group_id: Option<String>,
     pub attachment_list: Vec<MessageAttachment>,
     pub regenerate: Vec<MessageDetail>,
 }
@@ -215,12 +219,12 @@ impl MessageRepository {
         &self,
         conversation_id: i64,
     ) -> Result<Vec<(Message, Option<MessageAttachment>)>> {
-        let mut stmt = self.conn.prepare("SELECT message.id, message.parent_id, message.conversation_id, message.message_type, message.content, message.llm_model_id, message.llm_model_name, message.created_time, message.start_time, message.finish_time, message.token_count, ma.attachment_type, ma.attachment_url, ma.attachment_content, ma.use_vector as attachment_use_vector, ma.token_count as attachment_token_count
+        let mut stmt = self.conn.prepare("SELECT message.id, message.parent_id, message.conversation_id, message.message_type, message.content, message.llm_model_id, message.llm_model_name, message.created_time, message.start_time, message.finish_time, message.token_count, message.generation_group_id, message.parent_group_id, ma.attachment_type, ma.attachment_url, ma.attachment_content, ma.use_vector as attachment_use_vector, ma.token_count as attachment_token_count
                                           FROM message
                                           LEFT JOIN message_attachment ma on message.id = ma.message_id
                                           WHERE conversation_id = ?1")?;
         let rows = stmt.query_map(&[&conversation_id], |row| {
-            let attachment_type_int: Option<i64> = row.get(11).ok();
+            let attachment_type_int: Option<i64> = row.get(13).ok();
             let attachment_type = attachment_type_int
                 .map(AttachmentType::try_from)
                 .transpose()?;
@@ -236,17 +240,19 @@ impl MessageRepository {
                 start_time: row.get(8)?,
                 finish_time: row.get(9)?,
                 token_count: row.get(10)?,
+                generation_group_id: row.get(11)?,
+                parent_group_id: row.get(12)?,
             };
             let attachment = if attachment_type.is_some() {
                 Some(MessageAttachment {
                     id: 0,
                     message_id: row.get(0)?,
                     attachment_type: attachment_type.unwrap(),
-                    attachment_url: row.get(12)?,
-                    attachment_content: row.get(13)?,
+                    attachment_url: row.get(14)?,
+                    attachment_content: row.get(15)?,
                     attachment_hash: None,
-                    use_vector: row.get(14)?,
-                    token_count: row.get(15)?,
+                    use_vector: row.get(16)?,
+                    token_count: row.get(17)?,
                 })
             } else {
                 None
@@ -271,12 +277,144 @@ impl MessageRepository {
         )?;
         Ok(())
     }
+
+    /// 更新消息内容
+    pub fn update_content(&self, id: i64, content: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE message SET content = ?1 WHERE id = ?2",
+            (content, id),
+        )?;
+        Ok(())
+    }
+
+    /// 获取指定对话的主线消息（用于默认显示）
+    /// 主线消息是指没有parent_group_id的消息，以及每个generation_group_id的最新消息
+    pub fn list_main_thread_by_conversation_id(
+        &self,
+        conversation_id: i64,
+    ) -> Result<Vec<(Message, Option<MessageAttachment>)>> {
+        let mut stmt = self.conn.prepare("
+            WITH latest_versions AS (
+                SELECT generation_group_id, MAX(id) as latest_id
+                FROM message 
+                WHERE conversation_id = ?1 AND generation_group_id IS NOT NULL AND parent_group_id IS NULL
+                GROUP BY generation_group_id
+            )
+            SELECT message.id, message.parent_id, message.conversation_id, message.message_type, 
+                   message.content, message.llm_model_id, message.llm_model_name, message.created_time, 
+                   message.start_time, message.finish_time, message.token_count, message.generation_group_id, 
+                   message.parent_group_id, ma.attachment_type, ma.attachment_url, ma.attachment_content, 
+                   ma.use_vector as attachment_use_vector, ma.token_count as attachment_token_count
+            FROM message
+            LEFT JOIN message_attachment ma on message.id = ma.message_id
+            WHERE message.conversation_id = ?1 
+            AND (
+                message.generation_group_id IS NULL 
+                OR message.id IN (SELECT latest_id FROM latest_versions)
+            )
+            ORDER BY message.created_time ASC
+        ")?;
+        
+        let rows = stmt.query_map(&[&conversation_id], |row| {
+            let attachment_type_int: Option<i64> = row.get(13).ok();
+            let attachment_type = attachment_type_int
+                .map(AttachmentType::try_from)
+                .transpose()?;
+            let message = Message {
+                id: row.get(0)?,
+                parent_id: row.get(1)?,
+                conversation_id: row.get(2)?,
+                message_type: row.get(3)?,
+                content: row.get(4)?,
+                llm_model_id: row.get(5)?,
+                llm_model_name: row.get(6)?,
+                created_time: row.get(7)?,
+                start_time: row.get(8)?,
+                finish_time: row.get(9)?,
+                token_count: row.get(10)?,
+                generation_group_id: row.get(11)?,
+                parent_group_id: row.get(12)?,
+            };
+            let attachment = if attachment_type.is_some() {
+                Some(MessageAttachment {
+                    id: 0,
+                    message_id: row.get(0)?,
+                    attachment_type: attachment_type.unwrap(),
+                    attachment_url: row.get(14)?,
+                    attachment_content: row.get(15)?,
+                    attachment_hash: None,
+                    use_vector: row.get(16)?,
+                    token_count: row.get(17)?,
+                })
+            } else {
+                None
+            };
+            Ok((message, attachment))
+        })?;
+        rows.collect()
+    }
+
+    /// 获取指定generation_group_id的所有版本消息
+    pub fn list_versions_by_group_id(
+        &self,
+        generation_group_id: &str,
+    ) -> Result<Vec<(Message, Option<MessageAttachment>)>> {
+        let mut stmt = self.conn.prepare("
+            SELECT message.id, message.parent_id, message.conversation_id, message.message_type, 
+                   message.content, message.llm_model_id, message.llm_model_name, message.created_time, 
+                   message.start_time, message.finish_time, message.token_count, message.generation_group_id, 
+                   message.parent_group_id, ma.attachment_type, ma.attachment_url, ma.attachment_content, 
+                   ma.use_vector as attachment_use_vector, ma.token_count as attachment_token_count
+            FROM message
+            LEFT JOIN message_attachment ma on message.id = ma.message_id
+            WHERE message.generation_group_id = ?1 OR message.parent_group_id = ?1
+            ORDER BY message.created_time ASC
+        ")?;
+        
+        let rows = stmt.query_map(&[&generation_group_id], |row| {
+            let attachment_type_int: Option<i64> = row.get(13).ok();
+            let attachment_type = attachment_type_int
+                .map(AttachmentType::try_from)
+                .transpose()?;
+            let message = Message {
+                id: row.get(0)?,
+                parent_id: row.get(1)?,
+                conversation_id: row.get(2)?,
+                message_type: row.get(3)?,
+                content: row.get(4)?,
+                llm_model_id: row.get(5)?,
+                llm_model_name: row.get(6)?,
+                created_time: row.get(7)?,
+                start_time: row.get(8)?,
+                finish_time: row.get(9)?,
+                token_count: row.get(10)?,
+                generation_group_id: row.get(11)?,
+                parent_group_id: row.get(12)?,
+            };
+            let attachment = if attachment_type.is_some() {
+                Some(MessageAttachment {
+                    id: 0,
+                    message_id: row.get(0)?,
+                    attachment_type: attachment_type.unwrap(),
+                    attachment_url: row.get(14)?,
+                    attachment_content: row.get(15)?,
+                    attachment_hash: None,
+                    use_vector: row.get(16)?,
+                    token_count: row.get(17)?,
+                })
+            } else {
+                None
+            };
+            Ok((message, attachment))
+        })?;
+        rows.collect()
+    }
 }
 
 impl Repository<Message> for MessageRepository {
     fn create(&self, message: &Message) -> Result<Message> {
         self.conn.execute(
-            "INSERT INTO message (parent_id, conversation_id, message_type, content, llm_model_id, llm_model_name, created_time, start_time, finish_time, token_count) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO message (parent_id, conversation_id, message_type, content, llm_model_id, llm_model_name, created_time, start_time, finish_time, token_count, generation_group_id, parent_group_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             (
                 &message.parent_id,
                 &message.conversation_id,
@@ -288,6 +426,8 @@ impl Repository<Message> for MessageRepository {
                 &message.start_time,
                 &message.finish_time,
                 &message.token_count,
+                &message.generation_group_id,
+                &message.parent_group_id,
             ),
         )?;
         let id = self.conn.last_insert_rowid();
@@ -303,12 +443,14 @@ impl Repository<Message> for MessageRepository {
             start_time: message.start_time,
             finish_time: message.finish_time,
             token_count: message.token_count,
+            generation_group_id: message.generation_group_id.clone(),
+            parent_group_id: message.parent_group_id.clone(),
         })
     }
 
     fn read(&self, id: i64) -> Result<Option<Message>> {
         self.conn
-            .query_row("SELECT id, parent_id, conversation_id, message_type, content, llm_model_id, llm_model_name, created_time, start_time, finish_time, token_count FROM message WHERE id = ?", &[&id], |row| {
+            .query_row("SELECT id, parent_id, conversation_id, message_type, content, llm_model_id, llm_model_name, created_time, start_time, finish_time, token_count, generation_group_id, parent_group_id FROM message WHERE id = ?", &[&id], |row| {
                 Ok(Message {
                     id: row.get(0)?,
                     parent_id: row.get(1)?,
@@ -321,6 +463,8 @@ impl Repository<Message> for MessageRepository {
                     start_time: row.get(8)?,
                     finish_time: row.get(9)?,
                     token_count: row.get(10)?,
+                    generation_group_id: row.get(11)?,
+                    parent_group_id: row.get(12)?,
                 })
             })
             .optional()
@@ -476,6 +620,10 @@ impl ConversationDatabase {
         })
     }
 
+    pub fn get_connection(&self) -> rusqlite::Result<Connection> {
+        Connection::open(&self.db_path)
+    }
+
     pub fn conversation_repo(&self) -> Result<ConversationRepository, AppError> {
         let conn = Connection::open(self.db_path.clone()).map_err(AppError::from)?;
         Ok(ConversationRepository::new(conn))
@@ -516,10 +664,24 @@ impl ConversationDatabase {
                 parent_id       integer,
                 start_time      DATETIME,
                 finish_time     DATETIME,
-                llm_model_name  TEXT
+                llm_model_name  TEXT,
+                generation_group_id TEXT,
+                parent_group_id TEXT
             )",
             [],
         )?;
+        
+        // 添加迁移逻辑：如果parent_group_id列不存在，则添加它
+        let mut stmt = conn.prepare("PRAGMA table_info(message)")?;
+        let column_info: Vec<String> = stmt.query_map([], |row| {
+            let column_name: String = row.get(1)?;
+            Ok(column_name)
+        })?.collect::<Result<Vec<String>, _>>()?;
+        
+        if !column_info.contains(&"parent_group_id".to_string()) {
+            conn.execute("ALTER TABLE message ADD COLUMN parent_group_id TEXT", [])?;
+        }
+        
         conn.execute(
             "CREATE TABLE IF NOT EXISTS message_attachment (
                 id                 INTEGER

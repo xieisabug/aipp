@@ -2,6 +2,7 @@ import React, { useEffect, useCallback, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import debounce from "lodash/debounce";
 import TagInputContainer from "./TagInputContainer";
+import ModelSelectionDialog from "./ModelSelectionDialog";
 import ConfigForm from "../ConfigForm";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -16,6 +17,21 @@ interface LLMProviderConfig {
 
 interface LLMModel {
     name: string;
+}
+
+interface ModelForSelection {
+    name: string;
+    code: string;
+    description: string;
+    vision_support: boolean;
+    audio_support: boolean;
+    video_support: boolean;
+    is_selected: boolean;
+}
+
+interface ModelSelectionResponse {
+    available_models: ModelForSelection[];
+    missing_models: string[];
 }
 
 interface LLMProviderConfigFormProps {
@@ -64,6 +80,10 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
     ]);
 
     const [tags, setTags] = useState<string[]>([]);
+    const [isModelListExpanded, setIsModelListExpanded] = useState<boolean>(false);
+    const [modelSelectionDialogOpen, setModelSelectionDialogOpen] = useState<boolean>(false);
+    const [modelSelectionData, setModelSelectionData] = useState<ModelSelectionResponse | null>(null);
+    const [isUpdatingModels, setIsUpdatingModels] = useState<boolean>(false);
 
     const defaultValues = useMemo(
         () => ({
@@ -143,20 +163,28 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
         });
     }, [id]);
 
-    // 获取模型列表
-    const fetchModelList = useCallback(async () => {
-        invoke<Array<LLMModel>>("fetch_model_list", { llmProviderId: id })
-            .then((modelList) => {
-                const newTags = modelList.map((model) => model.name);
-                // 调用子组件的方法，更新 tags
-                setTags(newTags);
-                toast.success("获取模型列表成功");
-            })
-            .catch((e) => {
-                toast.error(
-                    "获取模型列表失败，请检查Endpoint和Api Key配置: " + e,
-                );
+
+    // 处理模型选择确认
+    const handleModelSelectionConfirm = useCallback(async (selectedModels: ModelForSelection[]) => {
+        setIsUpdatingModels(true);
+        try {
+            await invoke("update_selected_models", {
+                llmProviderId: parseInt(id),
+                selectedModels
             });
+            
+            // 更新本地标签显示
+            const selectedModelNames = selectedModels
+                .filter(model => model.is_selected)
+                .map(model => model.name);
+            setTags(selectedModelNames);
+            
+            toast.success("模型列表更新成功");
+        } catch (e) {
+            toast.error("更新模型列表失败: " + e);
+        } finally {
+            setIsUpdatingModels(false);
+        }
     }, [id]);
 
     const onTagsChange = useCallback((newTags: string[]) => {
@@ -169,9 +197,15 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
                 llmProviderId={id}
                 tags={tags}
                 onTagsChange={onTagsChange}
+                isExpanded={isModelListExpanded}
+                onExpandedChange={setIsModelListExpanded}
+                onFetchModels={(modelData) => {
+                    setModelSelectionData(modelData);
+                    setModelSelectionDialogOpen(true);
+                }}
             />
         ),
-        [id, tags],
+        [id, tags, onTagsChange, isModelListExpanded],
     );
 
     // 表单字段定义
@@ -210,17 +244,8 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
                     customRender: tagInputRender,
                 },
             },
-            {
-                key: "fetchModelList",
-                config: {
-                    type: "button" as const,
-                    label: "",
-                    value: "获取Model列表",
-                    onClick: fetchModelList,
-                },
-            },
         ],
-        [fetchModelList, tagInputRender],
+        [tagInputRender],
     );
 
     const extraButtons = useMemo(() => (
@@ -251,15 +276,24 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
 
     // 表单部分结束  
     return (
-        <ConfigForm
-            key={id}
-            title={name}
-            description={description}
-            config={configFields}
-            classNames="bottom-space"
-            extraButtons={extraButtons}
-            useFormReturn={form}
-        />
+        <>
+            <ConfigForm
+                key={id}
+                title={name}
+                description={description}
+                config={configFields}
+                classNames="bottom-space"
+                extraButtons={extraButtons}
+                useFormReturn={form}
+            />
+            <ModelSelectionDialog
+                open={modelSelectionDialogOpen}
+                onOpenChange={setModelSelectionDialogOpen}
+                modelData={modelSelectionData}
+                onConfirm={handleModelSelectionConfirm}
+                loading={isUpdatingModels}
+            />
+        </>
     );
 };
 

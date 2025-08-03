@@ -3,11 +3,15 @@ interface SystemApi {}
 enum PluginType {
     AssistantType = 1,
     InterfaceType = 2,
-    ApplicationType = 3
+    ApplicationType = 3,
 }
 
 interface AssistantTypeApi {
-    typeRegist(pluginType: PluginType, label: string, plugin: TeaAssistantTypePlugin): void;
+    typeRegist(
+        pluginType: PluginType,
+        label: string,
+        plugin: TeaAssistantTypePlugin,
+    ): void;
     markdownRemarkRegist(component: any): void;
     changeFieldLabel(fieldName: string, label: string): void;
     addField(
@@ -24,7 +28,11 @@ interface AssistantTypeApi {
 
 interface AssistantConfigApi {
     clearFieldValue(fieldName: string): void;
-    changeFieldValue(fieldName: string, value: string | boolean, valueType: string): void;
+    changeFieldValue(
+        fieldName: string,
+        value: string | boolean,
+        valueType: string,
+    ): void;
 }
 
 interface FieldConfig {
@@ -74,7 +82,6 @@ interface AssistantRunApi {
 
 interface AiResponse {
     conversation_id: number;
-    add_message_id: number;
     request_prompt_result_with_context: string;
 }
 

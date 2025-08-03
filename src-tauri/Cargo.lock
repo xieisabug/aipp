@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "Aipp"
-version = "0.0.2"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -23,6 +23,7 @@ dependencies = [
  "open 3.2.0",
  "regex",
  "reqwest",
+ "rstest",
  "rusqlite",
  "screenshots",
  "semver",
@@ -37,8 +38,10 @@ dependencies = [
  "tauri-plugin-global-shortcut",
  "tauri-plugin-opener",
  "tauri-plugin-shell",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
+ "tokio-test",
  "tokio-util",
  "uuid",
  "zip-extract",
@@ -381,6 +384,28 @@ dependencies = [
  "signal-hook-registry",
  "slab",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "async-stream"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b5a71a6f37880a80d1d7f19efd781e4b5de42c88f0722cc13bcb6cc2cfe8476"
+dependencies = [
+ "async-stream-impl",
+ "futures-core",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "async-stream-impl"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7c24de15d275a1ecfd47a380fb4d5ec9bfe0933f309ed5e705b775596a3574d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.104",
 ]
 
 [[package]]
@@ -2011,8 +2036,8 @@ dependencies = [
 
 [[package]]
 name = "genai"
-version = "0.4.0-WIP"
-source = "git+https://github.com/xieisabug/rust-genai.git?rev=9ec9b21d73626cc9e656decbed08042f6ad9028d#9ec9b21d73626cc9e656decbed08042f6ad9028d"
+version = "0.4.0-alpha.8-WIP"
+source = "git+https://github.com/xieisabug/rust-genai.git?rev=02d13b2af9e73919c420cfae166ce600c9c79f72#02d13b2af9e73919c420cfae166ce600c9c79f72"
 dependencies = [
  "bytes",
  "derive_more 2.0.1",
@@ -4822,6 +4847,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 
 [[package]]
+name = "relative-path"
+version = "1.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba39f3699c378cd8970968dcbff9c43159ea4cfbd88d43c00b22f2ef10a435d2"
+
+[[package]]
 name = "reqwest"
 version = "0.12.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4940,6 +4971,35 @@ dependencies = [
  "bitflags 2.9.1",
  "serde",
  "serde_derive",
+]
+
+[[package]]
+name = "rstest"
+version = "0.18.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97eeab2f3c0a199bc4be135c36c924b6590b88c377d416494288c14f2db30199"
+dependencies = [
+ "futures",
+ "futures-timer",
+ "rstest_macros",
+ "rustc_version",
+]
+
+[[package]]
+name = "rstest_macros"
+version = "0.18.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d428f8247852f894ee1be110b375111b586d4fa431f6c46e64ba5a0dcccbe605"
+dependencies = [
+ "cfg-if",
+ "glob",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "relative-path",
+ "rustc_version",
+ "syn 2.0.104",
+ "unicode-ident",
 ]
 
 [[package]]
@@ -6268,6 +6328,19 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+]
+
+[[package]]
+name = "tokio-test"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2468baabc3311435b55dd935f702f42cd1b8abb7e754fb7dfb16bd36aa88f9f7"
+dependencies = [
+ "async-stream",
+ "bytes",
+ "futures-core",
+ "tokio",
+ "tokio-stream",
 ]
 
 [[package]]

@@ -52,7 +52,7 @@ const ConfigPageLayout: React.FC<ConfigPageLayoutProps> = ({
 
     // 为sidebar添加addButton props（如果sidebar是SidebarList组件）
     const enhancedSidebar = sidebar && React.isValidElement(sidebar) && !shouldShowDropdown
-        ? cloneElement(sidebar as React.ReactElement, {
+        ? cloneElement(sidebar as React.ReactElement<any>, {
             addButton: addButton
         })
         : sidebar;
@@ -100,7 +100,7 @@ const ConfigPageLayout: React.FC<ConfigPageLayoutProps> = ({
     };
 
     return (
-        <div className="max-w-7xl mx-auto px-4 py-6 space-y-8">
+        <div className="max-w-none mx-auto px-4 py-6 space-y-8">
             {/* 响应式下拉菜单 - 小屏幕时显示 */}
             {renderDropdownHeader()}
 
@@ -109,13 +109,13 @@ const ConfigPageLayout: React.FC<ConfigPageLayoutProps> = ({
                 <div className={`grid gap-6 ${shouldShowDropdown ? 'grid-cols-1' : 'grid-cols-12'}`}>
                     {/* 左侧列表 - 大屏幕时显示 */}
                     {!shouldShowDropdown && (
-                        <div className="col-span-12 lg:col-span-4">
+                        <div className="col-span-12 lg:col-span-4 xl:col-span-4 2xl:col-span-3">
                             {enhancedSidebar}
                         </div>
                     )}
 
                     {/* 右侧配置区域 */}
-                    <div className={shouldShowDropdown ? 'col-span-1' : 'col-span-12 lg:col-span-8'}>
+                    <div className={shouldShowDropdown ? 'col-span-1' : 'col-span-12 lg:col-span-8 xl:col-span-8 2xl:col-span-9'}>
                         {content}
                     </div>
                 </div>
