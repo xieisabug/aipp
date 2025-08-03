@@ -97,20 +97,34 @@ export function useMessageGroups({
             return root;
         };
 
+        // 先记录每个分组的根消息时间
+        const groupRootTimestamps = new Map<string, number>();
+        versionDataMap.forEach((data, versionId) => {
+            const rootId = findRoot(versionId);
+            
+            // 如果这是根版本（没有 parentGroupId），记录其时间作为分组的基准时间
+            if (!data.parentGroupId && !groupRootTimestamps.has(rootId)) {
+                const rootTimestamp = Math.min(
+                    ...data.messages
+                        .map((m) => new Date(m.created_time || 0).getTime())
+                        .filter((t) => t > 0),
+                ) || 0;
+                groupRootTimestamps.set(rootId, rootTimestamp);
+            }
+        });
+
         const groups = new Map<string, GenerationGroup>();
         versionDataMap.forEach((data, versionId) => {
             const rootId = findRoot(versionId);
             const group = groups.get(rootId) ?? { versions: [] };
+            
+            // 使用分组的根时间作为所有版本的基准时间，确保分组排序稳定
+            const groupBaseTimestamp = groupRootTimestamps.get(rootId) || 0;
+            
             group.versions.push({
                 ...data,
                 versionId,
-                timestamp: new Date(
-                    Math.min(
-                        ...data.messages
-                            .map((m) => new Date(m.created_time || 0).getTime())
-                            .filter((t) => t > 0),
-                    ) || 0,
-                ),
+                timestamp: new Date(groupBaseTimestamp),
             });
             groups.set(rootId, group);
         });

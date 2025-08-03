@@ -653,10 +653,41 @@ function ConversationUI({
             }
         });
 
+        // 计算每个消息的排序基准时间：对于有分组的消息使用分组根时间，普通消息使用自身时间
+        const getMessageSortTime = (message: Message): number => {
+            if (!message.generation_group_id) {
+                // 普通消息使用自身创建时间
+                return new Date(message.created_time).getTime();
+            }
+
+            // 有分组的消息，需要找到根消息的时间
+            // 首先找到与当前消息同组的所有消息（包括同一根的所有版本）
+            const sameGroupMessages = combinedMessages.filter(msg => 
+                msg.generation_group_id && 
+                (msg.generation_group_id === message.generation_group_id ||
+                 msg.parent_group_id === message.generation_group_id ||
+                 message.parent_group_id === msg.generation_group_id ||
+                 (msg.parent_group_id && message.parent_group_id && 
+                  msg.parent_group_id === message.parent_group_id))
+            );
+
+            // 找到根消息（没有parent_group_id的消息）
+            const rootMessage = sameGroupMessages.find(msg => !msg.parent_group_id);
+            if (rootMessage) {
+                return new Date(rootMessage.created_time).getTime();
+            }
+
+            // 如果找不到根消息，使用该分组中最早的消息时间
+            const earliestTime = Math.min(
+                ...sameGroupMessages
+                    .map(msg => new Date(msg.created_time).getTime())
+                    .filter(time => time > 0)
+            );
+            return earliestTime || new Date(message.created_time).getTime();
+        };
+
         const sorted = combinedMessages.sort(
-            (a, b) =>
-                new Date(a.created_time).getTime() -
-                new Date(b.created_time).getTime(),
+            (a, b) => getMessageSortTime(a) - getMessageSortTime(b)
         );
         return sorted;
     }, [messages, streamingMessages, conversation?.id]);
