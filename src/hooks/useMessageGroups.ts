@@ -27,6 +27,7 @@ interface GenerationGroup {
 interface UseMessageGroupsReturn {
     generationGroups: Map<string, GenerationGroup>;
     selectedVersions: Map<string, number>;
+    messageIdToGroupRootTimestamp: Map<number, number>;
     handleGenerationVersionChange: (
         groupId: string,
         versionIndex: number,
@@ -54,7 +55,7 @@ export function useMessageGroups({
     // - 使用更清晰的步骤: 1.收集版本 -> 2.分组 -> 3.排序
     // - 不再有副作用，成为一个纯粹的计算过程
     // =================================================================================
-    const pureGenerationGroups = useMemo(() => {
+    const pureGenerationGroupsAndTimestamps = useMemo(() => {
         // 步骤 1: 一次遍历，收集所有版本数据和父子关系
         const versionDataMap = new Map<
             string,
@@ -138,8 +139,10 @@ export function useMessageGroups({
             });
         });
 
-        return groups;
+        return { groups, groupRootTimestamps };
     }, [allDisplayMessages, groupMergeMap]);
+
+    const pureGenerationGroups = pureGenerationGroupsAndTimestamps.groups;
 
     // =================================================================================
     // 优化点 2: 逻辑分离
@@ -213,7 +216,23 @@ export function useMessageGroups({
     // =================================================================================
     // 优化点 4: 性能优化
     // - 创建查找表，让消息找其根组的耗时从 O(N) 降到 O(1)
+    // - 提供消息ID到根时间戳的直接映射，用于 ConversationUI 的排序
     // =================================================================================
+    const messageIdToGroupRootTimestamp = useMemo(() => {
+        const map = new Map<number, number>();
+        const { groups, groupRootTimestamps } = pureGenerationGroupsAndTimestamps;
+        
+        groups.forEach((group, rootId) => {
+            const rootTimestamp = groupRootTimestamps.get(rootId) || 0;
+            group.versions.forEach((version) => {
+                version.messages.forEach((message) => {
+                    map.set(message.id, rootTimestamp);
+                });
+            });
+        });
+        return map;
+    }, [pureGenerationGroupsAndTimestamps]);
+
     const messageIdToRootGroupIdMap = useMemo(() => {
         const map = new Map<string, string>();
         pureGenerationGroups.forEach((group, rootId) => {
@@ -318,6 +337,7 @@ export function useMessageGroups({
     return {
         generationGroups,
         selectedVersions,
+        messageIdToGroupRootTimestamp,
         handleGenerationVersionChange,
         getMessageVersionInfo,
         getGenerationGroupControl,

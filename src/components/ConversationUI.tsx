@@ -603,8 +603,8 @@ function ConversationUI({
 
     // ============= 数据计算和处理 =============
 
-    // 合并常规消息和流式消息，按时间排序显示
-    const allDisplayMessages = useMemo(() => {
+    // 首先合并常规消息和流式消息（不排序）
+    const combinedMessagesForGrouping = useMemo(() => {
         const combinedMessages = [...messages];
 
         // 将流式消息添加到显示列表中
@@ -653,43 +653,7 @@ function ConversationUI({
             }
         });
 
-        // 计算每个消息的排序基准时间：对于有分组的消息使用分组根时间，普通消息使用自身时间
-        const getMessageSortTime = (message: Message): number => {
-            if (!message.generation_group_id) {
-                // 普通消息使用自身创建时间
-                return new Date(message.created_time).getTime();
-            }
-
-            // 有分组的消息，需要找到根消息的时间
-            // 首先找到与当前消息同组的所有消息（包括同一根的所有版本）
-            const sameGroupMessages = combinedMessages.filter(msg => 
-                msg.generation_group_id && 
-                (msg.generation_group_id === message.generation_group_id ||
-                 msg.parent_group_id === message.generation_group_id ||
-                 message.parent_group_id === msg.generation_group_id ||
-                 (msg.parent_group_id && message.parent_group_id && 
-                  msg.parent_group_id === message.parent_group_id))
-            );
-
-            // 找到根消息（没有parent_group_id的消息）
-            const rootMessage = sameGroupMessages.find(msg => !msg.parent_group_id);
-            if (rootMessage) {
-                return new Date(rootMessage.created_time).getTime();
-            }
-
-            // 如果找不到根消息，使用该分组中最早的消息时间
-            const earliestTime = Math.min(
-                ...sameGroupMessages
-                    .map(msg => new Date(msg.created_time).getTime())
-                    .filter(time => time > 0)
-            );
-            return earliestTime || new Date(message.created_time).getTime();
-        };
-
-        const sorted = combinedMessages.sort(
-            (a, b) => getMessageSortTime(a) - getMessageSortTime(b)
-        );
-        return sorted;
+        return combinedMessages;
     }, [messages, streamingMessages, conversation?.id]);
 
     // ============= Generation Group 版本管理 =============
@@ -703,10 +667,31 @@ function ConversationUI({
     const {
         generationGroups,
         selectedVersions,
+        messageIdToGroupRootTimestamp,
         handleGenerationVersionChange,
         getMessageVersionInfo,
         getGenerationGroupControl,
-    } = useMessageGroups({ allDisplayMessages, groupMergeMap });
+    } = useMessageGroups({ allDisplayMessages: combinedMessagesForGrouping, groupMergeMap });
+
+    // 最后进行排序，使用从 useMessageGroups 获取的时间戳映射
+    const allDisplayMessages = useMemo(() => {
+        // 计算每个消息的排序基准时间：使用 O(1) Map 查找替代 O(N) 遍历
+        const getMessageSortTime = (message: Message): number => {
+            // 尝试从 messageIdToGroupRootTimestamp 中获取根时间戳
+            const rootTimestamp = messageIdToGroupRootTimestamp.get(message.id);
+            if (rootTimestamp !== undefined) {
+                return rootTimestamp;
+            }
+            
+            // 对于没有分组的消息，使用自身创建时间
+            return new Date(message.created_time).getTime();
+        };
+
+        const sorted = [...combinedMessagesForGrouping].sort(
+            (a, b) => getMessageSortTime(a) - getMessageSortTime(b)
+        );
+        return sorted;
+    }, [combinedMessagesForGrouping, messageIdToGroupRootTimestamp]);
 
     // ============= Reasoning 展开状态管理 =============
 
