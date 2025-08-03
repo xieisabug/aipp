@@ -12,6 +12,8 @@ interface TagInputProps {
     onRemoveTag: (index: number) => void;
     isExpanded?: boolean;
     onExpandedChange?: (expanded: boolean) => void;
+    onFetchModels?: () => void;
+    isFetchingModels?: boolean;
 }
 
 // TagInput组件
@@ -21,7 +23,9 @@ const TagInput: React.FC<TagInputProps> = ({
     onAddTag, 
     onRemoveTag, 
     isExpanded: externalIsExpanded,
-    onExpandedChange 
+    onExpandedChange,
+    onFetchModels,
+    isFetchingModels = false
 }) => {
     const [inputValue, setInputValue] = useState<string>('');
     const [internalIsExpanded, setInternalIsExpanded] = useState<boolean>(false);
@@ -71,49 +75,65 @@ const TagInput: React.FC<TagInputProps> = ({
 
     return (
         <div className="space-y-4">
-            {/* 标签显示区域 */}
-            {tags.length > 0 && (
+            {/* 标签显示区域或获取按钮 */}
+            {(tags.length > 0 || onFetchModels) && (
                 <div className="space-y-3">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2 text-sm text-gray-600">
                             <Tag className="h-4 w-4" />
-                            <span className="font-medium">已配置模型 ({tags.length})</span>
+                            <span className="font-medium">
+                                {tags.length > 0 ? `已配置模型 (${tags.length})` : "模型列表"}
+                            </span>
                         </div>
-                        {shouldShowExpandButton && (
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={toggleExpansion}
-                                className="h-6 px-2 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100"
-                            >
-                                {isExpanded ? (
-                                    <>
-                                        <ChevronUp className="h-3 w-3 mr-1" />
-                                        收起
-                                    </>
-                                ) : (
-                                    <>
-                                        <ChevronDown className="h-3 w-3 mr-1" />
-                                        展开
-                                    </>
-                                )}
-                            </Button>
-                        )}
+                        <div className="flex items-center gap-2">
+                            {onFetchModels && (
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={onFetchModels}
+                                    disabled={isFetchingModels}
+                                    className="h-6 px-2 text-xs hover:bg-gray-50 hover:border-gray-400"
+                                >
+                                    {isFetchingModels ? "获取中..." : "获取Model列表"}
+                                </Button>
+                            )}
+                            {shouldShowExpandButton && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={toggleExpansion}
+                                    className="h-6 px-2 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100"
+                                >
+                                    {isExpanded ? (
+                                        <>
+                                            <ChevronUp className="h-3 w-3 mr-1" />
+                                            收起
+                                        </>
+                                    ) : (
+                                        <>
+                                            <ChevronDown className="h-3 w-3 mr-1" />
+                                            展开
+                                        </>
+                                    )}
+                                </Button>
+                            )}
+                        </div>
                     </div>
-                    <div className="relative">
-                        <div
-                            ref={tagsContainerRef}
-                            className={`
-                                flex flex-wrap gap-2 p-3 bg-gray-50 rounded-lg border border-gray-200 
-                                transition-all duration-300 ease-in-out
-                                ${shouldShowExpandButton && !isExpanded
-                                    ? 'max-h-[110px] overflow-hidden'
-                                    : 'max-h-none'
-                                }
-                            `}
-                            style={{ minHeight: tags.length > 0 ? '60px' : undefined }}
-                        >
-                            {tags.map((tag, index) => (
+                    {tags.length > 0 && (
+                        <div className="relative">
+                            <div
+                                ref={tagsContainerRef}
+                                className={`
+                                    flex flex-wrap gap-2 p-3 bg-gray-50 rounded-lg border border-gray-200 
+                                    transition-all duration-300 ease-in-out
+                                    ${shouldShowExpandButton && !isExpanded
+                                        ? 'max-h-[110px] overflow-hidden'
+                                        : 'max-h-none'
+                                    }
+                                `}
+                                style={{ minHeight: tags.length > 0 ? '60px' : undefined }}
+                            >
+                                {tags.map((tag, index) => (
                                 <Badge
                                     key={index}
                                     variant="secondary"
@@ -167,7 +187,8 @@ const TagInput: React.FC<TagInputProps> = ({
                                 </div>
                             </div>
                         )}
-                    </div>
+                        </div>
+                    )}
                 </div>
             )}
 

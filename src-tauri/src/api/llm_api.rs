@@ -261,6 +261,94 @@ pub struct ModelForSelect {
     llm_provider_id: i64,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct ModelForSelection {
+    pub name: String,
+    pub code: String,
+    pub description: String,
+    pub vision_support: bool,
+    pub audio_support: bool,
+    pub video_support: bool,
+    pub is_selected: bool, // 是否已在数据库中存在
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ModelSelectionResponse {
+    pub available_models: Vec<ModelForSelection>,
+    pub missing_models: Vec<String>, // 在数据库中但远程不存在的模型
+}
+
+#[tauri::command]
+pub async fn preview_model_list(
+    app_handle: tauri::AppHandle,
+    llm_provider_id: i64,
+) -> Result<ModelSelectionResponse, String> {
+    let db = LLMDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+    let llm_provider = db
+        .get_llm_provider(llm_provider_id)
+        .map_err(|e| e.to_string())?;
+    let llm_provider_config = db
+        .get_llm_provider_config(llm_provider_id)
+        .map_err(|e| e.to_string())?;
+
+    // 获取现有的模型列表
+    let existing_models = db
+        .get_llm_models(llm_provider_id.to_string())
+        .map_err(|e| e.to_string())?;
+    let existing_model_codes: std::collections::HashSet<String> = existing_models
+        .iter()
+        .map(|(_, _, _, code, _, _, _, _)| code.clone())
+        .collect();
+
+    // 使用共用的客户端创建函数
+    let client =
+        genai_client::create_client_with_config(&llm_provider_config, "", &llm_provider.api_type)
+            .map_err(|e| e.to_string())?;
+
+    let adapter_kind = genai_client::infer_adapter_kind_simple(&llm_provider.api_type);
+
+    match client.all_models(adapter_kind).await {
+        Ok(models) => {
+            let mut available_models = Vec::new();
+            let remote_model_codes: std::collections::HashSet<String> = models
+                .iter()
+                .map(|model| model.id.to_string())
+                .collect();
+
+            // 构建可选择的模型列表
+            for model in &models {
+                let model_code = model.id.to_string();
+                let is_selected = existing_model_codes.contains(&model_code);
+                
+                available_models.push(ModelForSelection {
+                    name: model.name.to_string(),
+                    code: model_code,
+                    description: format!("Model: {}", model.name),
+                    vision_support: model.supports_input_modality(&Modality::Image),
+                    audio_support: model.supports_input_modality(&Modality::Audio),
+                    video_support: model.supports_input_modality(&Modality::Video),
+                    is_selected,
+                });
+            }
+
+            // 找出在数据库中但远程不存在的模型
+            let missing_models: Vec<String> = existing_model_codes
+                .difference(&remote_model_codes)
+                .cloned()
+                .collect();
+
+            Ok(ModelSelectionResponse {
+                available_models,
+                missing_models,
+            })
+        }
+        Err(e) => {
+            eprintln!("获取模型列表错误: {}", e);
+            Err(e.to_string())
+        }
+    }
+}
+
 #[tauri::command]
 pub fn get_models_for_select(app_handle: tauri::AppHandle) -> Result<Vec<ModelForSelect>, String> {
     let db = LLMDatabase::new(&app_handle).map_err(|e| e.to_string())?;
@@ -275,4 +363,32 @@ pub fn get_models_for_select(app_handle: tauri::AppHandle) -> Result<Vec<ModelFo
         })
         .collect();
     Ok(models)
+}
+
+#[tauri::command]
+pub async fn update_selected_models(
+    app_handle: tauri::AppHandle,
+    llm_provider_id: i64,
+    selected_models: Vec<ModelForSelection>,
+) -> Result<(), String> {
+    let db = LLMDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+    
+    // 删除所有该提供商的现有模型
+    db.delete_llm_model_by_provider(llm_provider_id)
+        .map_err(|e| e.to_string())?;
+    
+    // 添加选中的模型
+    for model in selected_models.iter().filter(|m| m.is_selected) {
+        db.add_llm_model(
+            &model.name,
+            llm_provider_id,
+            &model.code,
+            &model.description,
+            model.vision_support,
+            model.audio_support,
+            model.video_support,
+        ).map_err(|e| e.to_string())?;
+    }
+    
+    Ok(())
 }
