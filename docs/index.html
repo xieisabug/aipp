@@ -3,120 +3,364 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tea - AI时代的对话/日常工具/生产力平台</title>
+    <title>AIPP - AI 助手平台</title>
     <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
+        * {
             margin: 0;
             padding: 0;
-            color: #333;
-            background-color: #f4f4f4;
+            box-sizing: border-box;
         }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            line-height: 1.7;
+            color: #374151;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
         .container {
-            max-width: 800px;
+            max-width: 1200px;
             margin: 0 auto;
-            padding: 20px;
-            background-color: #fff;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            padding: 0 20px;
         }
-        header {
-            background-color: #4a4a4a;
-            color: #fff;
+
+        .hero {
+            padding: 80px 0;
             text-align: center;
-            padding: 1rem;
+            color: white;
         }
-        h1 {
-            margin: 0;
+
+        .hero img {
+            width: 120px;
+            height: 120px;
+            border-radius: 20px;
+            margin: 0 auto 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
         }
-        h2 {
-            color: #2c3e50;
-            border-bottom: 2px solid #3498db;
-            padding-bottom: 10px;
+
+        .hero h1 {
+            font-size: 3.5rem;
+            font-weight: 700;
+            margin-bottom: 20px;
+            background: linear-gradient(135deg, #ffffff 0%, #e0e7ff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
-        img {
-            max-width: 100%;
-            height: auto;
-            display: block;
-            margin: 20px auto;
+
+        .hero .subtitle {
+            font-size: 1.3rem;
+            margin-bottom: 30px;
+            opacity: 0.9;
+            font-weight: 300;
         }
-        ul {
+
+        .badges {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 40px;
+        }
+
+        .badge {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            padding: 8px 16px;
+            border-radius: 25px;
+            color: white;
+            text-decoration: none;
+            font-size: 0.9rem;
+            border: 1px solid rgba(255,255,255,0.2);
+            transition: all 0.3s ease;
+        }
+
+        .badge:hover {
+            background: rgba(255,255,255,0.2);
+            transform: translateY(-2px);
+        }
+
+        .main-content {
+            background: white;
+            border-radius: 20px 20px 0 0;
+            margin-top: -20px;
+            position: relative;
+            z-index: 1;
+            box-shadow: 0 -10px 40px rgba(0,0,0,0.1);
+        }
+
+        .content-wrapper {
+            padding: 60px 20px;
+        }
+
+        .section {
+            margin-bottom: 60px;
+        }
+
+        .section-title {
+            font-size: 2.2rem;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 30px;
+            position: relative;
             padding-left: 20px;
         }
-        li {
-            margin-bottom: 10px;
+
+        .section-title::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 4px;
+            height: 40px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 2px;
         }
-        a {
-            color: #3498db;
-            text-decoration: none;
+
+        .section-content {
+            font-size: 1.1rem;
+            line-height: 1.8;
+            color: #4b5563;
         }
-        a:hover {
-            text-decoration: underline;
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-top: 40px;
         }
-        footer {
+
+        .feature-card {
+            background: #f8fafc;
+            padding: 30px;
+            border-radius: 15px;
+            border: 1px solid #e2e8f0;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+
+        .feature-card h3 {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 15px;
+        }
+
+        .feature-card p {
+            color: #6b7280;
+            line-height: 1.6;
+        }
+
+        .tech-stack {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-top: 30px;
+        }
+
+        .tech-item {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .cta-section {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 60px 20px;
             text-align: center;
-            margin-top: 20px;
-            padding: 10px;
-            background-color: #4a4a4a;
-            color: #fff;
+            border-radius: 0 0 20px 20px;
+        }
+
+        .cta-section h2 {
+            font-size: 2.5rem;
+            margin-bottom: 20px;
+            font-weight: 600;
+        }
+
+        .cta-section p {
+            font-size: 1.2rem;
+            margin-bottom: 30px;
+            opacity: 0.9;
+        }
+
+        .cta-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .cta-button {
+            background: rgba(255,255,255,0.15);
+            backdrop-filter: blur(10px);
+            color: white;
+            padding: 15px 30px;
+            border-radius: 30px;
+            text-decoration: none;
+            font-weight: 500;
+            border: 2px solid rgba(255,255,255,0.3);
+            transition: all 0.3s ease;
+        }
+
+        .cta-button:hover {
+            background: rgba(255,255,255,0.25);
+            transform: translateY(-2px);
+        }
+
+        .cta-button.primary {
+            background: white;
+            color: #667eea;
+        }
+
+        .cta-button.primary:hover {
+            background: #f0f0f0;
+        }
+
+        .footer {
+            background: #1f2937;
+            color: #9ca3af;
+            text-align: center;
+            padding: 30px 20px;
+        }
+
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 2.5rem;
+            }
+            
+            .hero .subtitle {
+                font-size: 1.1rem;
+            }
+            
+            .section-title {
+                font-size: 1.8rem;
+            }
+            
+            .feature-grid {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 <body>
-    <header>
-        <h1>欢迎来到Tea</h1>
-    </header>
-    <div class="container">
-        <img src="logo_url_here" alt="Tea Logo">
-        <p>Tea是一个AI时代 对话/日常工具/生产力 的 客户端/平台。</p>
-
-        <h2>写在前面</h2>
-        <p>重复造轮子，是因为我日常中需要使用到很多AI驱动的工具，但自己写代码重复的工作太多了，比如接入大模型提供商、对接数据库、编写和设计UI等等，每一次的新工具都要重复一次，并且很难让除我之外的不会编程的人使用。</p>
-        <p>我想要有一个能够保存我所有AI工具的客户端/平台，能够让我专心于工具的逻辑和Prompt，甚至以后可以让AI为我来实现我需要的工具，所以有了Tea这个项目。</p>
-
-        <h2>现在Tea已经可以</h2>
-        <ul>
-            <li>使用各种主流的API接入方式来对接各种大模型提供商</li>
-            <li>拥有基本聊天客户端所应该提供的功能，如对话、历史、文件、助手等</li>
-            <li>使用Bang来快速在Prompt里提供附加信息</li>
-            <li>直接预览HTML、SVG等可在网页展示的内容</li>
-            <li>能够预览React、Vue等前端框架编写的组件</li>
-            <li>能够通过配置python、bash等运行环境，在对话中直接运行生成的脚本文件</li>
-        </ul>
-
-        <h2>未来Tea会</h2>
-        <ul>
-            <li>能够使用插件来扩展新的功能，插件能够直接使用对接的大模型和客户端提供的本地数据库</li>
-            <li>跟进各种AI厂商的新奇功能，如Claude的Project、OpenAI的生图等，让所有的AI都能使用到最新的工程能力</li>
-            <li>创建一个官方插件市场，让用户可以方便地找到并安装插件，并且因为插件的能力很强大，所以官方插件市场会对所有的插件进行审核</li>
-        </ul>
-
-        <h2>未来Tea不会</h2>
-        <ul>
-            <li>Tea不会把数据上传到云端，所有的数据都保存在本地，但也许会提供数据同步的方案</li>
-            <li>Tea不会出Web版本，Web版本是无法实现我想要的插件能力的，但也许会提供移动端版本</li>
-            <li>Tea不会提供跳脱于AI之外的能力，但也许会出各种生产力场景的插件</li>
-        </ul>
-
-        <h2>想做的插件</h2>
-        <ul>
-            <li>高级代码生成工具</li>
-            <li>大模型评测工具</li>
-            <li>多llm同时回答对比</li>
-            <li>用代码定义工作流</li>
-            <li>小说创作助手</li>
-            <li>System Prompt自优化插件</li>
-        </ul>
-
-        <h2>贡献</h2>
-        <p>如果您想为这个项目做出贡献,请查看我们的<a href="https://github.com/xieisabug/tea">GitHub仓库</a>。</p>
-
-        <h2>许可证</h2>
-        <p>本项目采用<a href="LICENSE">APACHE许可证</a>。</p>
+    <div class="hero">
+        <div class="container">
+            <img src="tea-logo-with-background.png" alt="AIPP Logo">
+            <h1>AIPP</h1>
+            <p class="subtitle">基于 Tauri 2 构建的强大桌面 AI 助手平台</p>
+            <div class="badges">
+                <a href="#" class="badge">Apache 2.0</a>
+                <a href="#" class="badge">Tauri 2.7</a>
+                <a href="#" class="badge">React 19</a>
+                <a href="#" class="badge">Rust</a>
+            </div>
+        </div>
     </div>
 
-    <footer>
-        <p>&copy; 2023 xieisabug. 保留所有权利。</p>
-    </footer>
+    <div class="main-content">
+        <div class="container">
+            <div class="content-wrapper">
+                <section class="section">
+                    <h2 class="section-title">项目概述</h2>
+                    <div class="section-content">
+                        <p>AIPP 是一个跨平台桌面应用程序，最初构建这个项目的初衷是想要一个完美贴合我自己需求的"套壳"工具。我想要用 Claude 的 Artifacts 但是又喜欢用 Gemini 模型，我想要数据在本地或者我自己的服务器，我想要快速的用到最新的模型，我想要将 AI 帮我编写的小工具保存起来...</p>
+                        <p>项目基于 Tauri 2 和 React 构建，在保持强大 AI 能力的同时提供原生桌面体验。AIPP 让你专注于 AI 工具的核心逻辑和 Prompt 设计，甚至未来可以让 AI 为你实现需要的工具，而无需担心底层的技术实现。</p>
+                    </div>
+                </section>
+
+                <section class="section">
+                    <h2 class="section-title">核心功能</h2>
+                    <div class="feature-grid">
+                        <div class="feature-card">
+                            <h3>多模型支持</h3>
+                            <p>支持连接各种主流大语言模型提供商如 OpenAI、Anthropic、Google 等，通过统一的 API 接口实现无缝模型切换。</p>
+                        </div>
+                        <div class="feature-card">
+                            <h3>内容预览与执行</h3>
+                            <p>实时预览 HTML、SVG 等网页内容，支持 React 和 Vue 组件预览，并可以直接运行 Python、Bash/PowerShell、AppleScript 等脚本。</p>
+                        </div>
+                        <div class="feature-card">
+                            <h3>高效工作流</h3>
+                            <p>全局快捷键快速访问，系统托盘常驻运行，多窗口系统让不同任务在独立窗口中进行，Bang 命令快速执行操作。</p>
+                        </div>
+                        <div class="feature-card">
+                            <h3>本地数据存储</h3>
+                            <p>所有数据使用 SQLite 本地存储，确保隐私安全。支持对话管理、历史记录、文件附件和多模态输入。</p>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="section">
+                    <h2 class="section-title">技术架构</h2>
+                    <div class="section-content">
+                        <p>AIPP 采用现代化的技术栈，后端使用 Rust 配合 Tauri 2 框架确保性能和跨平台兼容性，前端使用 React 19 和 TypeScript 提供类型安全的开发体验。UI 层面采用 shadcn/ui 组件库和 Radix UI 原语，配合 Tailwind CSS 实现现代化的界面设计。</p>
+                        <div class="tech-stack">
+                            <span class="tech-item">Rust + Tauri 2</span>
+                            <span class="tech-item">React 19 + TypeScript</span>
+                            <span class="tech-item">shadcn/ui + Radix UI</span>
+                            <span class="tech-item">Tailwind CSS</span>
+                            <span class="tech-item">SQLite + rusqlite</span>
+                            <span class="tech-item">Vite</span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="section">
+                    <h2 class="section-title">未来规划</h2>
+                    <div class="section-content">
+                        <p>AIPP 将建设完整的插件生态系统，提供自定义 AI 工具的可扩展架构，且计划插件和 Artifacts 可以直接访问大语言模型提供商和本地数据库。在 AI 能力方面，将持续集成各大 AI 提供商的最新功能，实现实时模型更新和能力同步。</p>
+                        <p>同时开发各种插件工具，例如根据表结构生成全栈代码的代码生成器、自动化测试评估的大模型评测工具、并排响应比较的多模型对比工具、工作流定义工具、小说创作助手等。</p>
+                    </div>
+                </section>
+
+                <section class="section">
+                    <h2 class="section-title">设计理念</h2>
+                    <div class="section-content">
+                        <p>AIPP 坚持本地优先的理念，所有数据本地存储不上传云端，在 Apache 2.0 许可证下保持开源透明。支持 Windows、macOS 和 Linux 跨平台运行，不含任何遥测功能，确保用户对话保持私密。</p>
+                        <p>AIPP 专注于 AI 能力的整合和扩展，通过插件系统让所有 AI 都能使用最新的工程能力，但不会提供跳脱于 AI 之外的功能。</p>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <div class="cta-section">
+        <div class="container">
+            <h2>开始使用 AIPP</h2>
+            <p>体验下一代 AI 助手平台，让 AI 成为你的得力助手</p>
+            <div class="cta-buttons">
+                <a href="https://github.com/xieisabug/ai-assistant" class="cta-button primary">查看源码</a>
+                <a href="https://github.com/xieisabug/ai-assistant/releases" class="cta-button">下载应用</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <div class="container">
+            <p>&copy; 2025 xieisabug. 基于 Apache 2.0 许可证开源</p>
+        </div>
+    </div>
 </body>
 </html>
