@@ -5,6 +5,7 @@ use tauri::Emitter;
 use tauri::Manager;
 
 use crate::utils::bun_utils::BunUtils;
+use crate::utils::uv_utils::UvUtils;
 use crate::FeatureConfigState;
 
 use crate::{
@@ -346,20 +347,8 @@ pub fn check_bun_version(app: tauri::AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn check_uv_version() -> Result<String, String> {
-    match Command::new("uv").arg("--version").output() {
-        Ok(output) => {
-            if output.status.success() {
-                let version_info = String::from_utf8_lossy(&output.stdout).to_string();
-                // Example output: `uv 0.2.8`
-                let version = version_info.to_string();
-                Ok(version)
-            } else {
-                Ok("Not Installed".to_string())
-            }
-        }
-        Err(_) => Ok("Not Installed".to_string()),
-    }
+pub fn check_uv_version(app: tauri::AppHandle) -> Result<String, String> {
+    UvUtils::get_uv_version(&app)
 }
 
 #[tauri::command]
