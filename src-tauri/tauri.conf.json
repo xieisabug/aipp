@@ -31,6 +31,7 @@
             "iconPath": "icons/favicon.ico"
         },
         "security": {
+            "dangerousDisableAssetCspModification": ["style-src"],
             "csp": {
                 "default-src": "'self'",
                 "frame-src": "'self' http://localhost:* https://localhost:*",
