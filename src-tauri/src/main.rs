@@ -33,6 +33,11 @@ use crate::api::llm_api::{
     get_llm_models, get_llm_provider_config, get_llm_providers, get_models_for_select,
     preview_model_list, update_llm_provider, update_llm_provider_config, update_selected_models,
 };
+use crate::api::mcp_api::{
+    add_mcp_server, delete_mcp_server, get_mcp_server, get_mcp_server_resources,
+    get_mcp_server_tools, get_mcp_server_prompts, get_mcp_servers, refresh_mcp_server_capabilities, 
+    test_mcp_connection, toggle_mcp_server, update_mcp_server, update_mcp_server_tool, update_mcp_server_prompt,
+};
 use crate::api::system_api::{
     get_all_feature_config, get_bang_list, get_selected_text_api, open_data_folder,
     save_feature_config,
@@ -45,6 +50,7 @@ use crate::artifacts::vue_preview::{
 };
 use crate::db::assistant_db::AssistantDatabase;
 use crate::db::llm_db::LLMDatabase;
+use crate::db::mcp_db::MCPDatabase;
 use crate::db::system_db::SystemDatabase;
 use crate::window::{
     awaken_aipp, create_ask_window, handle_open_ask_window, open_artifact_preview_window,
@@ -239,11 +245,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let assistant_db = AssistantDatabase::new(&app_handle)?;
             let conversation_db = ConversationDatabase::new(&app_handle)?;
             let plugin_db = PluginDatabase::new(&app_handle)?;
+            let mcp_db = MCPDatabase::new(&app_handle)?;
             system_db.create_tables()?;
             llm_db.create_tables()?;
             assistant_db.create_tables()?;
             conversation_db.create_tables()?;
             plugin_db.create_tables()?;
+            mcp_db.create_tables()?;
 
             let _ = database_upgrade(
                 &app_handle,
@@ -325,7 +333,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             create_vue_preview_for_artifact,
             close_vue_preview,
             confirm_environment_install,
-            retry_preview_after_install
+            retry_preview_after_install,
+            get_mcp_servers,
+            get_mcp_server,
+            add_mcp_server,
+            update_mcp_server,
+            delete_mcp_server,
+            toggle_mcp_server,
+            get_mcp_server_tools,
+            update_mcp_server_tool,
+            get_mcp_server_resources,
+            get_mcp_server_prompts,
+            update_mcp_server_prompt,
+            test_mcp_connection,
+            refresh_mcp_server_capabilities
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application");

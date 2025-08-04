@@ -2,9 +2,11 @@ import React, { ReactNode, useEffect, useState } from "react";
 import LLMProviderConfig from "./components/config/LLMProviderConfig";
 import AssistantConfig from "./components/config/AssistantConfig";
 import FeatureAssistantConfig from "./components/config/FeatureAssistantConfig";
+import MCPConfig from "./components/config/MCPConfig";
 import Model from "./assets/model.svg?react";
 import Assistant from "./assets/assistant.svg?react";
 import Program from "./assets/program.svg?react";
+import Setting from "./assets/setting.svg?react";
 import { appDataDir } from "@tauri-apps/api/path";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
@@ -20,6 +22,7 @@ const contentMap: Record<string, React.ComponentType<any>> = {
     'llm-provider-config': LLMProviderConfig,
     'assistant-config': AssistantConfig,
     'feature-assistant-config': FeatureAssistantConfig,
+    'mcp-config': MCPConfig,
 }
 
 function ConfigWindow() {
@@ -41,6 +44,12 @@ function ConfigWindow() {
             name: '程序助手配置',
             icon: <Program fill="#64748b" className="w-full h-full" />,
             iconSelected: <Program fill="#3b82f6" className="w-full h-full" />
+        },
+        {
+            id: 'mcp-config',
+            name: 'MCP管理',
+            icon: <Setting fill="#64748b" className="w-full h-full" />,
+            iconSelected: <Setting fill="#3b82f6" className="w-full h-full" />
         },
     ];
 
