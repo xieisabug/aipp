@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use super::get_db_path;
@@ -255,6 +255,58 @@ impl MCPDatabase {
         Ok(())
     }
 
+    pub fn upsert_mcp_server(
+        &self,
+        name: &str,
+        description: Option<&str>,
+        transport_type: &str,
+        command: Option<&str>,
+        environment_variables: Option<&str>,
+        url: Option<&str>,
+        timeout: Option<i32>,
+        is_long_running: bool,
+        is_enabled: bool,
+    ) -> rusqlite::Result<i64> {
+        // First try to get existing server by name
+        let existing_id = self.conn.prepare(
+            "SELECT id FROM mcp_server WHERE name = ?"
+        )?.query_row([name], |row| row.get::<_, i64>(0)).optional()?;
+        
+        match existing_id {
+            Some(id) => {
+                // Update existing server
+                self.conn.execute(
+                    "UPDATE mcp_server SET description = ?, transport_type = ?, command = ?, 
+                     environment_variables = ?, url = ?, timeout = ?, is_long_running = ?, is_enabled = ?
+                     WHERE id = ?",
+                    params![description, transport_type, command, environment_variables, url, timeout, is_long_running, is_enabled, id],
+                )?;
+                Ok(id)
+            }
+            None => {
+                // Insert new server
+                let mut stmt = self.conn.prepare(
+                    "INSERT INTO mcp_server (name, description, transport_type, command, environment_variables, url, timeout, is_long_running, is_enabled) 
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                )?;
+                
+                stmt.execute(params![
+                    name,
+                    description,
+                    transport_type,
+                    command,
+                    environment_variables,
+                    url,
+                    timeout,
+                    is_long_running,
+                    is_enabled
+                ])?;
+                
+                Ok(self.conn.last_insert_rowid())
+            }
+        }
+    }
+
     // MCP Server Tool operations
     pub fn add_mcp_server_tool(
         &self,
@@ -328,6 +380,50 @@ impl MCPDatabase {
         Ok(())
     }
 
+    pub fn upsert_mcp_server_tool(
+        &self,
+        server_id: i64,
+        tool_name: &str,
+        tool_description: Option<&str>,
+        parameters: Option<&str>,
+    ) -> rusqlite::Result<i64> {
+        // First try to get existing tool by server_id and tool_name
+        let existing_tool = self.conn.prepare(
+            "SELECT id, is_enabled, is_auto_run FROM mcp_server_tool WHERE server_id = ? AND tool_name = ?"
+        )?.query_row(params![server_id, tool_name], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, bool>(1)?, row.get::<_, bool>(2)?))
+        }).optional()?;
+        
+        match existing_tool {
+            Some((id, is_enabled, is_auto_run)) => {
+                // Update existing tool, preserve user settings
+                self.conn.execute(
+                    "UPDATE mcp_server_tool SET tool_description = ?, parameters = ? WHERE id = ?",
+                    params![tool_description, parameters, id],
+                )?;
+                Ok(id)
+            }
+            None => {
+                // Insert new tool with default settings
+                let mut stmt = self.conn.prepare(
+                    "INSERT INTO mcp_server_tool (server_id, tool_name, tool_description, is_enabled, is_auto_run, parameters) 
+                     VALUES (?, ?, ?, ?, ?, ?)"
+                )?;
+                
+                stmt.execute(params![
+                    server_id,
+                    tool_name,
+                    tool_description,
+                    true,  // Default enabled
+                    false, // Default not auto-run
+                    parameters
+                ])?;
+                
+                Ok(self.conn.last_insert_rowid())
+            }
+        }
+    }
+
     // MCP Server Resource operations
     pub fn add_mcp_server_resource(
         &self,
@@ -383,6 +479,48 @@ impl MCPDatabase {
             params![server_id],
         )?;
         Ok(())
+    }
+
+    pub fn upsert_mcp_server_resource(
+        &self,
+        server_id: i64,
+        resource_uri: &str,
+        resource_name: &str,
+        resource_type: &str,
+        resource_description: Option<&str>,
+    ) -> rusqlite::Result<i64> {
+        // First try to get existing resource by server_id and resource_uri
+        let existing_id = self.conn.prepare(
+            "SELECT id FROM mcp_server_resource WHERE server_id = ? AND resource_uri = ?"
+        )?.query_row(params![server_id, resource_uri], |row| row.get::<_, i64>(0)).optional()?;
+        
+        match existing_id {
+            Some(id) => {
+                // Update existing resource
+                self.conn.execute(
+                    "UPDATE mcp_server_resource SET resource_name = ?, resource_type = ?, resource_description = ? WHERE id = ?",
+                    params![resource_name, resource_type, resource_description, id],
+                )?;
+                Ok(id)
+            }
+            None => {
+                // Insert new resource
+                let mut stmt = self.conn.prepare(
+                    "INSERT INTO mcp_server_resource (server_id, resource_uri, resource_name, resource_type, resource_description) 
+                     VALUES (?, ?, ?, ?, ?)"
+                )?;
+                
+                stmt.execute(params![
+                    server_id,
+                    resource_uri,
+                    resource_name,
+                    resource_type,
+                    resource_description
+                ])?;
+                
+                Ok(self.conn.last_insert_rowid())
+            }
+        }
     }
 
     // MCP Server Prompt operations
@@ -451,6 +589,107 @@ impl MCPDatabase {
             "DELETE FROM mcp_server_prompt WHERE server_id = ?",
             params![server_id],
         )?;
+        Ok(())
+    }
+
+    pub fn upsert_mcp_server_prompt(
+        &self,
+        server_id: i64,
+        prompt_name: &str,
+        prompt_description: Option<&str>,
+        arguments: Option<&str>,
+    ) -> rusqlite::Result<i64> {
+        // First try to get existing prompt by server_id and prompt_name
+        let existing_prompt = self.conn.prepare(
+            "SELECT id, is_enabled FROM mcp_server_prompt WHERE server_id = ? AND prompt_name = ?"
+        )?.query_row(params![server_id, prompt_name], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, bool>(1)?))
+        }).optional()?;
+        
+        match existing_prompt {
+            Some((id, is_enabled)) => {
+                // Update existing prompt, preserve user settings
+                self.conn.execute(
+                    "UPDATE mcp_server_prompt SET prompt_description = ?, arguments = ? WHERE id = ?",
+                    params![prompt_description, arguments, id],
+                )?;
+                Ok(id)
+            }
+            None => {
+                // Insert new prompt with default settings
+                let mut stmt = self.conn.prepare(
+                    "INSERT INTO mcp_server_prompt (server_id, prompt_name, prompt_description, is_enabled, arguments) 
+                     VALUES (?, ?, ?, ?, ?)"
+                )?;
+                
+                stmt.execute(params![
+                    server_id,
+                    prompt_name,
+                    prompt_description,
+                    true, // Default enabled
+                    arguments
+                ])?;
+                
+                Ok(self.conn.last_insert_rowid())
+            }
+        }
+    }
+
+    // Cleanup methods for orphaned data
+    pub fn cleanup_orphaned_tools(&self, server_id: i64, existing_tool_names: &[String]) -> rusqlite::Result<()> {
+        if existing_tool_names.is_empty() {
+            // If no tools exist, don't delete anything (keep user configurations)
+            return Ok(());
+        }
+        
+        let placeholders = existing_tool_names.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sql = format!(
+            "DELETE FROM mcp_server_tool WHERE server_id = ? AND tool_name NOT IN ({})",
+            placeholders
+        );
+        
+        let mut params = vec![server_id.to_string()];
+        params.extend(existing_tool_names.iter().cloned());
+        
+        self.conn.execute(&sql, rusqlite::params_from_iter(params))?;
+        Ok(())
+    }
+
+    pub fn cleanup_orphaned_resources(&self, server_id: i64, existing_resource_uris: &[String]) -> rusqlite::Result<()> {
+        if existing_resource_uris.is_empty() {
+            // If no resources exist, don't delete anything
+            return Ok(());
+        }
+        
+        let placeholders = existing_resource_uris.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sql = format!(
+            "DELETE FROM mcp_server_resource WHERE server_id = ? AND resource_uri NOT IN ({})",
+            placeholders
+        );
+        
+        let mut params = vec![server_id.to_string()];
+        params.extend(existing_resource_uris.iter().cloned());
+        
+        self.conn.execute(&sql, rusqlite::params_from_iter(params))?;
+        Ok(())
+    }
+
+    pub fn cleanup_orphaned_prompts(&self, server_id: i64, existing_prompt_names: &[String]) -> rusqlite::Result<()> {
+        if existing_prompt_names.is_empty() {
+            // If no prompts exist, don't delete anything (keep user configurations)
+            return Ok(());
+        }
+        
+        let placeholders = existing_prompt_names.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sql = format!(
+            "DELETE FROM mcp_server_prompt WHERE server_id = ? AND prompt_name NOT IN ({})",
+            placeholders
+        );
+        
+        let mut params = vec![server_id.to_string()];
+        params.extend(existing_prompt_names.iter().cloned());
+        
+        self.conn.execute(&sql, rusqlite::params_from_iter(params))?;
         Ok(())
     }
 }

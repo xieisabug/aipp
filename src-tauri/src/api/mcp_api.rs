@@ -24,7 +24,7 @@ pub struct MCPToolConfig {
 
 #[tauri::command]
 pub async fn get_mcp_servers(app_handle: tauri::AppHandle) -> Result<Vec<MCPServer>, String> {
-    let db = MCPDatabase::new(&app_handle).map_err(|e: rusqlite::Error| e.to_string())?;
+let db = MCPDatabase::new(&app_handle).map_err(|e: rusqlite::Error| e.to_string())?;
     let servers = db.get_mcp_servers().map_err(|e| e.to_string())?;
     Ok(servers)
 }
@@ -47,7 +47,7 @@ pub async fn add_mcp_server(
     let db = MCPDatabase::new(&app_handle).map_err(|e: rusqlite::Error| e.to_string())?;
     
     let server_id = db
-        .add_mcp_server(
+        .upsert_mcp_server(
             &request.name,
             request.description.as_deref(),
             &request.transport_type,
@@ -326,10 +326,7 @@ pub async fn refresh_mcp_server_capabilities(
     let db = MCPDatabase::new(&app_handle).map_err(|e: rusqlite::Error| e.to_string())?;
     let server = db.get_mcp_server(server_id).map_err(|e| e.to_string())?;
     
-    // Clear existing tools, resources, and prompts
-    db.clear_mcp_server_tools(server_id).map_err(|e| e.to_string())?;
-    db.clear_mcp_server_resources(server_id).map_err(|e| e.to_string())?;
-    db.clear_mcp_server_prompts(server_id).map_err(|e| e.to_string())?;
+    // Use incremental updates instead of clearing existing data
     
     // Try to connect to MCP server and get capabilities
     let result = match server.transport_type.as_str() {
@@ -350,20 +347,17 @@ pub async fn refresh_mcp_server_capabilities(
             // If real MCP connection fails, add some placeholder data for testing
             println!("MCP connection failed: {}, adding placeholder data", e);
             
-            db.add_mcp_server_tool(
+            db.upsert_mcp_server_tool(
                 server_id,
                 "grep",
                 Some("Search for patterns in files"),
-                true,
-                false,
                 Some(r#"{"pattern": {"type": "string", "description": "Search pattern"}, "path": {"type": "string", "description": "File path"}}"#),
             ).map_err(|e| e.to_string())?;
             
-            db.add_mcp_server_prompt(
+            db.upsert_mcp_server_prompt(
                 server_id,
                 "code_review",
                 Some("Review code for best practices and potential issues"),
-                true,
                 Some(r#"{"code": {"type": "string", "description": "Code to review"}, "language": {"type": "string", "description": "Programming language"}}"#),
             ).map_err(|e| e.to_string())?;
             
@@ -465,12 +459,10 @@ async fn get_stdio_capabilities(
             let params_json = serde_json::to_string(&tool.input_schema)
                 .unwrap_or_else(|_| "{}".to_string());
             
-            if let Err(e) = db.add_mcp_server_tool(
+            if let Err(e) = db.upsert_mcp_server_tool(
                 server_id,
                 &tool.name,
                 tool.description.as_deref(),
-                true,
-                false,
                 Some(&params_json),
             ) {
                 println!("Failed to add tool {}: {}", tool.name, e);
@@ -481,7 +473,7 @@ async fn get_stdio_capabilities(
     // 处理资源
     if let Ok(resources) = resources_result {
         for resource in resources {
-            if let Err(e) = db.add_mcp_server_resource(
+            if let Err(e) = db.upsert_mcp_server_resource(
                 server_id,
                 &resource.uri,
                 &resource.name,
@@ -502,11 +494,10 @@ async fn get_stdio_capabilities(
                 "{}".to_string()
             };
             
-            if let Err(e) = db.add_mcp_server_prompt(
+            if let Err(e) = db.upsert_mcp_server_prompt(
                 server_id,
                 &prompt.name,
                 prompt.description.as_deref(),
-                true,
                 Some(&args_json),
             ) {
                 println!("Failed to add prompt {}: {}", prompt.name, e);
@@ -592,12 +583,10 @@ async fn get_sse_capabilities(
             let params_json = serde_json::to_string(&tool.input_schema)
                 .unwrap_or_else(|_| "{}".to_string());
             
-            if let Err(e) = db.add_mcp_server_tool(
+            if let Err(e) = db.upsert_mcp_server_tool(
                 server_id,
                 &tool.name,
                 tool.description.as_deref(),
-                true,
-                false,
                 Some(&params_json),
             ) {
                 println!("Failed to add tool {}: {}", tool.name, e);
@@ -608,7 +597,7 @@ async fn get_sse_capabilities(
     // 处理资源
     if let Ok(resources_response) = resources_result {
         for resource in resources_response.resources {
-            if let Err(e) = db.add_mcp_server_resource(
+            if let Err(e) = db.upsert_mcp_server_resource(
                 server_id,
                 &resource.uri,
                 &resource.name,
@@ -629,11 +618,10 @@ async fn get_sse_capabilities(
                 "{}".to_string()
             };
             
-            if let Err(e) = db.add_mcp_server_prompt(
+            if let Err(e) = db.upsert_mcp_server_prompt(
                 server_id,
                 &prompt.name,
                 prompt.description.as_deref(),
-                true,
                 Some(&args_json),
             ) {
                 println!("Failed to add prompt {}: {}", prompt.name, e);
@@ -718,12 +706,10 @@ async fn get_http_capabilities(
             let params_json = serde_json::to_string(&tool.input_schema)
                 .unwrap_or_else(|_| "{}".to_string());
             
-            if let Err(e) = db.add_mcp_server_tool(
+            if let Err(e) = db.upsert_mcp_server_tool(
                 server_id,
                 &tool.name,
                 tool.description.as_deref(),
-                true,
-                false,
                 Some(&params_json),
             ) {
                 println!("Failed to add tool {}: {}", tool.name, e);
@@ -734,7 +720,7 @@ async fn get_http_capabilities(
     // 处理资源
     if let Ok(resources_response) = resources_result {
         for resource in resources_response.resources {
-            if let Err(e) = db.add_mcp_server_resource(
+            if let Err(e) = db.upsert_mcp_server_resource(
                 server_id,
                 &resource.uri,
                 &resource.name,
@@ -755,11 +741,10 @@ async fn get_http_capabilities(
                 "{}".to_string()
             };
             
-            if let Err(e) = db.add_mcp_server_prompt(
+            if let Err(e) = db.upsert_mcp_server_prompt(
                 server_id,
                 &prompt.name,
                 prompt.description.as_deref(),
-                true,
                 Some(&args_json),
             ) {
                 println!("Failed to add prompt {}: {}", prompt.name, e);
