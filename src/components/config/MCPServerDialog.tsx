@@ -5,7 +5,7 @@ import { Switch } from '../ui/switch';
 import { Textarea } from '../ui/textarea';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import { toast } from 'sonner';
 import { MCPServer, MCPServerRequest, MCP_TRANSPORT_TYPES } from '../../data/MCP';
@@ -16,13 +16,17 @@ interface MCPServerDialogProps {
     onClose: () => void;
     onSubmit: () => void;
     editingServer?: MCPServer | null;
+    initialServerType?: string;
+    initialConfig?: Partial<MCPServerRequest>;
 }
 
 const MCPServerDialog: React.FC<MCPServerDialogProps> = ({
     isOpen,
     onClose,
     onSubmit,
-    editingServer
+    editingServer,
+    initialServerType,
+    initialConfig
 }) => {
     // Form state
     const [formData, setFormData] = useState<MCPServerRequest>({
@@ -40,7 +44,7 @@ const MCPServerDialog: React.FC<MCPServerDialogProps> = ({
     // UI state
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // Initialize form when editing
+    // 初始化界面数据
     useEffect(() => {
         if (editingServer) {
             setFormData({
@@ -55,22 +59,27 @@ const MCPServerDialog: React.FC<MCPServerDialogProps> = ({
                 is_enabled: editingServer.is_enabled,
             });
         } else {
-            // Reset form for new server
-            setFormData({
+            // 重置表单，使用可选的初始配置
+            const defaultConfig: MCPServerRequest = {
                 name: '',
                 description: '',
-                transport_type: 'stdio',
+                transport_type: initialServerType || 'stdio',
                 command: '',
                 environment_variables: '',
                 url: '',
                 timeout: 30000,
                 is_long_running: false,
                 is_enabled: true,
-            });
-        }
-    }, [editingServer, isOpen]);
+            };
 
-    // Update form field
+            // 合并初始配置
+            const finalConfig = initialConfig ? { ...defaultConfig, ...initialConfig } : defaultConfig;
+            
+            setFormData(finalConfig);
+        }
+    }, [editingServer, isOpen, initialServerType, initialConfig]);
+
+    // 更新表单字段
     const updateField = useCallback((field: keyof MCPServerRequest, value: any) => {
         setFormData(prev => ({
             ...prev,
@@ -78,7 +87,7 @@ const MCPServerDialog: React.FC<MCPServerDialogProps> = ({
         }));
     }, []);
 
-    // Handle form submission
+    // 处理表单提交
     const handleSubmit = useCallback(async () => {
         // Validation
         if (!formData.name.trim()) {
@@ -132,7 +141,7 @@ const MCPServerDialog: React.FC<MCPServerDialogProps> = ({
         }
     }, [formData, editingServer, onSubmit]);
 
-    // Handle cancel
+    // 处理取消
     const handleCancel = useCallback(() => {
         onClose();
     }, [onClose]);
@@ -164,7 +173,7 @@ const MCPServerDialog: React.FC<MCPServerDialogProps> = ({
                             <Textarea
                                 id="description"
                                 placeholder="MCP功能描述..."
-                                rows={3}
+                                rows={2}
                                 value={formData.description}
                                 onChange={(e) => updateField('description', e.target.value)}
                             />
@@ -214,7 +223,7 @@ const MCPServerDialog: React.FC<MCPServerDialogProps> = ({
                             <Textarea
                                 id="environment_variables"
                                 placeholder="KEY1=value1&#10;KEY2=value2"
-                                rows={4}
+                                rows={3}
                                 value={formData.environment_variables}
                                 onChange={(e) => updateField('environment_variables', e.target.value)}
                             />

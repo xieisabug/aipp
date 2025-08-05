@@ -4,10 +4,12 @@ import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
 import { Badge } from "../ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { PlusCircle, Server, Play, Trash2, Edit, RefreshCw } from "lucide-react";
+import { Server, Play, Trash2, Edit, RefreshCw } from "lucide-react";
 import { toast } from 'sonner';
 import ConfirmDialog from "../ConfirmDialog";
 import MCPServerDialog from "./MCPServerDialog";
+import MCPActionDropdown from "./MCPActionDropdown";
+import JSONImportDialog from "./JSONImportDialog";
 
 // 导入公共组件
 import {
@@ -18,7 +20,8 @@ import {
     SelectOption
 } from "../common";
 
-import { MCPServer, MCPServerTool, MCPServerResource, MCPServerPrompt } from "../../data/MCP";
+import { MCPServer, MCPServerTool, MCPServerResource, MCPServerPrompt, MCPServerRequest } from "../../data/MCP";
+import { MCPTemplate } from "../../data/MCPTemplates";
 
 const MCPConfig: React.FC = () => {
     const [mcpServers, setMcpServers] = useState<MCPServer[]>([]);
@@ -30,8 +33,13 @@ const MCPConfig: React.FC = () => {
     // Dialog states
     const [serverDialogOpen, setServerDialogOpen] = useState(false);
     const [editingServer, setEditingServer] = useState<MCPServer | null>(null);
+    const [jsonImportDialogOpen, setJsonImportDialogOpen] = useState(false);
     const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
     const [deletingServerId, setDeletingServerId] = useState<number | null>(null);
+    
+    // Dialog initial data
+    const [dialogInitialServerType, setDialogInitialServerType] = useState<string | undefined>(undefined);
+    const [dialogInitialConfig, setDialogInitialConfig] = useState<Partial<MCPServerRequest> | undefined>(undefined);
     
     // Loading states
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -111,8 +119,10 @@ const MCPConfig: React.FC = () => {
     }, [selectedServer]);
 
     // 打开新增服务器对话框
-    const openAddServerDialog = useCallback(() => {
+    const openAddServerDialog = useCallback((initialServerType?: string, initialConfig?: Partial<MCPServerRequest>) => {
         setEditingServer(null);
+        setDialogInitialServerType(initialServerType);
+        setDialogInitialConfig(initialConfig);
         setServerDialogOpen(true);
     }, []);
 
@@ -126,6 +136,8 @@ const MCPConfig: React.FC = () => {
     const closeServerDialog = useCallback(() => {
         setServerDialogOpen(false);
         setEditingServer(null);
+        setDialogInitialServerType(undefined);
+        setDialogInitialConfig(undefined);
     }, []);
 
     // 服务器对话框提交
@@ -203,6 +215,62 @@ const MCPConfig: React.FC = () => {
         }
     }, []);
 
+    // 处理模板选择
+    const handleTemplateSelect = useCallback((template: MCPTemplate) => {
+        openAddServerDialog(template.template.transport_type, template.template);
+    }, [openAddServerDialog]);
+
+    // 处理JSON导入
+    const handleJSONImport = useCallback(() => {
+        setJsonImportDialogOpen(true);
+    }, []);
+
+    // 处理JSON导入确认  
+    const handleJSONImportConfirm = useCallback(async (configs: MCPServerRequest[]) => {
+        setJsonImportDialogOpen(false);
+        
+        // 如果只有一个服务器，直接打开对话框编辑
+        if (configs.length === 1) {
+            openAddServerDialog(configs[0].transport_type, configs[0]);
+            return;
+        }
+        
+        // 多个服务器，批量创建
+        let successCount = 0;
+        let errorCount = 0;
+        
+        for (const config of configs) {
+            try {
+                const serverId = await invoke<number>('add_mcp_server', { request: config });
+                successCount++;
+                
+                // 尝试自动获取能力
+                try {
+                    await invoke('refresh_mcp_server_capabilities', { serverId });
+                } catch (e) {
+                    console.warn('自动获取能力失败:', e);
+                }
+            } catch (e) {
+                console.error('创建服务器失败:', e);
+                errorCount++;
+            }
+        }
+        
+        if (successCount > 0) {
+            toast.success(`成功创建 ${successCount} 个MCP服务器`);
+            getMcpServers(); // 刷新服务器列表
+        }
+        
+        if (errorCount > 0) {
+            toast.error(`${errorCount} 个服务器创建失败`);
+        }
+    }, [openAddServerDialog, getMcpServers]);
+
+    // 关闭JSON导入对话框
+    const closeJSONImportDialog = useCallback(() => {
+        setJsonImportDialogOpen(false);
+    }, []);
+
     // 下拉菜单选项
     const selectOptions: SelectOption[] = useMemo(() =>
         mcpServers.map(server => ({
@@ -221,14 +289,13 @@ const MCPConfig: React.FC = () => {
 
     // 新增按钮组件
     const addButton = useMemo(() => (
-        <Button
-            onClick={openAddServerDialog}
-            className="gap-2 bg-gray-800 hover:bg-gray-900 text-white shadow-sm hover:shadow-md transition-all"
-        >
-            <PlusCircle className="h-4 w-4" />
-            新增MCP
-        </Button>
-    ), [openAddServerDialog]);
+        <MCPActionDropdown
+            onTemplateSelect={handleTemplateSelect}
+            onJSONImport={handleJSONImport}
+            className="bg-gray-800 hover:bg-gray-900 text-white shadow-sm hover:shadow-md transition-all"
+            buttonText="新增MCP"
+        />
+    ), [handleTemplateSelect, handleJSONImport]);
 
     // 空状态
     if (mcpServers.length === 0) {
@@ -243,13 +310,12 @@ const MCPConfig: React.FC = () => {
                             title="还没有配置MCP服务器"
                             description="开始添加你的第一个MCP服务器，扩展AI助手的能力"
                             action={
-                                <Button
-                                    onClick={openAddServerDialog}
-                                    className="gap-2 bg-gray-800 hover:bg-gray-900 text-white shadow-lg hover:shadow-xl transition-all"
-                                >
-                                    <PlusCircle className="h-4 w-4" />
-                                    添加第一个MCP服务器
-                                </Button>
+                                <MCPActionDropdown
+                                    onTemplateSelect={handleTemplateSelect}
+                                    onJSONImport={handleJSONImport}
+                                    className="bg-gray-800 hover:bg-gray-900 text-white shadow-lg hover:shadow-xl transition-all"
+                                    buttonText="添加第一个MCP服务器"
+                                />
                             }
                         />
                     }
@@ -262,6 +328,15 @@ const MCPConfig: React.FC = () => {
                     onClose={closeServerDialog}
                     onSubmit={handleServerDialogSubmit}
                     editingServer={editingServer}
+                    initialServerType={dialogInitialServerType}
+                    initialConfig={dialogInitialConfig}
+                />
+
+                {/* JSON导入对话框 */}
+                <JSONImportDialog
+                    isOpen={jsonImportDialogOpen}
+                    onClose={closeJSONImportDialog}
+                    onImport={handleJSONImportConfirm}
                 />
             </>
         );
@@ -273,6 +348,16 @@ const MCPConfig: React.FC = () => {
             title="MCP服务器"
             description="选择服务器进行配置"
             icon={<Server className="h-5 w-5" />}
+            addButton={
+                <MCPActionDropdown
+                    onTemplateSelect={handleTemplateSelect}
+                    onJSONImport={handleJSONImport}
+                    variant="outline"
+                    size="sm"
+                    buttonText="添加"
+                    showIcon={false}
+                />
+            }
         >
             {mcpServers.map((server) => (
                 <ListItemButton
@@ -512,6 +597,15 @@ const MCPConfig: React.FC = () => {
                 onClose={closeServerDialog}
                 onSubmit={handleServerDialogSubmit}
                 editingServer={editingServer}
+                initialServerType={dialogInitialServerType}
+                initialConfig={dialogInitialConfig}
+            />
+
+            {/* JSON导入对话框 */}
+            <JSONImportDialog
+                isOpen={jsonImportDialogOpen}
+                onClose={closeJSONImportDialog}
+                onImport={handleJSONImportConfirm}
             />
 
             {/* 确认删除对话框 */}
