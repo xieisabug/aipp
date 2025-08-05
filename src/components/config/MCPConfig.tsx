@@ -4,14 +4,13 @@ import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
 import { Badge } from "../ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
-import { Collapsible, CollapsibleContent } from "../ui/collapsible";
-import { Server, Play, Trash2, Edit, RefreshCw, Zap, ChevronDown, ChevronRight } from "lucide-react";
+import { Server, Play, Trash2, Edit, RefreshCw, Zap } from "lucide-react";
 import { toast } from 'sonner';
 import ConfirmDialog from "../ConfirmDialog";
 import MCPServerDialog from "./MCPServerDialog";
 import MCPActionDropdown from "./MCPActionDropdown";
 import JSONImportDialog from "./JSONImportDialog";
+import MCPToolItem from "./MCPToolItem";
 
 // 导入公共组件
 import {
@@ -509,125 +508,16 @@ const MCPConfig: React.FC = () => {
                     {serverTools.length > 0 && (
                         <TabsContent value="tools" className="mt-4">
                             <div className="space-y-3">
-                                {serverTools.map((tool) => {
-                                    const isExpanded = expandedTools.has(tool.id);
-                                    const hasParameters = tool.parameters && tool.parameters !== '{}' && tool.parameters !== 'null';
-                                    const parameters = hasParameters ? JSON.parse(tool.parameters!) : null;
-                                    const truncatedDescription = truncateText(tool.tool_description || '', 2);
-                                    const isDescriptionTruncated = tool.tool_description && truncatedDescription !== tool.tool_description;
-                                    
-                                    return (
-                                        <div key={tool.id} className="bg-gray-50 rounded-lg overflow-hidden">
-                                            <div className="flex items-start justify-between p-4 gap-4">
-                                                <div className="flex-1 min-w-0 pr-4">
-                                                    <div className="flex items-center gap-2 mb-2">
-                                                        <div className="font-medium text-gray-900 truncate">{tool.tool_name}</div>
-                                                        {hasParameters && (
-                                                            <button
-                                                                onClick={() => toggleToolExpansion(tool.id)}
-                                                                className="flex-shrink-0 p-1 hover:bg-gray-200 rounded transition-colors"
-                                                                title={isExpanded ? "收起参数" : "展开参数"}
-                                                            >
-                                                                {isExpanded ? (
-                                                                    <ChevronDown className="h-4 w-4 text-gray-500" />
-                                                                ) : (
-                                                                    <ChevronRight className="h-4 w-4 text-gray-500" />
-                                                                )}
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                    {tool.tool_description && (
-                                                        <Tooltip>
-                                                            <TooltipTrigger asChild>
-                                                                <div className="text-sm text-gray-500 leading-relaxed">
-                                                                    {isDescriptionTruncated ? truncatedDescription : tool.tool_description}
-                                                                </div>
-                                                            </TooltipTrigger>
-                                                            {isDescriptionTruncated && (
-                                                                <TooltipContent side="bottom" className="max-w-sm">
-                                                                    <p className="text-sm">{tool.tool_description}</p>
-                                                                </TooltipContent>
-                                                            )}
-                                                        </Tooltip>
-                                                    )}
-                                                </div>
-                                                <div className="flex items-center gap-6 flex-shrink-0">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="text-sm text-gray-700 whitespace-nowrap">启用</span>
-                                                        <Switch
-                                                            checked={tool.is_enabled}
-                                                            onCheckedChange={(checked) => 
-                                                                handleUpdateTool(tool.id, checked, tool.is_auto_run)
-                                                            }
-                                                        />
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="text-sm text-gray-700 whitespace-nowrap">自动运行</span>
-                                                        <Switch
-                                                            checked={tool.is_auto_run}
-                                                            onCheckedChange={(checked) => 
-                                                                handleUpdateTool(tool.id, tool.is_enabled, checked)
-                                                            }
-                                                        />
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            
-                                            {/* 可展开的参数部分 */}
-                                            {hasParameters && (
-                                                <Collapsible open={isExpanded}>
-                                                    <CollapsibleContent className="px-4 pb-4">
-                                                        <div className="border-t border-gray-200 pt-3">
-                                                            <div className="text-sm font-medium text-gray-700 mb-3">参数：</div>
-                                                            <div className="space-y-3">
-                                                                {Object.entries(parameters.properties || {}).map(([paramName, paramDef]: [string, any]) => {
-                                                                    const truncatedParamDesc = truncateText(paramDef.description || '', 2);
-                                                                    const isParamDescTruncated = paramDef.description && truncatedParamDesc !== paramDef.description;
-                                                                    
-                                                                    return (
-                                                                        <div key={paramName} className="bg-white rounded p-3 border border-gray-100">
-                                                                            <div className="flex items-start justify-between gap-3">
-                                                                                <div className="flex-1 min-w-0">
-                                                                                    <div className="flex items-center gap-2 mb-1">
-                                                                                        <span className="font-medium text-gray-800 text-sm">{paramName}</span>
-                                                                                        {paramDef.type && (
-                                                                                            <Badge variant="outline" className="text-xs px-2 py-0.5">
-                                                                                                {paramDef.type}
-                                                                                            </Badge>
-                                                                                        )}
-                                                                                        {parameters.required?.includes(paramName) && (
-                                                                                            <Badge variant="destructive" className="text-xs px-2 py-0.5">
-                                                                                                必需
-                                                                                            </Badge>
-                                                                                        )}
-                                                                                    </div>
-                                                                                    {paramDef.description && (
-                                                                                        <Tooltip>
-                                                                                            <TooltipTrigger asChild>
-                                                                                                <div className="text-xs text-gray-600 leading-relaxed">
-                                                                                                    {isParamDescTruncated ? truncatedParamDesc : paramDef.description}
-                                                                                                </div>
-                                                                                            </TooltipTrigger>
-                                                                                            {isParamDescTruncated && (
-                                                                                                <TooltipContent side="bottom" className="max-w-sm">
-                                                                                                    <p className="text-xs">{paramDef.description}</p>
-                                                                                                </TooltipContent>
-                                                                                            )}
-                                                                                        </Tooltip>
-                                                                                    )}
-                                                                                </div>
-                                                                            </div>
-                                                                        </div>
-                                                                    );
-                                                                })}
-                                                            </div>
-                                                        </div>
-                                                    </CollapsibleContent>
-                                                </Collapsible>
-                                            )}
-                                        </div>
-                                    );
-                                })}
+                                {serverTools.map((tool) => (
+                                    <MCPToolItem
+                                        key={tool.id}
+                                        tool={tool}
+                                        isExpanded={expandedTools.has(tool.id)}
+                                        onToggleExpansion={toggleToolExpansion}
+                                        onUpdateTool={handleUpdateTool}
+                                        truncateText={truncateText}
+                                    />
+                                ))}
                             </div>
                         </TabsContent>
                     )}
