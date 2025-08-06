@@ -45,6 +45,21 @@ pub async fn ask_ai(
         "ask_ai - [[request]]: {:#?}\n[[override_model_config]]: {:#?}\n[[override_prompt]]: {:#?}\n",
         request, override_model_config, override_prompt
     );
+    // 处理 @assistant_name 提取和消息清理
+    let (actual_assistant_id, cleaned_prompt) = extract_assistant_from_message(
+        &app_handle,
+        &request.prompt,
+        request.assistant_id,
+    ).await?;
+
+    println!("actual_assistant_id: {:?}", actual_assistant_id);
+    println!("cleaned_prompt: {:?}", cleaned_prompt);
+    
+    // 创建一个新的请求对象，使用处理后的数据
+    let mut processed_request = request.clone();
+    processed_request.assistant_id = actual_assistant_id;
+    processed_request.prompt = cleaned_prompt;
+    
     let template_engine = TemplateEngine::new();
     let mut template_context = HashMap::new();
 
@@ -52,7 +67,7 @@ pub async fn ask_ai(
     template_context.insert("selected_text".to_string(), selected_text);
 
     let app_handle_clone = app_handle.clone();
-    let assistant_detail = get_assistant(app_handle_clone, request.assistant_id).unwrap();
+    let assistant_detail = get_assistant(app_handle_clone, processed_request.assistant_id).unwrap();
     let assistant_prompt_origin = &assistant_detail.prompts[0].prompt;
     let assistant_prompt_result = template_engine
         .parse(&assistant_prompt_origin, &template_context)
@@ -82,16 +97,16 @@ pub async fn ask_ai(
             assistant_prompt_result
         };
 
-    let _need_generate_title = request.conversation_id.is_empty();
+    let _need_generate_title = processed_request.conversation_id.is_empty();
     let request_prompt_result = template_engine
-        .parse(&request.prompt, &template_context)
+        .parse(&processed_request.prompt, &template_context)
         .await;
 
     let app_handle_clone = app_handle.clone();
     let (conversation_id, _new_message_id, request_prompt_result_with_context, init_message_list) =
         initialize_conversation(
             &app_handle_clone,
-            &request,
+            &processed_request,
             &assistant_detail,
             assistant_prompt_result,
             request_prompt_result.clone(),
@@ -264,7 +279,7 @@ pub async fn ask_ai(
                 &window_clone,
                 &app_handle_clone,
                 _need_generate_title,
-                request.prompt.clone(),
+                processed_request.prompt.clone(),
                 _config_feature_map.clone(),
                 None,               // 普通ask_ai不需要复用generation_group_id
                 None,               // 普通ask_ai不需要parent_group_id
@@ -286,7 +301,7 @@ pub async fn ask_ai(
                 &window_clone,
                 &app_handle_clone,
                 _need_generate_title,
-                request.prompt.clone(),
+                processed_request.prompt.clone(),
                 _config_feature_map.clone(),
                 None,               // 普通ask_ai不需要复用generation_group_id
                 None,               // 普通ask_ai不需要parent_group_id
