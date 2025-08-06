@@ -59,7 +59,9 @@ import { FileInfo } from "../../data/Conversation";
 import { invoke } from "@tauri-apps/api/core";
 import { getCaretCoordinates } from "../../utils/caretCoordinates";
 import BangCompletionList from "./BangCompletionList";
+import AssistantCompletionList from "./AssistantCompletionList";
 import { useFileList } from '../../hooks/useFileList';
+import PinyinFilter, { AssistantItem, FilteredAssistant } from '../../utils/pinyinFilter';
 
 interface InputAreaProps {
     inputText: string;
@@ -103,6 +105,12 @@ const InputArea: React.FC<InputAreaProps> = React.memo(
         }>({ bottom: 0, left: 0, top: 0 });
         const [selectedBangIndex, setSelectedBangIndex] = useState<number>(0);
 
+        // Assistant selection states
+        const [assistantListVisible, setAssistantListVisible] = useState<boolean>(false);
+        const [assistants, setAssistants] = useState<AssistantItem[]>([]);
+        const [filteredAssistants, setFilteredAssistants] = useState<FilteredAssistant[]>([]);
+        const [selectedAssistantIndex, setSelectedAssistantIndex] = useState<number>(0);
+
         const handleOpenFile = (fileId: number) => {
             invoke("open_attachment_with_default_app", { id: fileId });
         }
@@ -120,6 +128,18 @@ const InputArea: React.FC<InputAreaProps> = React.memo(
                 setBangList(bangList);
                 setOriginalBangList(bangList);
             });
+
+            // Load assistants for @ selection
+            invoke<AssistantItem[]>("get_assistants").then((assistantList) => {
+                setAssistants(assistantList);
+                // Initialize with default match info for all assistants
+                const initialFiltered: FilteredAssistant[] = assistantList.map(assistant => ({
+                    ...assistant,
+                    matchType: 'exact' as const,
+                    highlightIndices: []
+                }));
+                setFilteredAssistants(initialFiltered);
+            });
         }, []);
 
         useEffect(() => {
@@ -127,12 +147,78 @@ const InputArea: React.FC<InputAreaProps> = React.memo(
                 if (textareaRef.current) {
                     const cursorPosition = textareaRef.current.selectionStart;
                     const value = textareaRef.current.value;
+                    
+                    // Handle @ symbol detection
+                    const atIndex = value.lastIndexOf("@", cursorPosition - 1);
                     const bangIndex = Math.max(
                         value.lastIndexOf("!", cursorPosition - 1),
                         value.lastIndexOf("！", cursorPosition - 1),
                     );
 
-                    if (bangIndex !== -1 && bangIndex < cursorPosition) {
+                    // Check if @ is closer to cursor than !
+                    if (atIndex !== -1 && atIndex > bangIndex) {
+                        const atInput = value
+                            .substring(atIndex + 1, cursorPosition)
+                            .toLowerCase();
+                        
+                        // Filter assistants using pinyin
+                        const filtered = PinyinFilter.filterAssistants(assistants, atInput);
+                        
+                        if (filtered.length > 0) {
+                            setFilteredAssistants(filtered);
+                            setSelectedAssistantIndex(0);
+                            setAssistantListVisible(true);
+                            setBangListVisible(false); // Hide bang list when @ is active
+
+                            const cursorCoords = getCaretCoordinates(
+                                textareaRef.current,
+                                atIndex + 1,
+                            );
+                            const rect =
+                                textareaRef.current.getBoundingClientRect();
+                            const style = window.getComputedStyle(
+                                textareaRef.current,
+                            );
+                            const paddingTop = parseFloat(style.paddingTop);
+                            const paddingBottom = parseFloat(
+                                style.paddingBottom,
+                            );
+                            const textareaHeight = parseFloat(style.height);
+
+                            const inputAreaRect = document
+                                .querySelector(".input-area")!
+                                .getBoundingClientRect();
+                            const left =
+                                rect.left -
+                                inputAreaRect.left +
+                                cursorCoords.cursorLeft;
+
+                            if (placement === "top") {
+                                const top =
+                                    rect.top +
+                                    rect.height +
+                                    Math.min(
+                                        textareaHeight,
+                                        cursorCoords.cursorTop,
+                                    ) -
+                                    paddingTop -
+                                    paddingBottom;
+                                setCursorPosition({ bottom: 0, left, top });
+                            } else {
+                                const bottom =
+                                    inputAreaRect.top -
+                                    rect.top -
+                                    cursorCoords.cursorTop +
+                                    10 +
+                                    (textareaRef.current.scrollHeight -
+                                        textareaRef.current.clientHeight);
+                                setCursorPosition({ bottom, left, top: 0 });
+                            }
+                        } else {
+                            setAssistantListVisible(false);
+                        }
+                    } else if (bangIndex !== -1 && bangIndex < cursorPosition) {
+                        // Handle ! symbol (existing logic)
                         const bangInput = value
                             .substring(bangIndex + 1, cursorPosition)
                             .toLowerCase();
@@ -145,6 +231,7 @@ const InputArea: React.FC<InputAreaProps> = React.memo(
                             setBangList(filteredBangs);
                             setSelectedBangIndex(0);
                             setBangListVisible(true);
+                            setAssistantListVisible(false); // Hide assistant list when ! is active
 
                             const cursorCoords = getCaretCoordinates(
                                 textareaRef.current,
@@ -194,7 +281,9 @@ const InputArea: React.FC<InputAreaProps> = React.memo(
                             setBangListVisible(false);
                         }
                     } else {
+                        // Hide both lists when neither @ nor ! is active
                         setBangListVisible(false);
+                        setAssistantListVisible(false);
                     }
                 }
             };
@@ -206,7 +295,7 @@ const InputArea: React.FC<InputAreaProps> = React.memo(
                     handleSelectionChange,
                 );
             };
-        }, [originalBangList, placement]);
+        }, [originalBangList, assistants, placement]);
 
         const adjustTextareaHeight = () => {
             const textarea = textareaRef.current;
@@ -229,13 +318,71 @@ const InputArea: React.FC<InputAreaProps> = React.memo(
             const cursorPosition = e.target.selectionStart;
             setInputText(newValue);
 
-            // Check for bang input
+            // Check for @ symbol first
+            const atIndex = newValue.lastIndexOf("@", cursorPosition - 1);
             const bangIndex = Math.max(
                 newValue.lastIndexOf("!", cursorPosition - 1),
                 newValue.lastIndexOf("！", cursorPosition - 1),
             );
 
-            if (bangIndex !== -1 && bangIndex < cursorPosition) {
+            // Check if @ is closer to cursor than !
+            if (atIndex !== -1 && atIndex > bangIndex) {
+                const atInput = newValue
+                    .substring(atIndex + 1, cursorPosition)
+                    .toLowerCase();
+
+                // Filter assistants using pinyin
+                const filtered = PinyinFilter.filterAssistants(assistants, atInput);
+
+                if (filtered.length > 0) {
+                    setFilteredAssistants(filtered);
+                    setSelectedAssistantIndex(0);
+                    setAssistantListVisible(true);
+                    setBangListVisible(false); // Hide bang list when @ is active
+
+                    // Update cursor position
+                    const textarea = e.target;
+                    const cursorCoords = getCaretCoordinates(
+                        textarea,
+                        cursorPosition,
+                    );
+                    const rect = textarea.getBoundingClientRect();
+                    const style = window.getComputedStyle(textarea);
+                    const paddingTop = parseFloat(style.paddingTop);
+                    const paddingBottom = parseFloat(style.paddingBottom);
+                    const textareaHeight = parseFloat(style.height);
+                    const inputAreaRect = document
+                        .querySelector(".input-area")!
+                        .getBoundingClientRect();
+
+                    const left =
+                        rect.left -
+                        inputAreaRect.left +
+                        cursorCoords.cursorLeft;
+
+                    if (placement === "top") {
+                        const top =
+                            rect.top +
+                            rect.height +
+                            Math.min(textareaHeight, cursorCoords.cursorTop) -
+                            paddingTop -
+                            paddingBottom;
+
+                        setCursorPosition({ bottom: 0, left, top });
+                    } else {
+                        const bottom =
+                            inputAreaRect.top -
+                            rect.top -
+                            cursorCoords.cursorTop +
+                            10 +
+                            (textarea.scrollHeight - textarea.clientHeight);
+                        setCursorPosition({ bottom, left, top: 0 });
+                    }
+                } else {
+                    setAssistantListVisible(false);
+                }
+            } else if (bangIndex !== -1 && bangIndex < cursorPosition) {
+                // Handle ! symbol (existing logic)
                 const bangInput = newValue
                     .substring(bangIndex + 1, cursorPosition)
                     .toLowerCase();
@@ -247,10 +394,10 @@ const InputArea: React.FC<InputAreaProps> = React.memo(
                     setBangList(filteredBangs);
                     setSelectedBangIndex(0);
                     setBangListVisible(true);
+                    setAssistantListVisible(false); // Hide assistant list when ! is active
 
                     // Update cursor position
                     const textarea = e.target;
-                    const cursorPosition = textarea.selectionStart;
                     const cursorCoords = getCaretCoordinates(
                         textarea,
                         cursorPosition,
@@ -291,7 +438,9 @@ const InputArea: React.FC<InputAreaProps> = React.memo(
                     setBangListVisible(false);
                 }
             } else {
+                // Hide both lists when neither @ nor ! is active
                 setBangListVisible(false);
+                setAssistantListVisible(false);
             }
         };
 
@@ -308,6 +457,26 @@ const InputArea: React.FC<InputAreaProps> = React.memo(
                 if (e.shiftKey) {
                     // Shift + Enter for new line
                     return;
+                } else if (assistantListVisible) {
+                    // Select assistant - 阻止表单提交
+                    e.preventDefault();
+                    const selectedAssistant = filteredAssistants[selectedAssistantIndex];
+                    const textarea = e.currentTarget as HTMLTextAreaElement;
+                    const cursorPosition = textarea.selectionStart;
+                    const atIndex = textarea.value.lastIndexOf("@", cursorPosition - 1);
+
+                    if (atIndex !== -1) {
+                        const beforeAt = textarea.value.substring(0, atIndex);
+                        const afterAt = textarea.value.substring(cursorPosition);
+                        setInputText(beforeAt + `@${selectedAssistant.name} ` + afterAt);
+
+                        // 设置光标位置
+                        setTimeout(() => {
+                            const newPosition = atIndex + selectedAssistant.name.length + 2;
+                            textarea.setSelectionRange(newPosition, newPosition);
+                        }, 0);
+                    }
+                    setAssistantListVisible(false);
                 } else if (bangListVisible) {
                     // Select bang - 阻止表单提交
                     e.preventDefault();
@@ -359,6 +528,26 @@ const InputArea: React.FC<InputAreaProps> = React.memo(
                     e.preventDefault();
                     handleSend();
                 }
+            } else if (e.key === "Tab" && assistantListVisible) {
+                // Select assistant
+                e.preventDefault();
+                const selectedAssistant = filteredAssistants[selectedAssistantIndex];
+                const textarea = e.currentTarget as HTMLTextAreaElement;
+                const cursorPosition = textarea.selectionStart;
+                const atIndex = textarea.value.lastIndexOf("@", cursorPosition - 1);
+
+                if (atIndex !== -1) {
+                    const beforeAt = textarea.value.substring(0, atIndex);
+                    const afterAt = textarea.value.substring(cursorPosition);
+                    setInputText(beforeAt + `@${selectedAssistant.name} ` + afterAt);
+
+                    // 设置光标位置
+                    setTimeout(() => {
+                        const newPosition = atIndex + selectedAssistant.name.length + 2;
+                        textarea.setSelectionRange(newPosition, newPosition);
+                    }, 0);
+                }
+                setAssistantListVisible(false);
             } else if (e.key === "Tab" && bangListVisible) {
                 // Select bang
                 e.preventDefault();
@@ -396,6 +585,16 @@ const InputArea: React.FC<InputAreaProps> = React.memo(
                     }, 0);
                 }
                 setBangListVisible(false);
+            } else if (e.key === "ArrowUp" && assistantListVisible) {
+                e.preventDefault();
+                setSelectedAssistantIndex((prevIndex) =>
+                    prevIndex > 0 ? prevIndex - 1 : filteredAssistants.length - 1,
+                );
+            } else if (e.key === "ArrowDown" && assistantListVisible) {
+                e.preventDefault();
+                setSelectedAssistantIndex((prevIndex) =>
+                    prevIndex < filteredAssistants.length - 1 ? prevIndex + 1 : 0,
+                );
             } else if (e.key === "ArrowUp" && bangListVisible) {
                 e.preventDefault();
                 setSelectedBangIndex((prevIndex) =>
@@ -409,6 +608,7 @@ const InputArea: React.FC<InputAreaProps> = React.memo(
             } else if (e.key === "Escape") {
                 e.preventDefault();
                 setBangListVisible(false);
+                setAssistantListVisible(false);
             }
         };
 
@@ -499,6 +699,17 @@ const InputArea: React.FC<InputAreaProps> = React.memo(
                     textareaRef={textareaRef}
                     setInputText={setInputText}
                     setBangListVisible={setBangListVisible}
+                />
+
+                <AssistantCompletionList
+                    assistantListVisible={assistantListVisible}
+                    placement={placement}
+                    cursorPosition={cursorPosition}
+                    assistants={filteredAssistants}
+                    selectedAssistantIndex={selectedAssistantIndex}
+                    textareaRef={textareaRef}
+                    setInputText={setInputText}
+                    setAssistantListVisible={setAssistantListVisible}
                 />
             </div>
         );

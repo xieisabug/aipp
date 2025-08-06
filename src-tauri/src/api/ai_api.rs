@@ -395,6 +395,38 @@ fn handle_message_type_end(
     Ok(())
 }
 
+/// 从消息中提取 @assistant_name 并返回处理后的消息和助手ID
+/// 如果找到 @assistant_name，则返回对应的助手ID和清理后的消息
+/// 如果没有找到或找不到对应助手，则返回原始助手ID和原始消息
+async fn extract_assistant_from_message(
+    app_handle: &tauri::AppHandle,
+    prompt: &str,
+    default_assistant_id: i64,
+) -> Result<(i64, String), AppError> {
+    use crate::api::assistant_api::get_assistants;
+    use regex::Regex;
+
+    // 匹配 @assistant_name 的正则表达式
+    let re = Regex::new(r"^@(\S+)\s+").unwrap();
+    
+    if let Some(captures) = re.captures(prompt) {
+        let assistant_name = captures.get(1).unwrap().as_str();
+        
+        // 获取所有助手列表
+        if let Ok(assistants) = get_assistants(app_handle.clone()) {
+            // 查找匹配的助手
+            if let Some(assistant) = assistants.iter().find(|a| a.name == assistant_name) {
+                // 移除 @assistant_name 部分
+                let cleaned_prompt = re.replace(prompt, "").to_string();
+                return Ok((assistant.id, cleaned_prompt));
+            }
+        }
+    }
+    
+    // 如果没有找到 @ 符号或找不到对应助手，返回原始值
+    Ok((default_assistant_id, prompt.to_string()))
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AiRequest {
     conversation_id: String,
@@ -1245,6 +1277,21 @@ pub async fn ask_ai(
         "ask_ai: {:?}, override_model_config: {:?}, override_prompt: {:?}",
         request, override_model_config, override_prompt
     );
+    // 处理 @assistant_name 提取和消息清理
+    let (actual_assistant_id, cleaned_prompt) = extract_assistant_from_message(
+        &app_handle,
+        &request.prompt,
+        request.assistant_id,
+    ).await?;
+
+    println!("actual_assistant_id: {:?}", actual_assistant_id);
+    println!("cleaned_prompt: {:?}", cleaned_prompt);
+    
+    // 创建一个新的请求对象，使用处理后的数据
+    let mut processed_request = request.clone();
+    processed_request.assistant_id = actual_assistant_id;
+    processed_request.prompt = cleaned_prompt;
+    
     let template_engine = TemplateEngine::new();
     let mut template_context = HashMap::new();
 
@@ -1252,7 +1299,7 @@ pub async fn ask_ai(
     template_context.insert("selected_text".to_string(), selected_text);
 
     let app_handle_clone = app_handle.clone();
-    let assistant_detail = get_assistant(app_handle_clone, request.assistant_id).unwrap();
+    let assistant_detail = get_assistant(app_handle_clone, processed_request.assistant_id).unwrap();
     let assistant_prompt_origin = &assistant_detail.prompts[0].prompt;
     let assistant_prompt_result = template_engine
         .parse(&assistant_prompt_origin, &template_context)
@@ -1263,16 +1310,16 @@ pub async fn ask_ai(
         return Err(AppError::NoModelFound);
     }
 
-    let _need_generate_title = request.conversation_id.is_empty();
+    let _need_generate_title = processed_request.conversation_id.is_empty();
     let request_prompt_result = template_engine
-        .parse(&request.prompt, &template_context)
+        .parse(&processed_request.prompt, &template_context)
         .await;
 
     let app_handle_clone = app_handle.clone();
     let (conversation_id, _new_message_id, request_prompt_result_with_context, init_message_list) =
         initialize_conversation(
             &app_handle_clone,
-            &request,
+            &processed_request,
             &assistant_detail,
             assistant_prompt_result,
             request_prompt_result.clone(),
@@ -1399,7 +1446,7 @@ pub async fn ask_ai(
                 &window_clone,
                 &app_handle_clone,
                 _need_generate_title,
-                request.prompt.clone(),
+                processed_request.prompt.clone(),
                 _config_feature_map.clone(),
                 None,               // 普通ask_ai不需要复用generation_group_id
                 None,               // 普通ask_ai不需要parent_group_id
@@ -1421,7 +1468,7 @@ pub async fn ask_ai(
                 &window_clone,
                 &app_handle_clone,
                 _need_generate_title,
-                request.prompt.clone(),
+                processed_request.prompt.clone(),
                 _config_feature_map.clone(),
                 None,               // 普通ask_ai不需要复用generation_group_id
                 None,               // 普通ask_ai不需要parent_group_id
