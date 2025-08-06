@@ -1,0 +1,161 @@
+import React, { useCallback, useEffect, useState } from 'react';
+import { invoke } from "@tauri-apps/api/core";
+import { Button } from "../ui/button";
+import { Settings, Server, Wrench, AlertCircle } from "lucide-react";
+import AssistantMCPConfigDialog from './AssistantMCPConfigDialog';
+
+interface AssistantMCPFieldDisplayProps {
+    assistantId: number;
+    onConfigChange?: () => void;
+    navigateTo: (menuKey: string) => void;
+}
+
+interface MCPSummary {
+    totalServers: number;
+    enabledServers: number;
+    totalTools: number;
+    enabledTools: number;
+}
+
+const AssistantMCPFieldDisplay: React.FC<AssistantMCPFieldDisplayProps> = ({
+    assistantId,
+    onConfigChange,
+    navigateTo
+}) => {
+    const [mcpSummary, setMcpSummary] = useState<MCPSummary>({
+        totalServers: 0,
+        enabledServers: 0,
+        totalTools: 0,
+        enabledTools: 0
+    });
+    const [configDialogOpen, setConfigDialogOpen] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    // 获取 MCP 配置摘要
+    const fetchMCPSummary = useCallback(async () => {
+        try {
+            setLoading(true);
+            setError(null);
+
+            // 使用新的接口一次性获取所有服务器和工具信息
+            const serversWithTools = await invoke<{id: number, name: string, is_enabled: boolean, tools: {id: number, name: string, is_enabled: boolean, is_auto_run: boolean}[]}[]>(
+                'get_assistant_mcp_servers_with_tools',
+                { assistantId }
+            );
+
+            const totalServers = serversWithTools.length;
+            const enabledServers = serversWithTools.filter(server => server.is_enabled).length;
+
+            let totalTools = 0;
+            let enabledTools = 0;
+
+            for (const server of serversWithTools) {
+                totalTools += server.tools.length;
+                // 只有服务器启用时，工具才算有效启用
+                if (server.is_enabled) {
+                    enabledTools += server.tools.filter(tool => tool.is_enabled).length;
+                }
+            }
+
+            setMcpSummary({
+                totalServers,
+                enabledServers,
+                totalTools,
+                enabledTools
+            });
+
+        } catch (error) {
+            console.error('Failed to fetch MCP summary:', error);
+            setError(error as string);
+        } finally {
+            setLoading(false);
+        }
+    }, [assistantId]);
+
+    useEffect(() => {
+        fetchMCPSummary();
+    }, [fetchMCPSummary]);
+
+    const handleOpenConfig = useCallback(() => {
+        if (mcpSummary.totalServers === 0) {
+            // 跳转到mcp的配置页面
+            navigateTo("mcp-config");
+        } else {
+            setConfigDialogOpen(true);
+        }
+    }, [mcpSummary.totalServers]);
+
+    const handleCloseConfig = useCallback(() => {
+        setConfigDialogOpen(false);
+    }, []);
+
+    const handleConfigChanged = useCallback(() => {
+        fetchMCPSummary(); // 刷新摘要数据
+        onConfigChange?.(); // 通知父组件配置已更改
+    }, [fetchMCPSummary, onConfigChange]);
+
+    const getSummaryText = () => {
+        if (loading) {
+            return "加载中...";
+        }
+
+        if (error) {
+            return "加载失败";
+        }
+
+        if (mcpSummary.totalServers === 0) {
+            return "暂无可用的MCP服务器";
+        }
+
+        return `已启用 ${mcpSummary.enabledServers} 个服务器，${mcpSummary.enabledTools} 个工具`;
+    };
+
+    const getStatusIcon = () => {
+        if (loading) {
+            return <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400" />;
+        }
+
+        if (error) {
+            return <AlertCircle className="h-4 w-4 text-red-500" />;
+        }
+
+        if (mcpSummary.totalServers === 0) {
+            return <Server className="h-4 w-4 text-gray-400" />;
+        }
+
+        return <Wrench className="h-4 w-4 text-gray-600" />;
+    };
+
+    return (
+        <>
+            <div className="flex items-center justify-between py-2">
+                <div className="flex items-center gap-3">
+                    {getStatusIcon()}
+                    <div>
+                        <div className="text-sm font-medium text-gray-900">{getSummaryText()}</div>
+                    </div>
+                </div>
+
+                <Button
+                    variant={mcpSummary.totalServers === 0 ? "default" : "outline"}
+                    size="sm"
+                    onClick={handleOpenConfig}
+                    disabled={loading}
+                >
+                    <Settings className="h-4 w-4 mr-1" />
+                    {mcpSummary.totalServers === 0 ? "配置MCP" : "配置"}
+                </Button>
+            </div>
+
+            <AssistantMCPConfigDialog
+                assistantId={assistantId}
+                isOpen={configDialogOpen}
+                onClose={handleCloseConfig}
+                onConfigChange={handleConfigChanged}
+            />
+        </>
+    );
+};
+
+export default AssistantMCPFieldDisplay;

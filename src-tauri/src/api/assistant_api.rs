@@ -2,7 +2,7 @@ use crate::{
     db::{
         assistant_db::{
             Assistant, AssistantDatabase, AssistantModel, AssistantModelConfig, AssistantPrompt,
-            AssistantPromptParam,
+            AssistantPromptParam, AssistantMCPConfig, AssistantMCPToolConfig,
         },
         conversation_db::ConversationDatabase,
     },
@@ -16,6 +16,31 @@ pub struct AssistantDetail {
     pub model: Vec<AssistantModel>,
     pub model_configs: Vec<AssistantModelConfig>,
     pub prompt_params: Vec<AssistantPromptParam>,
+    pub mcp_configs: Vec<AssistantMCPConfig>,
+    pub mcp_tool_configs: Vec<AssistantMCPToolConfig>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct MCPServerInfo {
+    pub id: i64,
+    pub name: String,
+    pub is_enabled: bool,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct MCPToolInfo {
+    pub id: i64,
+    pub name: String,
+    pub is_enabled: bool,
+    pub is_auto_run: bool,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct MCPServerWithTools {
+    pub id: i64,
+    pub name: String,
+    pub is_enabled: bool,
+    pub tools: Vec<MCPToolInfo>,
 }
 
 #[tauri::command]
@@ -67,6 +92,18 @@ pub fn get_assistant(
         .map_err(|e| e.to_string())?;
     println!("prompt_params: {:?}", prompt_params);
 
+    // 获取相关的 MCP 配置
+    let mcp_configs = assistant_db
+        .get_assistant_mcp_configs(assistant_id)
+        .map_err(|e| e.to_string())?;
+    println!("mcp_configs: {:?}", mcp_configs);
+
+    // 获取相关的 MCP 工具配置
+    let mcp_tool_configs = assistant_db
+        .get_assistant_mcp_tool_configs(assistant_id)
+        .map_err(|e| e.to_string())?;
+    println!("mcp_tool_configs: {:?}", mcp_tool_configs);
+
     // 构建 AssistantDetail 对象
     let assistant_detail = AssistantDetail {
         assistant,
@@ -74,6 +111,8 @@ pub fn get_assistant(
         model,
         model_configs,
         prompt_params,
+        mcp_configs,
+        mcp_tool_configs,
     };
 
     Ok(assistant_detail)
@@ -326,6 +365,8 @@ pub fn add_assistant(
         model,
         model_configs,
         prompt_params,
+        mcp_configs: Vec::new(),
+        mcp_tool_configs: Vec::new(),
     };
 
     Ok(assistant_detail)
@@ -431,6 +472,8 @@ pub fn copy_assistant(
         model: new_models,
         model_configs: new_model_configs,
         prompt_params: Vec::new(), // Assuming prompt_params are not copied
+        mcp_configs: Vec::new(),
+        mcp_tool_configs: Vec::new(),
     };
 
     println!(
@@ -506,4 +549,102 @@ pub fn get_assistant_field_value(
         .find(|config| config.name == field_name)
         .and_then(|config| config.value.clone())
         .ok_or_else(|| format!("Field '{}' not found", field_name))
+}
+
+// MCP Configuration Commands
+
+
+#[tauri::command]
+pub async fn update_assistant_mcp_config(
+    app_handle: tauri::AppHandle,
+    assistant_id: i64,
+    mcp_server_id: i64,
+    is_enabled: bool,
+) -> Result<(), String> {
+    let assistant_db = AssistantDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+    assistant_db
+        .upsert_assistant_mcp_config(assistant_id, mcp_server_id, is_enabled)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn update_assistant_mcp_tool_config(
+    app_handle: tauri::AppHandle,
+    assistant_id: i64,
+    mcp_tool_id: i64,
+    is_enabled: bool,
+    is_auto_run: bool,
+) -> Result<(), String> {
+    let assistant_db = AssistantDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+    assistant_db
+        .upsert_assistant_mcp_tool_config(assistant_id, mcp_tool_id, is_enabled, is_auto_run)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_assistant_mcp_servers_with_tools(
+    app_handle: tauri::AppHandle,
+    assistant_id: i64,
+) -> Result<Vec<MCPServerWithTools>, String> {
+    let assistant_db = AssistantDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+    let servers_data = assistant_db
+        .get_assistant_mcp_servers_with_tools(assistant_id)
+        .map_err(|e| e.to_string())?;
+    
+    let servers = servers_data
+        .into_iter()
+        .map(|(server_id, server_name, server_is_enabled, tools_data)| {
+            let tools = tools_data
+                .into_iter()
+                .map(|(tool_id, tool_name, tool_is_enabled, tool_is_auto_run)| MCPToolInfo {
+                    id: tool_id,
+                    name: tool_name,
+                    is_enabled: tool_is_enabled,
+                    is_auto_run: tool_is_auto_run,
+                })
+                .collect();
+            
+            MCPServerWithTools {
+                id: server_id,
+                name: server_name,
+                is_enabled: server_is_enabled,
+                tools,
+            }
+        })
+        .collect();
+    
+    Ok(servers)
+}
+
+#[tauri::command]
+pub async fn bulk_update_assistant_mcp_tools(
+    app_handle: tauri::AppHandle,
+    assistant_id: i64,
+    mcp_server_id: i64,
+    is_enabled: bool,
+    is_auto_run: Option<bool>,
+) -> Result<(), String> {
+    let assistant_db = AssistantDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+    
+    // Get all tools for this server from the optimized method
+    let servers_data = assistant_db
+        .get_assistant_mcp_servers_with_tools(assistant_id)
+        .map_err(|e| e.to_string())?;
+    
+    // Find the specific server and get its tools
+    let tools_data = servers_data
+        .into_iter()
+        .find(|(server_id, _, _, _)| *server_id == mcp_server_id)
+        .map(|(_, _, _, tools)| tools)
+        .unwrap_or_default();
+
+    // Update each tool
+    for (tool_id, _, _, current_auto_run) in tools_data {
+        let auto_run = is_auto_run.unwrap_or(current_auto_run);
+        assistant_db
+            .upsert_assistant_mcp_tool_config(assistant_id, tool_id, is_enabled, auto_run)
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
 }

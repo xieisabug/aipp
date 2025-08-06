@@ -21,7 +21,8 @@ use crate::api::artifacts_api::{
 };
 use crate::api::assistant_api::{
     add_assistant, copy_assistant, delete_assistant, get_assistant, get_assistant_field_value,
-    get_assistants, save_assistant,
+    get_assistants, save_assistant, get_assistant_mcp_servers_with_tools, update_assistant_mcp_config, 
+    update_assistant_mcp_tool_config, bulk_update_assistant_mcp_tools,
 };
 use crate::api::attachment_api::{add_attachment, open_attachment_with_default_app};
 use crate::api::conversation_api::{
@@ -346,7 +347,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             get_mcp_server_prompts,
             update_mcp_server_prompt,
             test_mcp_connection,
-            refresh_mcp_server_capabilities
+            refresh_mcp_server_capabilities,
+            get_assistant_mcp_servers_with_tools,
+            update_assistant_mcp_config,
+            update_assistant_mcp_tool_config,
+            bulk_update_assistant_mcp_tools
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application");

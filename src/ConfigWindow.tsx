@@ -95,6 +95,13 @@ function ConfigWindow() {
     // 获取选中的组件
     const SelectedComponent = contentMap[selectedMenu];
 
+    // 导航函数
+    const navigateTo = (menuKey: string) => {
+        if (contentMap[menuKey]) {
+            setSelectedMenu(menuKey);
+        }
+    };
+
     return (
         <div className="flex justify-center items-center h-screen bg-background">
             <div className="bg-card shadow-lg w-full h-screen grid grid-cols-[1fr_3fr] md:grid-cols-[1fr_4fr] lg:grid-cols-[1fr_5fr]" data-tauri-drag-region>
@@ -133,7 +140,7 @@ function ConfigWindow() {
                 {/* 内容区域 */}
                 <div className="bg-card px-4 md:px-6 lg:px-8 py-6 overflow-y-auto max-h-screen">
                     {/* 配置组件内容 */}
-                    <SelectedComponent pluginList={pluginList} />
+                    <SelectedComponent pluginList={pluginList} navigateTo={navigateTo} />
                 </div>
             </div>
         </div>
