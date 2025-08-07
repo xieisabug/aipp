@@ -1,8 +1,8 @@
 use crate::{
     db::{
         assistant_db::{
-            Assistant, AssistantDatabase, AssistantModel, AssistantModelConfig, AssistantPrompt,
-            AssistantPromptParam, AssistantMCPConfig, AssistantMCPToolConfig,
+            Assistant, AssistantDatabase, AssistantMCPConfig, AssistantMCPToolConfig,
+            AssistantModel, AssistantModelConfig, AssistantPrompt, AssistantPromptParam,
         },
         conversation_db::ConversationDatabase,
     },
@@ -553,7 +553,6 @@ pub fn get_assistant_field_value(
 
 // MCP Configuration Commands
 
-
 #[tauri::command]
 pub async fn update_assistant_mcp_config(
     app_handle: tauri::AppHandle,
@@ -590,20 +589,22 @@ pub async fn get_assistant_mcp_servers_with_tools(
     let servers_data = assistant_db
         .get_assistant_mcp_servers_with_tools(assistant_id)
         .map_err(|e| e.to_string())?;
-    
+
     let servers = servers_data
         .into_iter()
         .map(|(server_id, server_name, server_is_enabled, tools_data)| {
             let tools = tools_data
                 .into_iter()
-                .map(|(tool_id, tool_name, tool_is_enabled, tool_is_auto_run)| MCPToolInfo {
-                    id: tool_id,
-                    name: tool_name,
-                    is_enabled: tool_is_enabled,
-                    is_auto_run: tool_is_auto_run,
-                })
+                .map(
+                    |(tool_id, tool_name, tool_is_enabled, tool_is_auto_run)| MCPToolInfo {
+                        id: tool_id,
+                        name: tool_name,
+                        is_enabled: tool_is_enabled,
+                        is_auto_run: tool_is_auto_run,
+                    },
+                )
                 .collect();
-            
+
             MCPServerWithTools {
                 id: server_id,
                 name: server_name,
@@ -612,7 +613,7 @@ pub async fn get_assistant_mcp_servers_with_tools(
             }
         })
         .collect();
-    
+
     Ok(servers)
 }
 
@@ -625,12 +626,12 @@ pub async fn bulk_update_assistant_mcp_tools(
     is_auto_run: Option<bool>,
 ) -> Result<(), String> {
     let assistant_db = AssistantDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    
+
     // Get all tools for this server from the optimized method
     let servers_data = assistant_db
         .get_assistant_mcp_servers_with_tools(assistant_id)
         .map_err(|e| e.to_string())?;
-    
+
     // Find the specific server and get its tools
     let tools_data = servers_data
         .into_iter()

@@ -5,7 +5,7 @@ import FormDialog from "../FormDialog";
 import CustomSelect from "../CustomSelect";
 import ConfirmDialog from "../ConfirmDialog";
 import { Button } from "../ui/button";
-import { PlusCircle, Zap, Settings } from "lucide-react";
+import { PlusCircle, Zap, Settings, ServerCrash } from "lucide-react";
 import { toast } from 'sonner';
 
 // 导入公共组件
@@ -170,7 +170,7 @@ const LLMProviderConfig: React.FC = () => {
                 sidebar={null}
                 content={
                     <EmptyState
-                        icon={<Settings className="h-8 w-8 text-gray-500" />}
+                        icon={<ServerCrash className="h-8 w-8 text-gray-500" />}
                         title="还没有配置提供商"
                         description="开始添加你的第一个 AI 模型提供商，享受智能助手的强大功能"
                         action={
@@ -193,7 +193,7 @@ const LLMProviderConfig: React.FC = () => {
         <SidebarList
             title="提供商"
             description="选择提供商进行配置"
-            icon={<Settings className="h-5 w-5" />}
+            icon={<ServerCrash className="h-5 w-5" />}
         >
             {LLMProviders.map((provider) => (
                 <ListItemButton
