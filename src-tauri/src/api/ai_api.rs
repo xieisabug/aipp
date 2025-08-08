@@ -4,6 +4,7 @@ use crate::db::assistant_db::AssistantModelConfig;
 use crate::db::conversation_db::{AttachmentType, Repository};
 use crate::db::conversation_db::{Conversation, ConversationDatabase, Message, MessageAttachment};
 use crate::db::llm_db::LLMDatabase;
+use crate::db::mcp_db::{MCPDatabase, MCPServer, MCPServerTool};
 use crate::db::system_db::FeatureConfig;
 use crate::errors::AppError;
 use crate::state::message_token::MessageTokenManager;
@@ -395,6 +396,20 @@ fn handle_message_type_end(
     Ok(())
 }
 
+/// MCP 信息数据结构，用于存储助手的 MCP 配置信息
+#[derive(Debug, Clone)]
+struct MCPInfoForAssistant {
+    pub enabled_servers: Vec<MCPServerWithDetails>,
+    pub use_native_toolcall: bool,
+}
+
+/// MCP 服务器及其工具详情
+#[derive(Debug, Clone)]
+struct MCPServerWithDetails {
+    pub server: MCPServer,
+    pub enabled_tools: Vec<MCPServerTool>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AiRequest {
     conversation_id: String,
@@ -412,6 +427,124 @@ pub struct AiRequest {
 pub struct AiResponse {
     conversation_id: i64,
     request_prompt_result_with_context: String,
+}
+
+/// 收集助手的 MCP 信息
+async fn collect_mcp_info_for_assistant(
+    app_handle: &tauri::AppHandle,
+    assistant_detail: &super::assistant_api::AssistantDetail,
+) -> Result<MCPInfoForAssistant, AppError> {
+    println!("Collecting MCP info for assistant {}", assistant_detail.assistant.id);
+    
+    // 1. 获取原生 toolcall 配置
+    let use_native_toolcall = match super::assistant_api::get_assistant_field_value(
+        app_handle.clone(),
+        assistant_detail.assistant.id,
+        "use_native_toolcall",
+    ) {
+        Ok(value) => {
+            let result = value == "true";
+            println!("Native toolcall enabled: {}", result);
+            result
+        }
+        Err(e) => {
+            println!("Failed to get native toolcall config: {}, using default (false)", e);
+            false
+        }
+    };
+
+    // 2. 获取启用的 MCP 服务器
+    let enabled_mcp_configs: Vec<_> = assistant_detail
+        .mcp_configs
+        .iter()
+        .filter(|config| config.is_enabled)
+        .collect();
+    
+    println!("Found {} enabled MCP server configs", enabled_mcp_configs.len());
+
+    let mut enabled_servers = Vec::new();
+
+    // 3. 收集每个服务器的详细信息和工具
+    for mcp_config in enabled_mcp_configs {
+        match collect_server_details(app_handle, mcp_config.mcp_server_id, assistant_detail).await {
+            Ok(server_details) => {
+                println!(
+                    "Collected info for MCP server '{}' with {} tools",
+                    server_details.server.name,
+                    server_details.enabled_tools.len()
+                );
+                enabled_servers.push(server_details);
+            }
+            Err(e) => {
+                println!(
+                    "Failed to collect info for MCP server {}: {}",
+                    mcp_config.mcp_server_id, e
+                );
+                // 继续处理其他服务器，不让单个服务器的错误影响整体流程
+            }
+        }
+    }
+
+    Ok(MCPInfoForAssistant {
+        enabled_servers,
+        use_native_toolcall,
+    })
+}
+
+/// 收集单个 MCP 服务器的详细信息
+async fn collect_server_details(
+    app_handle: &tauri::AppHandle,
+    server_id: i64,
+    assistant_detail: &super::assistant_api::AssistantDetail,
+) -> Result<MCPServerWithDetails, AppError> {
+    let mcp_db = MCPDatabase::new(app_handle).map_err(AppError::from)?;
+
+    // 获取服务器基础信息
+    let server = mcp_db.get_mcp_server(server_id).map_err(AppError::from)?;
+
+    // 获取服务器的所有工具
+    let all_tools = mcp_db.get_mcp_server_tools(server_id).map_err(AppError::from)?;
+
+    // 根据助手的工具配置过滤启用的工具
+    let enabled_tools = filter_enabled_tools(all_tools, assistant_detail);
+
+    Ok(MCPServerWithDetails {
+        server,
+        enabled_tools,
+    })
+}
+
+/// 根据助手配置过滤启用的工具
+fn filter_enabled_tools(
+    all_tools: Vec<MCPServerTool>,
+    assistant_detail: &super::assistant_api::AssistantDetail,
+) -> Vec<MCPServerTool> {
+    // 创建工具配置的映射表
+    let tool_config_map: HashMap<i64, &crate::db::assistant_db::AssistantMCPToolConfig> = assistant_detail
+        .mcp_tool_configs
+        .iter()
+        .map(|config| (config.mcp_tool_id, config))
+        .collect();
+
+    all_tools
+        .into_iter()
+        .filter_map(|mut tool| {
+            // 查找该工具的配置
+            if let Some(tool_config) = tool_config_map.get(&tool.id) {
+                if tool_config.is_enabled {
+                    // 更新工具的配置状态
+                    tool.is_enabled = tool_config.is_enabled;
+                    tool.is_auto_run = tool_config.is_auto_run;
+                    Some(tool)
+                } else {
+                    None // 工具被禁用，过滤掉
+                }
+            } else {
+                // 没有配置的工具默认禁用
+                None
+            }
+        })
+        .collect()
 }
 
 /// 处理流式聊天
@@ -1261,6 +1394,30 @@ pub async fn ask_ai(
 
     if assistant_detail.model.is_empty() {
         return Err(AppError::NoModelFound);
+    }
+
+    // 收集 MCP 信息
+    let mcp_info = collect_mcp_info_for_assistant(&app_handle, &assistant_detail).await?;
+    println!(
+        "Collected MCP info: {} enabled servers, native toolcall: {}",
+        mcp_info.enabled_servers.len(),
+        mcp_info.use_native_toolcall
+    );
+    
+    // 详细输出 MCP 服务器和工具信息
+    for server_details in &mcp_info.enabled_servers {
+        println!(
+            "MCP Server: {} ({}), enabled tools: {}",
+            server_details.server.name,
+            server_details.server.transport_type,
+            server_details.enabled_tools.len()
+        );
+        for tool in &server_details.enabled_tools {
+            println!(
+                "  Tool: {} (enabled: {}, auto_run: {})",
+                tool.tool_name, tool.is_enabled, tool.is_auto_run
+            );
+        }
     }
 
     let _need_generate_title = request.conversation_id.is_empty();

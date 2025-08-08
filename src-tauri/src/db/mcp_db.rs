@@ -18,7 +18,7 @@ pub struct MCPServer {
     pub created_time: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MCPServerTool {
     pub id: i64,
     pub server_id: i64,
