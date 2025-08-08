@@ -3,8 +3,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible";
-import { Server, Wrench, MoreHorizontal, Play, Pause, ChevronDown, ChevronRight, Settings2 } from "lucide-react";
+import { Server, Wrench, MoreHorizontal, Play, Pause, ChevronDown, ChevronRight, Settings2, Info } from "lucide-react";
 import { toast } from 'sonner';
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "../ui/tooltip";
 import {
     Dialog,
     DialogContent,
@@ -48,6 +54,7 @@ const AssistantMCPConfigDialog: React.FC<AssistantMCPConfigDialogProps> = ({
     const [availableServers, setAvailableServers] = useState<MCPServerInfo[]>([]);
     const [expandedServers, setExpandedServers] = useState<Set<number>>(new Set());
     const [serverTools, setServerTools] = useState<Map<number, MCPToolInfo[]>>(new Map());
+    const [useNativeToolCall, setUseNativeToolCall] = useState<boolean>(false);
     // loadingTools 不再需要，因为工具数据在初始化时一次性加载
 
     // 获取可用的MCP服务器列表
@@ -59,6 +66,18 @@ const AssistantMCPConfigDialog: React.FC<AssistantMCPConfigDialogProps> = ({
                 'get_assistant_mcp_servers_with_tools',
                 { assistantId }
             );
+
+            // 获取原生ToolCall配置
+            try {
+                const nativeToolCallValue = await invoke<string>('get_assistant_field_value', {
+                    assistantId,
+                    fieldName: 'use_native_toolcall'
+                });
+                setUseNativeToolCall(nativeToolCallValue === 'true');
+            } catch (error) {
+                // 如果没有找到配置，默认为false
+                setUseNativeToolCall(false);
+            }
 
             // 提取服务器信息
             const servers = serversWithTools.map(server => ({
@@ -150,6 +169,25 @@ const AssistantMCPConfigDialog: React.FC<AssistantMCPConfigDialogProps> = ({
         }
     }, [assistantId, availableServers, handleServerToggle, onConfigChange]);
 
+    // 更新原生ToolCall配置
+    const handleNativeToolCallToggle = useCallback(async (checked: boolean) => {
+        try {
+            await invoke('update_assistant_model_config_value', {
+                assistantId,
+                configName: 'use_native_toolcall',
+                configValue: checked.toString(),
+                valueType: 'boolean'
+            });
+
+            setUseNativeToolCall(checked);
+            toast.success(`原生ToolCall已${checked ? '启用' : '禁用'}`);
+            onConfigChange?.();
+        } catch (error) {
+            console.error('Failed to update native toolcall config:', error);
+            toast.error('更新原生ToolCall配置失败: ' + error);
+        }
+    }, [assistantId, onConfigChange]);
+
     // 批量更新工具
     const handleBulkUpdateTools = useCallback(async (
         serverId: number,
@@ -218,6 +256,34 @@ const AssistantMCPConfigDialog: React.FC<AssistantMCPConfigDialogProps> = ({
                         </div>
                     </div>
                 </DialogHeader>
+
+                {/* 原生ToolCall设置 */}
+                <div className="border-b pb-4 mb-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-gray-900">使用原生ToolCall</span>
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Info className="h-4 w-4 text-gray-400 cursor-help" />
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                        <p className="max-w-xs text-xs">
+                                            如果模型支持并且模型能力够强，推荐使用原生Toolcall调用工具更加准确
+                                        </p>
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        </div>
+                        <Switch
+                            checked={useNativeToolCall}
+                            onCheckedChange={handleNativeToolCallToggle}
+                        />
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                        {useNativeToolCall ? '已启用原生ToolCall调用' : '使用传统prompt方式调用工具'}
+                    </p>
+                </div>
 
                 <div className="flex-1 overflow-auto">
                     {availableServers.length === 0 ? (

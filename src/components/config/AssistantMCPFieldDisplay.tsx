@@ -15,6 +15,7 @@ interface MCPSummary {
     enabledServers: number;
     totalTools: number;
     enabledTools: number;
+    useNativeToolCall: boolean;
 }
 
 const AssistantMCPFieldDisplay: React.FC<AssistantMCPFieldDisplayProps> = ({
@@ -26,7 +27,8 @@ const AssistantMCPFieldDisplay: React.FC<AssistantMCPFieldDisplayProps> = ({
         totalServers: 0,
         enabledServers: 0,
         totalTools: 0,
-        enabledTools: 0
+        enabledTools: 0,
+        useNativeToolCall: false
     });
     const [configDialogOpen, setConfigDialogOpen] = useState(false);
     const [loading, setLoading] = useState(true);
@@ -43,6 +45,19 @@ const AssistantMCPFieldDisplay: React.FC<AssistantMCPFieldDisplayProps> = ({
                 'get_assistant_mcp_servers_with_tools',
                 { assistantId }
             );
+
+            // 获取原生ToolCall配置
+            let useNativeToolCall = false;
+            try {
+                const nativeToolCallValue = await invoke<string>('get_assistant_field_value', {
+                    assistantId,
+                    fieldName: 'use_native_toolcall'
+                });
+                useNativeToolCall = nativeToolCallValue === 'true';
+            } catch (error) {
+                // 如果没有找到配置，默认为false
+                useNativeToolCall = false;
+            }
 
             const totalServers = serversWithTools.length;
             const enabledServers = serversWithTools.filter(server => server.is_enabled).length;
@@ -62,7 +77,8 @@ const AssistantMCPFieldDisplay: React.FC<AssistantMCPFieldDisplayProps> = ({
                 totalServers,
                 enabledServers,
                 totalTools,
-                enabledTools
+                enabledTools,
+                useNativeToolCall
             });
 
         } catch (error) {
@@ -108,7 +124,8 @@ const AssistantMCPFieldDisplay: React.FC<AssistantMCPFieldDisplayProps> = ({
             return "暂无可用的MCP服务器";
         }
 
-        return `已启用 ${mcpSummary.enabledServers} 个服务器，${mcpSummary.enabledTools} 个工具`;
+        const toolCallMethod = mcpSummary.useNativeToolCall ? "原生ToolCall" : "Prompt调用";
+        return `已启用 ${mcpSummary.enabledServers} 个服务器，${mcpSummary.enabledTools} 个工具 • ${toolCallMethod}`;
     };
 
     const getStatusIcon = () => {

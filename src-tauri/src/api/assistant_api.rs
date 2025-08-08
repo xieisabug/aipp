@@ -649,3 +649,52 @@ pub async fn bulk_update_assistant_mcp_tools(
 
     Ok(())
 }
+
+#[tauri::command]
+pub async fn update_assistant_model_config_value(
+    app_handle: tauri::AppHandle,
+    assistant_id: i64,
+    config_name: String,
+    config_value: String,
+    value_type: String,
+) -> Result<(), String> {
+    let assistant_db = AssistantDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+    
+    // 首先尝试查找是否已存在该配置
+    let existing_configs = assistant_db
+        .get_assistant_model_configs(assistant_id)
+        .map_err(|e| e.to_string())?;
+    
+    if let Some(existing_config) = existing_configs.iter().find(|c| c.name == config_name) {
+        // 更新现有配置
+        assistant_db
+            .update_assistant_model_config(existing_config.id, &config_name, &config_value)
+            .map_err(|e| e.to_string())?;
+    } else {
+        // 创建新配置 - 需要获取assistant_model_id
+        let models = assistant_db
+            .get_assistant_model(assistant_id)
+            .map_err(|e| e.to_string())?;
+        
+        let model_id = if let Some(model) = models.first() {
+            model.id
+        } else {
+            // 如果没有模型，创建一个默认模型
+            assistant_db
+                .add_assistant_model(assistant_id, 0, "", "")
+                .map_err(|e| e.to_string())?
+        };
+        
+        assistant_db
+            .add_assistant_model_config(
+                assistant_id,
+                model_id,
+                &config_name,
+                &config_value,
+                &value_type,
+            )
+            .map_err(|e| e.to_string())?;
+    }
+    
+    Ok(())
+}
