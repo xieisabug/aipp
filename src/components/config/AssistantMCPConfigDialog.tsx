@@ -237,7 +237,7 @@ const AssistantMCPConfigDialog: React.FC<AssistantMCPConfigDialogProps> = ({
                                 return (
                                     <Collapsible key={server.id} open={isExpanded} onOpenChange={() => handleServerExpand(server.id)}>
                                         <div className={`border rounded-lg transition-colors ${server.is_enabled
-                                            ? 'border-green-200 bg-green-50'
+                                            ? 'border-gray-300 bg-white'
                                             : 'border-gray-200 bg-gray-50'
                                             }`}>
                                             <CollapsibleTrigger asChild>
@@ -250,7 +250,7 @@ const AssistantMCPConfigDialog: React.FC<AssistantMCPConfigDialogProps> = ({
                                                                 <ChevronRight className="h-4 w-4 text-gray-500" />
                                                             )}
                                                             {server.is_enabled ? (
-                                                                <Play className="h-5 w-5 text-green-600" />
+                                                                <Play className="h-5 w-5 text-gray-700" />
                                                             ) : (
                                                                 <Pause className="h-5 w-5 text-gray-400" />
                                                             )}
@@ -320,7 +320,7 @@ const AssistantMCPConfigDialog: React.FC<AssistantMCPConfigDialogProps> = ({
                                                                             <div className="font-medium text-gray-900">{tool.name}</div>
                                                                             <div className="text-sm text-gray-500">
                                                                                 {tool.is_enabled ? (
-                                                                                    <span className="text-green-600">已启用</span>
+                                                                                    <span className="text-gray-700">已启用</span>
                                                                                 ) : (
                                                                                     <span className="text-gray-500">已禁用</span>
                                                                                 )}

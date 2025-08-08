@@ -280,14 +280,14 @@ const AssistantMCPConfigSection: React.FC<AssistantMCPConfigSectionProps> = ({
                                 className={`flex items-center justify-between p-4 rounded-lg border transition-colors cursor-pointer ${selectedServerId === server.id
                                         ? 'border-blue-200 bg-blue-50'
                                         : server.is_enabled
-                                            ? 'border-green-200 bg-green-50'
+                                            ? 'border-gray-300 bg-white'
                                             : 'border-gray-200 bg-gray-50'
                                     }`}
                                 onClick={() => setSelectedServerId(server.id)}
                             >
                                 <div className="flex items-center gap-3">
                                     {server.is_enabled ? (
-                                        <CheckCircle2 className="h-5 w-5 text-green-600" />
+                                        <CheckCircle2 className="h-5 w-5 text-gray-700" />
                                     ) : (
                                         <Circle className="h-5 w-5 text-gray-400" />
                                     )}
