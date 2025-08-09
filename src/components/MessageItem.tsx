@@ -20,6 +20,7 @@ import CodeBlock from "./CodeBlock";
 import MessageFileAttachment from "./MessageFileAttachment";
 import MessageWebContent from "./conversation/MessageWebContent";
 import ReasoningMessage from "./ReasoningMessage";
+import McpToolCall from "./McpToolCall";
 import { Message, StreamEvent } from "../data/Conversation";
 import {
     usePerformanceMonitor,
@@ -31,6 +32,7 @@ interface CustomComponents extends Components {
     fileattachment: React.ElementType;
     bangwebtomarkdown: React.ElementType;
     bangweb: React.ElementType;
+    mcp_tool_call: React.ElementType;
 }
 
 // 将常量移到组件外部避免重复创建
@@ -40,6 +42,22 @@ const CUSTOM_TAGS = {
     bangwebtomarkdown: (match: RegExpExecArray) =>
         `\n<bangwebtomarkdown ${match[1]}></bangwebtomarkdown>\n`,
     bangweb: (match: RegExpExecArray) => `\n<bangweb ${match[1]}></bangweb>\n`,
+    mcp_tool_call: (match: RegExpExecArray) => {
+        // 解析 mcp_tool_call 标签内容
+        const content = match[2] || '';
+        const serverMatch = content.match(/<server_name>([^<]*)<\/server_name>/);
+        const toolMatch = content.match(/<tool_name>([^<]*)<\/tool_name>/);
+        const paramsMatch = content.match(/<parameters>([\s\S]*?)<\/parameters>/);
+
+        const serverName = serverMatch ? serverMatch[1].trim() : '';
+        const toolName = toolMatch ? toolMatch[1].trim() : '';
+        const parameters = paramsMatch ? paramsMatch[1].trim() : '{}';
+
+        console.log('Parsing mcp_tool_call:', { serverName, toolName, parameters });
+        
+        // 使用一个特殊的 HTML 注释格式来标记，然后在后处理中替换
+        return `\n<!-- MCP_TOOL_CALL:${JSON.stringify({ server_name: serverName, tool_name: toolName, parameters })} -->\n`;
+    },
 };
 
 // 定义允许的自定义标签及其属性，结合默认 schema
@@ -50,6 +68,7 @@ const SANITIZE_SCHEMA = {
         "fileattachment",
         "bangwebtomarkdown",
         "bangweb",
+        "mcp_tool_call",
     ],
     attributes: {
         ...(defaultSchema.attributes || {}),
@@ -64,6 +83,11 @@ const SANITIZE_SCHEMA = {
             ...(defaultSchema.attributes?.bangwebtomarkdown || []),
         ],
         bangweb: [...(defaultSchema.attributes?.bangweb || [])],
+        mcp_tool_call: [
+            "server_name",
+            "tool_name",
+            "parameters",
+        ],
     },
 };
 
@@ -88,6 +112,20 @@ const MARKDOWN_COMPONENTS_BASE = {
     bangwebtomarkdown: MessageWebContent,
     bangweb: MessageWebContent,
     tipscomponent: TipsComponent,
+    mcp_tool_call: (props: any) => {
+        const { server_name, tool_name, parameters } = props;
+        const decodedParameters = parameters ? decodeURIComponent(parameters) : '{}';
+
+        console.log('Rendering McpToolCall:', { server_name, tool_name, decodedParameters });
+
+        return (
+            <McpToolCall
+                server_name={server_name}
+                tool_name={tool_name}
+                parameters={decodedParameters}
+            />
+        );
+    },
 } as const;
 
 interface MessageItemProps {
@@ -210,6 +248,8 @@ const MessageItem = React.memo(
             ) => {
                 let result = markdown;
 
+                console.log('Input markdown:', markdown);
+
                 Object.keys(customTags).forEach((tag) => {
                     // 匹配完整的标签对
                     const completeRegex = new RegExp(
@@ -218,10 +258,13 @@ const MessageItem = React.memo(
                     );
                     let match;
                     while ((match = completeRegex.exec(markdown)) !== null) {
+                        console.log(`Found ${tag} tag:`, match);
                         const replacement = customTags[tag](match);
                         result = result.replace(match[0], replacement);
                     }
                 });
+
+                console.log('Output result:', result);
 
                 return result;
             },
@@ -254,7 +297,7 @@ const MessageItem = React.memo(
                         return match ? (
                             <CodeBlock
                                 language={match[1]}
-                                onCodeRun={onCodeRun || (() => {})}
+                                onCodeRun={onCodeRun || (() => { })}
                             >
                                 {children}
                             </CodeBlock>
@@ -303,21 +346,95 @@ const MessageItem = React.memo(
             [onCodeRun],
         );
 
+        // 后处理函数：将 HTML 注释转换为 React 组件
+        const postProcessContent = useCallback((element: React.ReactElement): React.ReactElement => {
+            // 检查是否包含 MCP_TOOL_CALL 注释
+            const htmlString = markdownContent;
+            const mcpMatches = htmlString.matchAll(/<!-- MCP_TOOL_CALL:(.*?) -->/g);
+            const mcpCalls = Array.from(mcpMatches);
+            
+            if (mcpCalls.length === 0) {
+                return element;
+            }
+
+            // 将注释替换为实际的 React 组件
+            const parts: (React.ReactNode | string)[] = [];
+            let lastIndex = 0;
+            
+            for (const [index, match] of mcpCalls.entries()) {
+                try {
+                    const data = JSON.parse(match[1]);
+                    const beforeComment = htmlString.slice(lastIndex, match.index);
+                    
+                    if (beforeComment.trim()) {
+                        parts.push(
+                            <ReactMarkdown
+                                key={`before-${index}`}
+                                children={beforeComment}
+                                remarkPlugins={REMARK_PLUGINS as any}
+                                rehypePlugins={REHYPE_PLUGINS as any}
+                                components={markdownComponents}
+                            />
+                        );
+                    }
+                    
+                    console.log('Rendering McpToolCall:', data);
+                    
+                    parts.push(
+                        <McpToolCall
+                            key={`mcp-${index}`}
+                            server_name={data.server_name}
+                            tool_name={data.tool_name}
+                            parameters={data.parameters}
+                        />
+                    );
+                    
+                    lastIndex = match.index! + match[0].length;
+                } catch (error) {
+                    console.error('Error parsing MCP_TOOL_CALL data:', error);
+                }
+            }
+            
+            // 添加剩余的内容
+            const remainingContent = htmlString.slice(lastIndex);
+            if (remainingContent.trim()) {
+                parts.push(
+                    <ReactMarkdown
+                        key="remaining"
+                        children={remainingContent}
+                        remarkPlugins={REMARK_PLUGINS as any}
+                        rehypePlugins={REHYPE_PLUGINS as any}
+                        components={markdownComponents}
+                    />
+                );
+            }
+            
+            return <div>{parts}</div>;
+        }, [markdownContent, markdownComponents]);
+
         const markdownElement = useMemo(
             () =>
                 measureSync(
                     `markdown-render-${message.id}`,
-                    () => (
-                        <ReactMarkdown
-                            children={markdownContent}
-                            remarkPlugins={REMARK_PLUGINS as any}
-                            rehypePlugins={REHYPE_PLUGINS as any}
-                            components={markdownComponents}
-                        />
-                    ),
+                    () => {
+                        console.log('ReactMarkdown input:', markdownContent);
+                        
+                        // 渲染 Markdown
+                        const element = (
+                            <ReactMarkdown
+                                children={markdownContent}
+                                remarkPlugins={REMARK_PLUGINS as any}
+                                rehypePlugins={REHYPE_PLUGINS as any}
+                                components={markdownComponents}
+                            />
+                        );
+
+                        // 后处理，将注释转换为组件
+                        return postProcessContent(element);
+                    },
                     false,
                 ),
-            [markdownContent, markdownComponents],
+            [markdownContent, markdownComponents, postProcessContent],
         );
 
         return (
@@ -365,7 +482,7 @@ const MessageItem = React.memo(
                     {(message.message_type === "assistant" ||
                         message.message_type === "response" ||
                         message.message_type === "user") &&
-                    onMessageEdit ? (
+                        onMessageEdit ? (
                         <IconButton
                             icon={<Edit2 size={16} color="black" />}
                             onClick={onMessageEdit}
@@ -374,7 +491,7 @@ const MessageItem = React.memo(
                     {(message.message_type === "assistant" ||
                         message.message_type === "response" ||
                         message.message_type === "user") &&
-                    onMessageRegenerate ? (
+                        onMessageRegenerate ? (
                         <IconButton
                             icon={<Refresh fill="black" />}
                             onClick={onMessageRegenerate}
