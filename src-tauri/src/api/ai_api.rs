@@ -203,20 +203,20 @@ impl ConfigBuilder {
 }
 
 /// 将消息列表转换为 ChatMessage 格式，并处理多媒体附件
-/// 过滤掉推理类型的消息，只保留对话相关的消息
+/// 过滤掉推理类型的消息，tool_result消息参与AI对话历史但不显示在UI
 fn build_chat_messages(
     init_message_list: &[(String, String, Vec<MessageAttachment>)],
 ) -> Vec<ChatMessage> {
     let mut chat_messages = Vec::new();
 
     for (message_type, content, attachments) in init_message_list {
-        // 过滤掉推理类型的消息
+        // 过滤掉推理类型的消息（不参与AI对话历史），但tool_result要参与对话历史
         if message_type == "reasoning" {
             continue;
         }
 
-        // 将 response 类型转换为 assistant 角色
-        let role = if message_type == "response" {
+        // 将 response 类型转换为 assistant 角色，tool_result 也作为 assistant 角色（工具执行结果）
+        let role = if message_type == "response" || message_type == "tool_result" {
             "assistant"
         } else {
             message_type.as_str()
@@ -457,15 +457,15 @@ struct MCPInfoForAssistant {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AiRequest {
-    conversation_id: String,
-    assistant_id: i64,
-    prompt: String,
-    model: Option<String>,
-    temperature: Option<f32>,
-    top_p: Option<f32>,
-    max_tokens: Option<u32>,
-    stream: Option<bool>,
-    attachment_list: Option<Vec<i64>>,
+    pub conversation_id: String,
+    pub assistant_id: i64,
+    pub prompt: String,
+    pub model: Option<String>,
+    pub temperature: Option<f32>,
+    pub top_p: Option<f32>,
+    pub max_tokens: Option<u32>,
+    pub stream: Option<bool>,
+    pub attachment_list: Option<Vec<i64>>,
 }
 
 #[derive(Serialize, Deserialize)]

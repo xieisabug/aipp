@@ -1,4 +1,6 @@
 use crate::db::mcp_db::{MCPDatabase, MCPServer, MCPToolCall};
+use crate::api::ai_api::{AiRequest, ask_ai};
+use crate::db::conversation_db::{ConversationDatabase, Repository, Message};
 use anyhow::Result;
 
 // MCP Tool Execution API
@@ -35,12 +37,24 @@ pub async fn create_mcp_tool_call(
 #[tauri::command]
 pub async fn execute_mcp_tool_call(
     app_handle: tauri::AppHandle,
+    state: tauri::State<'_, crate::AppState>,
+    feature_config_state: tauri::State<'_, crate::FeatureConfigState>,
+    message_token_manager: tauri::State<'_, crate::state::message_token::MessageTokenManager>,
+    window: tauri::Window,
     call_id: i64,
 ) -> Result<MCPToolCall, String> {
     let db = MCPDatabase::new(&app_handle).map_err(|e| e.to_string())?;
     
     // Get the tool call
     let mut tool_call = db.get_mcp_tool_call(call_id).map_err(|e| e.to_string())?;
+    
+    // Check if this is a retry of a failed call
+    let is_retry = tool_call.status == "failed";
+    
+    // Only allow re-execution if the call failed, or if it's not started yet
+    if tool_call.status != "pending" && tool_call.status != "failed" {
+        return Err(format!("Cannot re-execute tool call with status: {}", tool_call.status));
+    }
     
     // Get the server
     let server = db.get_mcp_server(tool_call.server_id).map_err(|e| e.to_string())?;
@@ -49,7 +63,7 @@ pub async fn execute_mcp_tool_call(
         return Err("Server is disabled".to_string());
     }
     
-    // Update status to executing
+    // Update status to executing (clearing any previous error)
     db.update_mcp_tool_call_status(call_id, "executing", None, None)
         .map_err(|e| e.to_string())?;
     
@@ -67,13 +81,30 @@ pub async fn execute_mcp_tool_call(
             db.update_mcp_tool_call_status(call_id, "success", Some(&result), None)
                 .map_err(|e| e.to_string())?;
             tool_call.status = "success".to_string();
-            tool_call.result = Some(result);
+            tool_call.result = Some(result.clone());
+            tool_call.error = None; // Clear any previous error
+            
+            // Auto-trigger conversation continuation after successful tool execution
+            // For retries, we need to handle this differently to avoid duplicate messages
+            if let Err(e) = handle_tool_success_continuation(
+                &app_handle,
+                &state,
+                &feature_config_state,
+                &message_token_manager,
+                &window,
+                &tool_call,
+                &result,
+                is_retry,
+            ).await {
+                println!("Failed to trigger conversation continuation: {}", e);
+            }
         }
         Err(error) => {
             db.update_mcp_tool_call_status(call_id, "failed", None, Some(&error))
                 .map_err(|e| e.to_string())?;
             tool_call.status = "failed".to_string();
             tool_call.error = Some(error);
+            tool_call.result = None; // Clear any previous result
         }
     }
     
@@ -96,6 +127,259 @@ pub async fn get_mcp_tool_calls_by_conversation(
 ) -> Result<Vec<MCPToolCall>, String> {
     let db = MCPDatabase::new(&app_handle).map_err(|e| e.to_string())?;
     db.get_mcp_tool_calls_by_conversation(conversation_id).map_err(|e| e.to_string())
+}
+
+// Handle tool execution success and conversation continuation
+// Different logic for first-time execution vs retry
+async fn handle_tool_success_continuation(
+    app_handle: &tauri::AppHandle,
+    state: &tauri::State<'_, crate::AppState>,
+    feature_config_state: &tauri::State<'_, crate::FeatureConfigState>,
+    message_token_manager: &tauri::State<'_, crate::state::message_token::MessageTokenManager>,
+    window: &tauri::Window,
+    tool_call: &MCPToolCall,
+    result: &str,
+    is_retry: bool,
+) -> Result<(), String> {
+    if is_retry {
+        // For retries, we need to update the existing tool_result message instead of creating a new one
+        handle_retry_success_continuation(
+            app_handle,
+            state,
+            feature_config_state,
+            message_token_manager,
+            window,
+            tool_call,
+            result,
+        ).await
+    } else {
+        // For first-time execution, use the original logic
+        trigger_conversation_continuation(
+            app_handle,
+            state,
+            feature_config_state,
+            message_token_manager,
+            window,
+            tool_call,
+            result,
+        ).await
+    }
+}
+
+// Handle retry success by updating existing tool_result message and triggering new AI response
+async fn handle_retry_success_continuation(
+    app_handle: &tauri::AppHandle,
+    state: &tauri::State<'_, crate::AppState>,
+    feature_config_state: &tauri::State<'_, crate::FeatureConfigState>,
+    message_token_manager: &tauri::State<'_, crate::state::message_token::MessageTokenManager>,
+    window: &tauri::Window,
+    tool_call: &MCPToolCall,
+    result: &str,
+) -> Result<(), String> {
+    let conversation_db = ConversationDatabase::new(app_handle).map_err(|e| e.to_string())?;
+    
+    // Update existing tool_result message in database (for record keeping)
+    let messages = conversation_db
+        .message_repo()
+        .unwrap()
+        .list_by_conversation_id(tool_call.conversation_id)
+        .map_err(|e| e.to_string())?;
+    
+    // Look for existing tool_result message that matches this tool call
+    let existing_tool_message = messages
+        .into_iter()
+        .find(|(msg, _)| {
+            msg.message_type == "tool_result" && 
+            msg.content.contains(&format!("Tool: {}", tool_call.tool_name)) &&
+            msg.content.contains(&format!("Server: {}", tool_call.server_name))
+        });
+    
+    let updated_tool_result_content = format!(
+        "Tool execution completed:\n\nTool: {}\nServer: {}\nParameters: {}\nResult:\n{}",
+        tool_call.tool_name,
+        tool_call.server_name,
+        tool_call.parameters,
+        result
+    );
+    
+    match existing_tool_message {
+        Some((mut existing_msg, _)) => {
+            // Update the existing tool_result message in database
+            existing_msg.content = updated_tool_result_content;
+            conversation_db
+                .message_repo()
+                .unwrap()
+                .update(&existing_msg)
+                .map_err(|e| e.to_string())?;
+            
+            println!("Updated existing tool result message {} in database for retry", existing_msg.id);
+        }
+        None => {
+            // No existing message found, create a new one (fallback)
+            let _tool_result_message = conversation_db
+                .message_repo()
+                .unwrap()
+                .create(&Message {
+                    id: 0,
+                    parent_id: None,
+                    conversation_id: tool_call.conversation_id,
+                    message_type: "tool_result".to_string(), // Stored in DB but hidden from UI
+                    content: updated_tool_result_content,
+                    llm_model_id: None,
+                    llm_model_name: None,
+                    created_time: chrono::Utc::now(),
+                    start_time: None,
+                    finish_time: None,
+                    token_count: 0,
+                    generation_group_id: None,
+                    parent_group_id: None,
+                })
+                .map_err(|e| e.to_string())?;
+            
+            println!("Created new tool result message in database for retry");
+        }
+    }
+    
+    // Get conversation details for AI continuation
+    let conversation = conversation_db
+        .conversation_repo()
+        .unwrap()
+        .read(tool_call.conversation_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Conversation not found")?;
+    
+    let assistant_id = conversation.assistant_id.ok_or("No assistant associated with conversation")?;
+    
+    // Trigger AI continuation with retry-specific prompt (genai style - direct prompt, not stored as user message)
+    let tool_result_prompt = format!(
+        "Tool execution has been retried and completed successfully:\n\nTool: {}\nServer: {}\nParameters: {}\nResult:\n{}\n\nPlease continue responding to the user based on this updated tool execution result.",
+        tool_call.tool_name,
+        tool_call.server_name,
+        tool_call.parameters,
+        result
+    );
+    
+    let ai_request = AiRequest {
+        conversation_id: tool_call.conversation_id.to_string(),
+        assistant_id,
+        prompt: tool_result_prompt, // Direct tool result, not stored as user message
+        model: None,
+        temperature: None,
+        top_p: None,
+        max_tokens: None,
+        stream: None,
+        attachment_list: None,
+    };
+    
+    // Call ask_ai to continue the conversation
+    match ask_ai(
+        app_handle.clone(),
+        state.clone(),
+        feature_config_state.clone(),
+        message_token_manager.clone(),
+        window.clone(),
+        ai_request,
+        None, // override_model_config
+        None, // override_prompt
+    ).await {
+        Ok(_) => {
+            println!("Successfully triggered conversation continuation for tool call retry {}", tool_call.id);
+            Ok(())
+        }
+        Err(e) => {
+            println!("Failed to trigger conversation continuation for retry: {:?}", e);
+            Err(format!("Failed to trigger conversation continuation for retry: {:?}", e))
+        }
+    }
+}
+
+// Trigger conversation continuation after tool execution (genai style)
+// Tool results are stored in database and included in AI conversation history but not shown in UI
+async fn trigger_conversation_continuation(
+    app_handle: &tauri::AppHandle,
+    state: &tauri::State<'_, crate::AppState>,
+    feature_config_state: &tauri::State<'_, crate::FeatureConfigState>,
+    message_token_manager: &tauri::State<'_, crate::state::message_token::MessageTokenManager>,
+    window: &tauri::Window,
+    tool_call: &MCPToolCall,
+    result: &str,
+) -> Result<(), String> {
+    let conversation_db = ConversationDatabase::new(app_handle).map_err(|e| e.to_string())?;
+    
+    // Get the conversation details
+    let conversation = conversation_db
+        .conversation_repo()
+        .unwrap()
+        .read(tool_call.conversation_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Conversation not found")?;
+    
+    let assistant_id = conversation.assistant_id.ok_or("No assistant associated with conversation")?;
+    
+    // Store tool result in database for record keeping and AI conversation history
+    let tool_result_content = format!(
+        "Tool execution completed:\n\nTool: {}\nServer: {}\nParameters: {}\nResult:\n{}",
+        tool_call.tool_name,
+        tool_call.server_name,
+        tool_call.parameters,
+        result
+    );
+    
+    let _tool_result_message = conversation_db
+        .message_repo()
+        .unwrap()
+        .create(&Message {
+            id: 0,
+            parent_id: None,
+            conversation_id: tool_call.conversation_id,
+            message_type: "tool_result".to_string(), // 包含在AI对话历史中但不显示在UI
+            content: tool_result_content,
+            llm_model_id: None,
+            llm_model_name: None,
+            created_time: chrono::Utc::now(),
+            start_time: None,
+            finish_time: None,
+            token_count: 0,
+            generation_group_id: None,
+            parent_group_id: None,
+        })
+        .map_err(|e| e.to_string())?;
+    
+    println!("Stored tool result in database (included in AI history) for tool call {}", tool_call.id);
+    
+    // Create AI request with empty prompt since tool result is now part of conversation history
+    let ai_request = AiRequest {
+        conversation_id: tool_call.conversation_id.to_string(),
+        assistant_id,
+        prompt: "继续对话，基于上述工具执行结果回复用户。".to_string(), // 简单的继续指令
+        model: None,
+        temperature: None,
+        top_p: None,
+        max_tokens: None,
+        stream: None,
+        attachment_list: None,
+    };
+    
+    // Call ask_ai to continue the conversation
+    match ask_ai(
+        app_handle.clone(),
+        state.clone(),
+        feature_config_state.clone(),
+        message_token_manager.clone(),
+        window.clone(),
+        ai_request,
+        None, // override_model_config
+        None, // override_prompt
+    ).await {
+        Ok(_) => {
+            println!("Successfully triggered conversation continuation for tool call {}", tool_call.id);
+            Ok(())
+        }
+        Err(e) => {
+            println!("Failed to trigger conversation continuation: {:?}", e);
+            Err(format!("Failed to trigger conversation continuation: {:?}", e))
+        }
+    }
 }
 
 // Tool execution implementations

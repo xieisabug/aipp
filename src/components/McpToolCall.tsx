@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect } from "react";
-import { Play, Maximize2, Loader2, CheckCircle, XCircle, Blocks, ChevronDown, ChevronUp } from "lucide-react";
+import { Play, Maximize2, Loader2, CheckCircle, XCircle, Blocks, ChevronDown, ChevronUp, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -66,8 +66,11 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
     const [isExpanded, setIsExpanded] = useState<boolean>(false);
     const [toolCallId, setToolCallId] = useState<number | null>(callId || null);
 
-    // 检查是否已经执行过
-    const isExecuted = executionState === "success" || executionState === "failed";
+    // 检查执行状态
+    const isSuccess = executionState === "success";
+    const isFailed = executionState === "failed";
+    const isExecuting = executionState === "executing";
+    const canExecute = executionState === "idle" || executionState === "failed"; // 失败状态也可以重新执行
 
     // 如果提供了 callId，尝试获取已有的执行结果
     useEffect(() => {
@@ -225,16 +228,22 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
                     <h4 className="text-sm font-medium mb-2">参数:</h4>
                     <JsonDisplay content={parameters} maxHeight="400px" />
                 </div>
-                {!isExecuted && (
+                {canExecute && (
                     <div className="flex items-center gap-2">
-                        <Button onClick={handleExecute} disabled={executionState === "executing"} size="sm" className="flex items-center gap-2">
-                            {executionState === "executing" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                            执行
+                        <Button onClick={handleExecute} disabled={isExecuting} size="sm" className="flex items-center gap-2">
+                            {isExecuting ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : isFailed ? (
+                                <RotateCcw className="h-4 w-4" />
+                            ) : (
+                                <Play className="h-4 w-4" />
+                            )}
+                            {isFailed ? "重新执行" : "执行"}
                         </Button>
                         <StatusIndicator state={executionState} />
                     </div>
                 )}
-                {isExecuted && <StatusIndicator state={executionState} />}
+                {!canExecute && <StatusIndicator state={executionState} />}
                 {renderResult()}
             </div>
         </DialogContent>
@@ -251,15 +260,22 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
                     {!isExpanded && <StatusIndicator state={executionState} />}
-                    {!isExpanded && !isExecuted && (
+                    {!isExpanded && canExecute && (
                         <Button
                             onClick={handleExecute}
-                            disabled={executionState === "executing"}
+                            disabled={isExecuting}
                             size="sm"
                             variant="ghost"
                             className="h-7 w-7 p-0 flex-shrink-0"
+                            title={isFailed ? "重新执行" : "执行"}
                         >
-                            {executionState === "executing" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+                            {isExecuting ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : isFailed ? (
+                                <RotateCcw className="h-3 w-3" />
+                            ) : (
+                                <Play className="h-3 w-3" />
+                            )}
                         </Button>
                     )}
                     <Button
@@ -282,11 +298,17 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
                         <span className="text-xs font-medium mb-1 text-muted-foreground">参数:</span>
                         <JsonDisplay content={parameters} />
                     </div>
-                    {!isExecuted && (
+                    {canExecute && (
                         <div className="flex items-center gap-2">
-                            <Button onClick={handleExecute} disabled={executionState === "executing"} size="sm" className="flex items-center gap-1 h-7 text-xs">
-                                {executionState === "executing" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-                                执行
+                            <Button onClick={handleExecute} disabled={isExecuting} size="sm" className="flex items-center gap-1 h-7 text-xs">
+                                {isExecuting ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : isFailed ? (
+                                    <RotateCcw className="h-3 w-3" />
+                                ) : (
+                                    <Play className="h-3 w-3" />
+                                )}
+                                {isFailed ? "重新执行" : "执行"}
                             </Button>
                             <Dialog>
                                 <DialogTrigger asChild>
@@ -299,7 +321,7 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
                             </Dialog>
                         </div>
                     )}
-                    {isExecuted && (
+                    {isSuccess && (
                         <Dialog>
                             <DialogTrigger asChild>
                                 <Button variant="outline" size="sm" className="flex items-center gap-1 h-7 text-xs">
