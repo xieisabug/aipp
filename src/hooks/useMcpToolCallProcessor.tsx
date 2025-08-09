@@ -60,6 +60,7 @@ export const useMcpToolCallProcessor = (options: McpProcessorOptions, context?: 
                         parameters={data.parameters}
                         conversationId={conversationId}
                         messageId={messageId}
+                        callId={data.call_id} // 传递 callId，如果存在的话
                     />
                 );
 
