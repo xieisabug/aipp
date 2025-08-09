@@ -1,10 +1,9 @@
 import React, { useState, useCallback, useMemo } from "react";
-import { Server, Wrench, Play, Maximize2, Loader2, CheckCircle, XCircle, Blocks } from "lucide-react";
+import { Play, Maximize2, Loader2, CheckCircle, XCircle, Blocks, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 
 interface McpToolCallProps {
     server_name?: string;
@@ -59,6 +58,7 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
 }) => {
     const [executionState, setExecutionState] = useState<ExecutionState>("idle");
     const [executionResult, setExecutionResult] = useState<ExecutionResult | null>(null);
+    const [isExpanded, setIsExpanded] = useState<boolean>(false);
 
     const handleExecute = useCallback(async () => {
         setExecutionState("executing");
@@ -133,37 +133,64 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
 
     return (
         <div className="w-full max-w-2xl my-1 p-2 border border-border rounded-md bg-card">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm">
                     <Blocks className="h-4 w-4" />
                     {server_name}
                     <span className="text-xs font-bold mb-1 text-muted-foreground"> - </span>
                     {tool_name}
                 </div>
-                <StatusIndicator state={executionState} />
-            </div>
-            <div>
-                <div>
-                    <span className="text-xs font-medium mb-1 text-muted-foreground">参数:</span>
-                    <JsonDisplay content={parameters} />
-                </div>
-                <div className="flex items-center gap-2">
-                    <Button onClick={handleExecute} disabled={executionState === "executing"} size="sm" className="flex items-center gap-1 h-7 text-xs">
-                        {executionState === "executing" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-                        执行
+                <div className="flex items-center gap-1">
+                    {!isExpanded && <StatusIndicator state={executionState} />}
+                    {!isExpanded && (
+                        <Button
+                            onClick={handleExecute}
+                            disabled={executionState === "executing"}
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0"
+                        >
+                            {executionState === "executing" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+                        </Button>
+                    )}
+                    <Button
+                        onClick={() => setIsExpanded(!isExpanded)}
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0"
+                    >
+                        {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                     </Button>
-                    <Dialog>
-                        <DialogTrigger asChild>
-                            <Button variant="outline" size="sm" className="flex items-center gap-1 h-7 text-xs">
-                                <Maximize2 className="h-3 w-3" />
-                                展开
-                            </Button>
-                        </DialogTrigger>
-                        <DialogContent_ />
-                    </Dialog>
                 </div>
-                {renderResult()}
             </div>
+
+            {isExpanded && (
+                <div className="mt-2 space-y-2">
+                    <div className="flex items-center justify-end mb-2">
+                        <StatusIndicator state={executionState} />
+                    </div>
+                    <div>
+                        <span className="text-xs font-medium mb-1 text-muted-foreground">参数:</span>
+                        <JsonDisplay content={parameters} />
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Button onClick={handleExecute} disabled={executionState === "executing"} size="sm" className="flex items-center gap-1 h-7 text-xs">
+                            {executionState === "executing" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+                            执行
+                        </Button>
+                        <Dialog>
+                            <DialogTrigger asChild>
+                                <Button variant="outline" size="sm" className="flex items-center gap-1 h-7 text-xs">
+                                    <Maximize2 className="h-3 w-3" />
+                                    展开
+                                </Button>
+                            </DialogTrigger>
+                            <DialogContent_ />
+                        </Dialog>
+                    </div>
+                    {renderResult()}
+                </div>
+            )}
         </div>
     );
 };
