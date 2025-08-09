@@ -155,6 +155,7 @@ cargo check --manifest-path src-tauri/Cargo.toml
 2. Follow existing component patterns in `src/components/`
 3. Use Tailwind classes for styling
 4. Add component-specific styles in CSS modules if needed
+5. 编写界面的时候，注意样式风格要和现在的界面一致，使用ShadcnUI的组件和tailwind css的写法，我的主色调是黑白灰，尽量少使用别的颜色
 
 ### Database Schema Changes
 1. Update schema in `src-tauri/src/db/[entity].rs`
