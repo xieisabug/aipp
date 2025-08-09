@@ -49,6 +49,23 @@ pub struct MCPServerPrompt {
     pub arguments: Option<String>, // JSON string of prompt arguments
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MCPToolCall {
+    pub id: i64,
+    pub conversation_id: i64,
+    pub message_id: Option<i64>,
+    pub server_id: i64,
+    pub server_name: String,
+    pub tool_name: String,
+    pub parameters: String, // JSON string of parameters
+    pub status: String,     // pending, executing, success, failed
+    pub result: Option<String>, // JSON string of result
+    pub error: Option<String>,
+    pub created_time: String,
+    pub started_time: Option<String>,
+    pub finished_time: Option<String>,
+}
+
 pub struct MCPDatabase {
     pub conn: Connection,
 }
@@ -124,6 +141,27 @@ impl MCPDatabase {
                 created_time DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (server_id) REFERENCES mcp_server(id) ON DELETE CASCADE,
                 UNIQUE(server_id, prompt_name)
+            );",
+            [],
+        )?;
+
+        // Create MCP tool calls history table
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS mcp_tool_call (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                conversation_id INTEGER NOT NULL,
+                message_id INTEGER,
+                server_id INTEGER NOT NULL,
+                server_name TEXT NOT NULL,
+                tool_name TEXT NOT NULL,
+                parameters TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'executing', 'success', 'failed')),
+                result TEXT,
+                error TEXT,
+                created_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                started_time DATETIME,
+                finished_time DATETIME,
+                FOREIGN KEY (server_id) REFERENCES mcp_server(id) ON DELETE CASCADE
             );",
             [],
         )?;
@@ -506,5 +544,125 @@ impl MCPDatabase {
                 Ok(self.conn.last_insert_rowid())
             }
         }
+    }
+
+    // MCP Tool Call methods
+    pub fn create_mcp_tool_call(
+        &self,
+        conversation_id: i64,
+        message_id: Option<i64>,
+        server_id: i64,
+        server_name: &str,
+        tool_name: &str,
+        parameters: &str,
+    ) -> rusqlite::Result<MCPToolCall> {
+        let mut stmt = self.conn.prepare(
+            "INSERT INTO mcp_tool_call (conversation_id, message_id, server_id, server_name, tool_name, parameters)
+             VALUES (?, ?, ?, ?, ?, ?)"
+        )?;
+
+        stmt.execute(params![
+            conversation_id,
+            message_id,
+            server_id,
+            server_name,
+            tool_name,
+            parameters
+        ])?;
+
+        let id = self.conn.last_insert_rowid();
+        
+        // Return the created tool call
+        self.get_mcp_tool_call(id)
+    }
+
+    pub fn get_mcp_tool_call(&self, id: i64) -> rusqlite::Result<MCPToolCall> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, conversation_id, message_id, server_id, server_name, tool_name, 
+             parameters, status, result, error, created_time, started_time, finished_time
+             FROM mcp_tool_call WHERE id = ?"
+        )?;
+
+        stmt.query_row([id], |row| {
+            Ok(MCPToolCall {
+                id: row.get(0)?,
+                conversation_id: row.get(1)?,
+                message_id: row.get(2)?,
+                server_id: row.get(3)?,
+                server_name: row.get(4)?,
+                tool_name: row.get(5)?,
+                parameters: row.get(6)?,
+                status: row.get(7)?,
+                result: row.get(8)?,
+                error: row.get(9)?,
+                created_time: row.get(10)?,
+                started_time: row.get(11)?,
+                finished_time: row.get(12)?,
+            })
+        })
+    }
+
+    pub fn update_mcp_tool_call_status(
+        &self,
+        id: i64,
+        status: &str,
+        result: Option<&str>,
+        error: Option<&str>,
+    ) -> rusqlite::Result<()> {
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        
+        match status {
+            "executing" => {
+                self.conn.execute(
+                    "UPDATE mcp_tool_call SET status = ?, started_time = ? WHERE id = ?",
+                    params![status, now, id],
+                )?;
+            }
+            "success" | "failed" => {
+                self.conn.execute(
+                    "UPDATE mcp_tool_call SET status = ?, result = ?, error = ?, finished_time = ? WHERE id = ?",
+                    params![status, result, error, now, id],
+                )?;
+            }
+            _ => {
+                self.conn.execute(
+                    "UPDATE mcp_tool_call SET status = ? WHERE id = ?",
+                    params![status, id],
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn get_mcp_tool_calls_by_conversation(&self, conversation_id: i64) -> rusqlite::Result<Vec<MCPToolCall>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, conversation_id, message_id, server_id, server_name, tool_name, 
+             parameters, status, result, error, created_time, started_time, finished_time
+             FROM mcp_tool_call WHERE conversation_id = ? ORDER BY created_time DESC"
+        )?;
+
+        let calls = stmt.query_map([conversation_id], |row| {
+            Ok(MCPToolCall {
+                id: row.get(0)?,
+                conversation_id: row.get(1)?,
+                message_id: row.get(2)?,
+                server_id: row.get(3)?,
+                server_name: row.get(4)?,
+                tool_name: row.get(5)?,
+                parameters: row.get(6)?,
+                status: row.get(7)?,
+                result: row.get(8)?,
+                error: row.get(9)?,
+                created_time: row.get(10)?,
+                started_time: row.get(11)?,
+                finished_time: row.get(12)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for call in calls {
+            result.push(call?);
+        }
+        Ok(result)
     }
 }

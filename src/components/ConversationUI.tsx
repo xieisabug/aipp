@@ -1018,6 +1018,8 @@ function ConversationUI({
                             }
                             // ShineBorder 动画状态
                             shouldShowShineBorder={shouldShowShineBorder}
+                            // MCP 工具调用需要的上下文信息
+                            conversationId={message.conversation_id}
                         />
                         {/* 在 generation group 的最后一个消息下方显示版本控制 */}
                         {groupControl && (

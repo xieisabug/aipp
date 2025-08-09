@@ -21,6 +21,7 @@ interface MessageItemProps {
     isReasoningExpanded?: boolean;
     onToggleReasoningExpand?: () => void;
     shouldShowShineBorder?: boolean;
+    conversationId?: number; // Add conversation_id context
 }
 
 const MessageItem = React.memo<MessageItemProps>(({
@@ -32,6 +33,7 @@ const MessageItem = React.memo<MessageItemProps>(({
     isReasoningExpanded = false,
     onToggleReasoningExpand,
     shouldShowShineBorder = false,
+    conversationId,
 }) => {
     // 性能监控
     usePerformanceMonitor(
@@ -50,7 +52,10 @@ const MessageItem = React.memo<MessageItemProps>(({
     const { copyIconState, handleCopy } = useCopyHandler(message.content);
     const { parseCustomTags } = useCustomTagParser();
     const markdownConfig = useMarkdownConfig({ onCodeRun });
-    const mcpProcessor = useMcpToolCallProcessor(markdownConfig);
+    const mcpProcessor = useMcpToolCallProcessor(markdownConfig, { 
+        conversationId, 
+        messageId: message.id 
+    });
 
     // 处理自定义标签解析
     const markdownContent = useMemo(

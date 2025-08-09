@@ -4,20 +4,19 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { invoke } from '@tauri-apps/api/core';
+import { MCPToolCall } from '@/data/MCPToolCall';
 
 interface McpToolCallProps {
-    server_name?: string;
-    tool_name?: string;
+    serverName?: string;
+    toolName?: string;
     parameters?: string;
+    conversationId?: number;
+    messageId?: number;
+    callId?: number; // If provided, this is an existing call
 }
 
-type ExecutionState = "idle" | "executing" | "success" | "error";
-
-interface ExecutionResult {
-    success: boolean;
-    data?: any;
-    error?: string;
-}
+type ExecutionState = "idle" | "pending" | "executing" | "success" | "failed";
 
 const JsonDisplay: React.FC<{ content: string; maxHeight?: string }> = ({ content, maxHeight = "120px" }) => {
     const formattedJson = useMemo(() => {
@@ -41,67 +40,107 @@ const JsonDisplay: React.FC<{ content: string; maxHeight?: string }> = ({ conten
 const StatusIndicator: React.FC<{ state: ExecutionState }> = ({ state }) => {
     switch (state) {
         case "idle": return null;
+        case "pending":
+            return <Badge variant="secondary" className="flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />等待中</Badge>;
         case "executing":
             return <Badge variant="secondary" className="flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />执行中</Badge>;
         case "success":
             return <Badge variant="default" className="flex items-center gap-1 bg-green-100 text-green-800 border-green-200"><CheckCircle className="h-3 w-3" />成功</Badge>;
-        case "error":
-            return <Badge variant="destructive" className="flex items-center gap-1"><XCircle className="h-3 w-3" />错误</Badge>;
+        case "failed":
+            return <Badge variant="destructive" className="flex items-center gap-1"><XCircle className="h-3 w-3" />失败</Badge>;
         default: return null;
     }
 };
 
 const McpToolCall: React.FC<McpToolCallProps> = ({
-    server_name = "未知服务器",
-    tool_name = "未知工具",
-    parameters = "{}"
+    serverName = "未知服务器",
+    toolName = "未知工具",
+    parameters = "{}",
+    conversationId,
+    messageId,
+    callId
 }) => {
     const [executionState, setExecutionState] = useState<ExecutionState>("idle");
-    const [executionResult, setExecutionResult] = useState<ExecutionResult | null>(null);
+    const [executionResult, setExecutionResult] = useState<string | null>(null);
+    const [executionError, setExecutionError] = useState<string | null>(null);
     const [isExpanded, setIsExpanded] = useState<boolean>(false);
+    const [toolCallId, setToolCallId] = useState<number | null>(callId || null);
 
     const handleExecute = useCallback(async () => {
-        setExecutionState("executing");
-        setExecutionResult(null);
-        try {
-            const result = await new Promise<ExecutionResult>((resolve) => {
-                setTimeout(() => {
-                    resolve({
-                        success: true,
-                        data: { message: "工具执行成功", timestamp: new Date().toISOString(), result: "模拟执行结果" }
-                    });
-                }, 2000);
-            });
-            setExecutionResult(result);
-            setExecutionState(result.success ? "success" : "error");
-        } catch (error) {
-            const errorResult: ExecutionResult = {
-                success: false,
-                error: error instanceof Error ? error.message : "未知错误"
-            };
-            setExecutionResult(errorResult);
-            setExecutionState("error");
+        if (!conversationId) {
+            console.error('conversation_id is required for execution');
+            return;
         }
-    }, [server_name, tool_name, parameters]);
+
+        try {
+            setExecutionState("executing");
+            setExecutionResult(null);
+            setExecutionError(null);
+
+            let callId = toolCallId;
+
+            // Create tool call if it doesn't exist
+            if (!callId) {
+                const createdCall = await invoke<MCPToolCall>('create_mcp_tool_call', {
+                    conversationId: conversationId,
+                    messageId: messageId,
+                    serverName: serverName,
+                    toolName: toolName,
+                    parameters,
+                });
+                callId = createdCall.id;
+                setToolCallId(callId);
+            }
+
+            // Execute the tool call
+            const result = await invoke<MCPToolCall>('execute_mcp_tool_call', {
+                callId: callId
+            });
+
+            if (result.status === 'success' && result.result) {
+                setExecutionResult(result.result);
+                setExecutionState("success");
+            } else if (result.status === 'failed' && result.error) {
+                setExecutionError(result.error);
+                setExecutionState("failed");
+            }
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "执行失败";
+            setExecutionError(errorMessage);
+            setExecutionState("failed");
+        }
+    }, [conversationId, messageId, serverName, toolName, parameters, toolCallId]);
 
     const renderResult = () => {
-        if (!executionResult) return null;
-        return (
-            <div className="mt-2">
-                <span className="text-xs text-muted-foreground">结果:</span>
-                <ScrollArea className="w-full mt-1" style={{ maxHeight: "150px" }}>
-                    <div className="text-xs font-mono bg-muted p-2 rounded">
-                        {executionResult.success ? (
+        if (executionResult) {
+            return (
+                <div className="mt-2">
+                    <span className="text-xs text-muted-foreground">结果:</span>
+                    <ScrollArea className="w-full mt-1" style={{ maxHeight: "150px" }}>
+                        <div className="text-xs font-mono bg-muted p-2 rounded">
                             <pre className="whitespace-pre-wrap break-words text-muted-foreground">
-                                {JSON.stringify(executionResult.data, null, 2)}
+                                {executionResult}
                             </pre>
-                        ) : (
-                            <div className="text-red-600"><strong>错误:</strong> {executionResult.error}</div>
-                        )}
-                    </div>
-                </ScrollArea>
-            </div>
-        );
+                        </div>
+                    </ScrollArea>
+                </div>
+            );
+        }
+
+        if (executionError) {
+            return (
+                <div className="mt-2">
+                    <span className="text-xs text-muted-foreground">错误:</span>
+                    <ScrollArea className="w-full mt-1" style={{ maxHeight: "150px" }}>
+                        <div className="text-xs font-mono bg-muted p-2 rounded">
+                            <div className="text-red-600"><strong>错误:</strong> {executionError}</div>
+                        </div>
+                    </ScrollArea>
+                </div>
+            );
+        }
+
+        return null;
     };
 
     const DialogContent_: React.FC = () => (
@@ -109,9 +148,9 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
             <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
                     <Blocks className="h-4 w-4" />
-                    {server_name}
+                    {serverName}
                     <span className="text-xs font-bold mb-1 text-muted-foreground"> - </span>
-                    {tool_name}
+                    {toolName}
                 </DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
@@ -136,9 +175,9 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm">
                     <Blocks className="h-4 w-4" />
-                    {server_name}
+                    {serverName}
                     <span className="text-xs font-bold mb-1 text-muted-foreground"> - </span>
-                    {tool_name}
+                    {toolName}
                 </div>
                 <div className="flex items-center gap-1">
                     {!isExpanded && <StatusIndicator state={executionState} />}

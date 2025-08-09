@@ -39,6 +39,9 @@ use crate::api::mcp_api::{
     get_mcp_server_tools, get_mcp_server_prompts, get_mcp_servers, refresh_mcp_server_capabilities, 
     test_mcp_connection, toggle_mcp_server, update_mcp_server, update_mcp_server_tool, update_mcp_server_prompt,
 };
+use crate::api::mcp_execution_api::{
+    create_mcp_tool_call, execute_mcp_tool_call, get_mcp_tool_call, get_mcp_tool_calls_by_conversation,
+};
 use crate::api::system_api::{
     get_all_feature_config, get_bang_list, get_selected_text_api, open_data_folder,
     save_feature_config,
@@ -352,7 +355,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             update_assistant_mcp_config,
             update_assistant_mcp_tool_config,
             bulk_update_assistant_mcp_tools,
-            update_assistant_model_config_value
+            update_assistant_model_config_value,
+            create_mcp_tool_call,
+            execute_mcp_tool_call,
+            get_mcp_tool_call,
+            get_mcp_tool_calls_by_conversation
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application");

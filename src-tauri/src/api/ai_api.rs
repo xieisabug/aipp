@@ -2,6 +2,7 @@ use crate::api::assistant_api::{
     get_assistant, get_assistant_mcp_servers_with_tools, MCPServerWithTools,
 };
 use crate::api::genai_client;
+use crate::api::mcp_execution_api::create_mcp_tool_call;
 use crate::db::assistant_db::AssistantModelConfig;
 use crate::db::conversation_db::{AttachmentType, Repository};
 use crate::db::conversation_db::{Conversation, ConversationDatabase, Message, MessageAttachment};
@@ -53,6 +54,49 @@ use futures::StreamExt;
 use genai::chat::{ChatMessage, ChatOptions, ChatRequest, ContentPart};
 use genai::Client;
 use tokio::time::{sleep, Duration};
+
+/// 检测并处理消息中的 MCP 工具调用
+async fn detect_and_process_mcp_calls(
+    app_handle: &tauri::AppHandle,
+    conversation_id: i64,
+    message_id: i64,
+    content: &str,
+) -> Result<(), anyhow::Error> {
+    // 使用正则表达式匹配 MCP 工具调用
+    let mcp_regex = regex::Regex::new(r"<mcp_tool_call>\s*<server_name>([^<]*)</server_name>\s*<tool_name>([^<]*)</tool_name>\s*<parameters>([\s\S]*?)</parameters>\s*</mcp_tool_call>").unwrap();
+    
+    for cap in mcp_regex.captures_iter(content) {
+        let server_name = cap[1].trim().to_string();
+        let tool_name = cap[2].trim().to_string();
+        let parameters = cap[3].trim().to_string();
+        
+        println!(
+            "Detected MCP call: server={}, tool={}, params={}",
+            server_name, tool_name, parameters
+        );
+        
+        // 创建 MCP 工具调用记录
+        match create_mcp_tool_call(
+            app_handle.clone(),
+            conversation_id,
+            Some(message_id),
+            server_name,
+            tool_name,
+            parameters,
+        )
+        .await
+        {
+            Ok(tool_call) => {
+                println!("Created MCP tool call with ID: {}", tool_call.id);
+            }
+            Err(e) => {
+                eprintln!("Failed to create MCP tool call: {}", e);
+            }
+        }
+    }
+    
+    Ok(())
+}
 
 use super::assistant_api::AssistantDetail;
 
@@ -344,7 +388,7 @@ async fn cleanup_token(
 }
 
 /// 处理消息类型结束事件
-fn handle_message_type_end(
+async fn handle_message_type_end(
     message_id: i64,
     message_type: &str,
     content: &str,
@@ -352,15 +396,22 @@ fn handle_message_type_end(
     conversation_db: &ConversationDatabase,
     window: &tauri::Window,
     conversation_id: i64,
+    app_handle: &tauri::AppHandle,
 ) -> Result<(), anyhow::Error> {
     let end_time = chrono::Utc::now();
     let duration_ms = end_time.timestamp_millis() - start_time.timestamp_millis();
 
     // 更新数据库的finish_time
     conversation_db
-        .message_repo()
-        .unwrap()
+        .message_repo()?
         .update_finish_time(message_id)?;
+
+    // 如果是response消息，检测MCP工具调用
+    if message_type == "response" {
+        if let Err(e) = detect_and_process_mcp_calls(app_handle, conversation_id, message_id, content).await {
+            eprintln!("Failed to detect MCP calls: {}", e);
+        }
+    }
 
     // 发送类型结束事件
     let type_end_event = ConversationEvent {
@@ -548,6 +599,7 @@ async fn handle_stream_chat(
 ) -> Result<(), anyhow::Error> {
     // 添加重试逻辑
     let mut attempts: u32 = 0;
+    let app_handle_clone = app_handle.clone();
     let chat_stream_result = loop {
         match client
             .exec_chat_stream(model_name, chat_request.clone(), Some(chat_options))
@@ -604,7 +656,7 @@ async fn handle_stream_chat(
                                         // 检查是否需要结束reasoning状态
                                         if current_output_type == Some("reasoning".to_string()) {
                                             if let (Some(msg_id), Some(start_time)) = (reasoning_message_id, reasoning_start_time) {
-                                                handle_message_type_end(
+                                                if let Err(e) = handle_message_type_end(
                                                     msg_id,
                                                     "reasoning",
                                                     &reasoning_content,
@@ -612,9 +664,10 @@ async fn handle_stream_chat(
                                                     &conversation_db,
                                                     &window,
                                                     conversation_id,
-                                                ).unwrap_or_else(|e| {
+                                                    &app_handle_clone,
+                                                ).await {
                                                     eprintln!("Failed to handle reasoning type end: {}", e);
-                                                });
+                                                }
                                             }
                                         }
 
@@ -827,7 +880,7 @@ async fn handle_stream_chat(
                                         match current_output_type.as_deref() {
                                             Some("reasoning") => {
                                                 if let (Some(msg_id), Some(start_time)) = (reasoning_message_id, reasoning_start_time) {
-                                                    handle_message_type_end(
+                                                    if let Err(e) = handle_message_type_end(
                                                         msg_id,
                                                         "reasoning",
                                                         &reasoning_content,
@@ -835,14 +888,15 @@ async fn handle_stream_chat(
                                                         &conversation_db,
                                                         &window,
                                                         conversation_id,
-                                                    ).unwrap_or_else(|e| {
+                                                        &app_handle_clone,
+                                                    ).await {
                                                         eprintln!("Failed to handle reasoning type end: {}", e);
-                                                    });
+                                                    }
                                                 }
                                             }
                                             Some("response") => {
                                                 if let (Some(msg_id), Some(start_time)) = (response_message_id, response_start_time) {
-                                                    handle_message_type_end(
+                                                    if let Err(e) = handle_message_type_end(
                                                         msg_id,
                                                         "response",
                                                         &response_content,
@@ -850,9 +904,10 @@ async fn handle_stream_chat(
                                                         &conversation_db,
                                                         &window,
                                                         conversation_id,
-                                                    ).unwrap_or_else(|e| {
+                                                        &app_handle_clone,
+                                                    ).await {
                                                         eprintln!("Failed to handle response type end: {}", e);
-                                                    });
+                                                    }
 
                                                     // 在 response 完成后自动生成标题
                                                     if need_generate_title && !response_content.is_empty() {
@@ -977,7 +1032,7 @@ async fn handle_stream_chat(
                                 match current_output_type.as_deref() {
                                     Some("reasoning") => {
                                         if let (Some(msg_id), Some(start_time)) = (reasoning_message_id, reasoning_start_time) {
-                                            handle_message_type_end(
+                                            if let Err(e) = handle_message_type_end(
                                                 msg_id,
                                                 "reasoning",
                                                 &reasoning_content,
@@ -985,14 +1040,15 @@ async fn handle_stream_chat(
                                                 &conversation_db,
                                                 &window,
                                                 conversation_id,
-                                            ).unwrap_or_else(|e| {
+                                                &app_handle_clone,
+                                            ).await {
                                                 eprintln!("Failed to handle reasoning type end: {}", e);
-                                            });
+                                            }
                                         }
                                     }
                                     Some("response") => {
                                         if let (Some(msg_id), Some(start_time)) = (response_message_id, response_start_time) {
-                                            handle_message_type_end(
+                                            if let Err(e) = handle_message_type_end(
                                                 msg_id,
                                                 "response",
                                                 &response_content,
@@ -1000,9 +1056,10 @@ async fn handle_stream_chat(
                                                 &conversation_db,
                                                 &window,
                                                 conversation_id,
-                                            ).unwrap_or_else(|e| {
+                                                &app_handle_clone,
+                                            ).await {
                                                 eprintln!("Failed to handle response type end: {}", e);
-                                            });
+                                            }
 
                                             // 在 response 完成后自动生成标题
                                             if need_generate_title && !response_content.is_empty() {
