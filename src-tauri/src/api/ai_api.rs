@@ -1,10 +1,9 @@
-use crate::api::assistant_api::get_assistant;
+use crate::api::assistant_api::{get_assistant, get_assistant_mcp_servers_with_tools, MCPServerWithTools};
 use crate::api::genai_client;
 use crate::db::assistant_db::AssistantModelConfig;
 use crate::db::conversation_db::{AttachmentType, Repository};
 use crate::db::conversation_db::{Conversation, ConversationDatabase, Message, MessageAttachment};
 use crate::db::llm_db::LLMDatabase;
-use crate::db::mcp_db::{MCPDatabase, MCPServer, MCPServerTool};
 use crate::db::system_db::FeatureConfig;
 use crate::errors::AppError;
 use crate::state::message_token::MessageTokenManager;
@@ -399,15 +398,8 @@ fn handle_message_type_end(
 /// MCP 信息数据结构，用于存储助手的 MCP 配置信息
 #[derive(Debug, Clone)]
 struct MCPInfoForAssistant {
-    pub enabled_servers: Vec<MCPServerWithDetails>,
+    pub enabled_servers: Vec<MCPServerWithTools>,
     pub use_native_toolcall: bool,
-}
-
-/// MCP 服务器及其工具详情
-#[derive(Debug, Clone)]
-struct MCPServerWithDetails {
-    pub server: MCPServer,
-    pub enabled_tools: Vec<MCPServerTool>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -432,19 +424,16 @@ pub struct AiResponse {
 /// 收集助手的 MCP 信息
 async fn collect_mcp_info_for_assistant(
     app_handle: &tauri::AppHandle,
-    assistant_detail: &super::assistant_api::AssistantDetail,
+    assistant_id: i64,
 ) -> Result<MCPInfoForAssistant, AppError> {
-    println!("Collecting MCP info for assistant {}", assistant_detail.assistant.id);
-    
     // 1. 获取原生 toolcall 配置
     let use_native_toolcall = match super::assistant_api::get_assistant_field_value(
         app_handle.clone(),
-        assistant_detail.assistant.id,
+        assistant_id,
         "use_native_toolcall",
     ) {
         Ok(value) => {
             let result = value == "true";
-            println!("Native toolcall enabled: {}", result);
             result
         }
         Err(e) => {
@@ -453,98 +442,82 @@ async fn collect_mcp_info_for_assistant(
         }
     };
 
-    // 2. 获取启用的 MCP 服务器
-    let enabled_mcp_configs: Vec<_> = assistant_detail
-        .mcp_configs
-        .iter()
-        .filter(|config| config.is_enabled)
-        .collect();
+    // 2. 直接使用已验证的 get_assistant_mcp_servers_with_tools 函数
+    let enabled_servers = get_assistant_mcp_servers_with_tools(app_handle.clone(), assistant_id)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to get MCP servers: {}", e)))?;
+
+    println!("Enabled servers: {:?}", enabled_servers);
     
-    println!("Found {} enabled MCP server configs", enabled_mcp_configs.len());
-
-    let mut enabled_servers = Vec::new();
-
-    // 3. 收集每个服务器的详细信息和工具
-    for mcp_config in enabled_mcp_configs {
-        match collect_server_details(app_handle, mcp_config.mcp_server_id, assistant_detail).await {
-            Ok(server_details) => {
-                println!(
-                    "Collected info for MCP server '{}' with {} tools",
-                    server_details.server.name,
-                    server_details.enabled_tools.len()
-                );
-                enabled_servers.push(server_details);
-            }
-            Err(e) => {
-                println!(
-                    "Failed to collect info for MCP server {}: {}",
-                    mcp_config.mcp_server_id, e
-                );
-                // 继续处理其他服务器，不让单个服务器的错误影响整体流程
-            }
-        }
-    }
-
     Ok(MCPInfoForAssistant {
         enabled_servers,
         use_native_toolcall,
     })
 }
 
-/// 收集单个 MCP 服务器的详细信息
-async fn collect_server_details(
-    app_handle: &tauri::AppHandle,
-    server_id: i64,
-    assistant_detail: &super::assistant_api::AssistantDetail,
-) -> Result<MCPServerWithDetails, AppError> {
-    let mcp_db = MCPDatabase::new(app_handle).map_err(AppError::from)?;
+/// 格式化 MCP 提示词，添加 AI 约束和工具信息
+async fn format_mcp_prompt(assistant_prompt_result: String, mcp_info: &MCPInfoForAssistant) -> String {
+    // MCP 约束提示词
+    let mcp_constraint_prompt = r#"
+# MCP (Model Context Protocol) 工具使用规范
 
-    // 获取服务器基础信息
-    let server = mcp_db.get_mcp_server(server_id).map_err(AppError::from)?;
+作为 AI 助手，你可以使用以下 MCP 工具来执行各种任务。请严格遵守以下规则：
 
-    // 获取服务器的所有工具
-    let all_tools = mcp_db.get_mcp_server_tools(server_id).map_err(AppError::from)?;
+## 使用原则
+1. 你仅能调用以下提供的工具，不能够调用未提及的工具
+2. 优先使用最适合任务的工具
+3. 使用工具你可以获取到你需要的数据，不要怀疑工具的返回结果
+4. 每次只调用一个工具，等待之后返回的结果
+5. 工具调用放置在你回复的最后
 
-    // 根据助手的工具配置过滤启用的工具
-    let enabled_tools = filter_enabled_tools(all_tools, assistant_detail);
+## 输出格式
+当需要调用 MCP 工具时，请使用以下 XML 格式：
 
-    Ok(MCPServerWithDetails {
-        server,
-        enabled_tools,
-    })
+```xml
+<mcp_tool_call>
+<server_name>服务器名称</server_name>
+<tool_name>工具名称</tool_name>
+<parameters>
+{
+  "parameter1": "value1",
+  "parameter2": "value2"
 }
+</parameters>
+</mcp_tool_call>
+```
 
-/// 根据助手配置过滤启用的工具
-fn filter_enabled_tools(
-    all_tools: Vec<MCPServerTool>,
-    assistant_detail: &super::assistant_api::AssistantDetail,
-) -> Vec<MCPServerTool> {
-    // 创建工具配置的映射表
-    let tool_config_map: HashMap<i64, &crate::db::assistant_db::AssistantMCPToolConfig> = assistant_detail
-        .mcp_tool_configs
-        .iter()
-        .map(|config| (config.mcp_tool_id, config))
-        .collect();
+## 重要注意事项
+- 参数必须是有效的 JSON 格式
+- 如果工具不需要参数，parameters 标签内应该为空对象 {}
 
-    all_tools
-        .into_iter()
-        .filter_map(|mut tool| {
-            // 查找该工具的配置
-            if let Some(tool_config) = tool_config_map.get(&tool.id) {
-                if tool_config.is_enabled {
-                    // 更新工具的配置状态
-                    tool.is_enabled = tool_config.is_enabled;
-                    tool.is_auto_run = tool_config.is_auto_run;
-                    Some(tool)
-                } else {
-                    None // 工具被禁用，过滤掉
-                }
-            } else {
-                // 没有配置的工具默认禁用
-                None
-            }
-        })
-        .collect()
+"#;
+
+    // 格式化可用的 MCP 服务器和工具信息
+    let mut tools_info = String::from("\n## 可用的 MCP 工具\n\n");
+    
+    for server_details in &mcp_info.enabled_servers {
+        tools_info.push_str(&format!("### 服务器: {}\n", server_details.name));
+        
+        tools_info.push_str("\n#### 可用工具:\n\n");
+        
+        for tool in &server_details.tools {
+            tools_info.push_str(&format!("**{}**", tool.name));
+            tools_info.push_str(&format!(" - {}", tool.description));
+            
+            tools_info.push_str("\n\n");
+        }
+        
+        tools_info.push_str("\n---\n\n");
+    }
+
+    // 组合最终的提示词
+    format!(
+        "{}\n{}\n{}\n{}",
+        mcp_constraint_prompt,
+        tools_info,
+        "## 原始助手指令\n",
+        assistant_prompt_result
+    )
 }
 
 /// 处理流式聊天
@@ -1397,28 +1370,19 @@ pub async fn ask_ai(
     }
 
     // 收集 MCP 信息
-    let mcp_info = collect_mcp_info_for_assistant(&app_handle, &assistant_detail).await?;
+    let mcp_info = collect_mcp_info_for_assistant(&app_handle, request.assistant_id).await?;
     println!(
         "Collected MCP info: {} enabled servers, native toolcall: {}",
         mcp_info.enabled_servers.len(),
         mcp_info.use_native_toolcall
     );
-    
-    // 详细输出 MCP 服务器和工具信息
-    for server_details in &mcp_info.enabled_servers {
-        println!(
-            "MCP Server: {} ({}), enabled tools: {}",
-            server_details.server.name,
-            server_details.server.transport_type,
-            server_details.enabled_tools.len()
-        );
-        for tool in &server_details.enabled_tools {
-            println!(
-                "  Tool: {} (enabled: {}, auto_run: {})",
-                tool.tool_name, tool.is_enabled, tool.is_auto_run
-            );
-        }
-    }
+    let assistant_prompt_result = if mcp_info.enabled_servers.len() > 0 && !mcp_info.use_native_toolcall {
+        let mcp_formatted_prompt = format_mcp_prompt(assistant_prompt_result, &mcp_info).await;
+        println!("MCP prompt: {}", mcp_formatted_prompt);
+        mcp_formatted_prompt
+    } else {
+        assistant_prompt_result
+    };
 
     let _need_generate_title = request.conversation_id.is_empty();
     let request_prompt_result = template_engine
