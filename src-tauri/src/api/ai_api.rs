@@ -1,4 +1,6 @@
-use crate::api::assistant_api::{get_assistant, get_assistant_mcp_servers_with_tools, MCPServerWithTools};
+use crate::api::assistant_api::{
+    get_assistant, get_assistant_mcp_servers_with_tools, MCPServerWithTools,
+};
 use crate::api::genai_client;
 use crate::db::assistant_db::AssistantModelConfig;
 use crate::db::conversation_db::{AttachmentType, Repository};
@@ -437,7 +439,10 @@ async fn collect_mcp_info_for_assistant(
             result
         }
         Err(e) => {
-            println!("Failed to get native toolcall config: {}, using default (false)", e);
+            println!(
+                "Failed to get native toolcall config: {}, using default (false)",
+                e
+            );
             false
         }
     };
@@ -448,7 +453,7 @@ async fn collect_mcp_info_for_assistant(
         .map_err(|e| AppError::DatabaseError(format!("Failed to get MCP servers: {}", e)))?;
 
     println!("Enabled servers: {:?}", enabled_servers);
-    
+
     Ok(MCPInfoForAssistant {
         enabled_servers,
         use_native_toolcall,
@@ -456,7 +461,10 @@ async fn collect_mcp_info_for_assistant(
 }
 
 /// 格式化 MCP 提示词，添加 AI 约束和工具信息
-async fn format_mcp_prompt(assistant_prompt_result: String, mcp_info: &MCPInfoForAssistant) -> String {
+async fn format_mcp_prompt(
+    assistant_prompt_result: String,
+    mcp_info: &MCPInfoForAssistant,
+) -> String {
     // MCP 约束提示词
     let mcp_constraint_prompt = r#"
 # MCP (Model Context Protocol) 工具使用规范
@@ -494,29 +502,27 @@ async fn format_mcp_prompt(assistant_prompt_result: String, mcp_info: &MCPInfoFo
 
     // 格式化可用的 MCP 服务器和工具信息
     let mut tools_info = String::from("\n## 可用的 MCP 工具\n\n");
-    
+
     for server_details in &mcp_info.enabled_servers {
         tools_info.push_str(&format!("### 服务器: {}\n", server_details.name));
-        
+
         tools_info.push_str("\n#### 可用工具:\n\n");
-        
+
         for tool in &server_details.tools {
-            tools_info.push_str(&format!("**{}**", tool.name));
-            tools_info.push_str(&format!(" - {}", tool.description));
-            
+            tools_info.push_str(&format!("**{}** \n", tool.name));
+            tools_info.push_str(&format!(" - description: {}\n", tool.description));
+            tools_info.push_str(&format!(" - parameters: {}\n", tool.parameters));
+
             tools_info.push_str("\n\n");
         }
-        
+
         tools_info.push_str("\n---\n\n");
     }
 
     // 组合最终的提示词
     format!(
         "{}\n{}\n{}\n{}",
-        mcp_constraint_prompt,
-        tools_info,
-        "## 原始助手指令\n",
-        assistant_prompt_result
+        mcp_constraint_prompt, tools_info, "## 原始助手指令\n", assistant_prompt_result
     )
 }
 
@@ -1050,7 +1056,10 @@ async fn handle_stream_chat(
             let err_msg = format!("Chat stream error: {}", e);
 
             // 发送直接错误通知事件到前端
-            let _ = window.emit(ERROR_NOTIFICATION_EVENT, format!("Stream initialization error: {}", e));
+            let _ = window.emit(
+                ERROR_NOTIFICATION_EVENT,
+                format!("Stream initialization error: {}", e),
+            );
 
             // 为这次生成确定组ID：优先使用传入的group_id，否则创建新的
             let generation_group_id =
@@ -1272,7 +1281,10 @@ async fn handle_non_stream_chat(
             let now = chrono::Utc::now();
 
             // 发送直接错误通知事件到前端
-            let _ = window.emit(ERROR_NOTIFICATION_EVENT, format!("Chat request error: {}", e));
+            let _ = window.emit(
+                ERROR_NOTIFICATION_EVENT,
+                format!("Chat request error: {}", e),
+            );
 
             // 为这次生成确定组ID：优先使用传入的group_id，否则创建新的
             let generation_group_id = generation_group_id_override
@@ -1376,13 +1388,14 @@ pub async fn ask_ai(
         mcp_info.enabled_servers.len(),
         mcp_info.use_native_toolcall
     );
-    let assistant_prompt_result = if mcp_info.enabled_servers.len() > 0 && !mcp_info.use_native_toolcall {
-        let mcp_formatted_prompt = format_mcp_prompt(assistant_prompt_result, &mcp_info).await;
-        println!("MCP prompt: {}", mcp_formatted_prompt);
-        mcp_formatted_prompt
-    } else {
-        assistant_prompt_result
-    };
+    let assistant_prompt_result =
+        if mcp_info.enabled_servers.len() > 0 && !mcp_info.use_native_toolcall {
+            let mcp_formatted_prompt = format_mcp_prompt(assistant_prompt_result, &mcp_info).await;
+            println!("MCP prompt: {}", mcp_formatted_prompt);
+            mcp_formatted_prompt
+        } else {
+            assistant_prompt_result
+        };
 
     let _need_generate_title = request.conversation_id.is_empty();
     let request_prompt_result = template_engine
@@ -1637,6 +1650,7 @@ pub async fn regenerate_ai(
     message_id: i64,
 ) -> Result<AiResponse, AppError> {
     println!("================================ Regenerate AI Start ===============================================");
+    // TODO 没有兼容mcp
     let db = ConversationDatabase::new(&app_handle).map_err(AppError::from)?;
     let message = db
         .message_repo()

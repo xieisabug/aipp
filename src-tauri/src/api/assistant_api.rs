@@ -31,8 +31,10 @@ pub struct MCPServerInfo {
 pub struct MCPToolInfo {
     pub id: i64,
     pub name: String,
+    pub description: String,
     pub is_enabled: bool,
     pub is_auto_run: bool,
+    pub parameters: String,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
@@ -596,11 +598,22 @@ pub async fn get_assistant_mcp_servers_with_tools(
             let tools = tools_data
                 .into_iter()
                 .map(
-                    |(tool_id, tool_name, tool_is_enabled, tool_is_auto_run)| MCPToolInfo {
-                        id: tool_id,
-                        name: tool_name,
-                        is_enabled: tool_is_enabled,
-                        is_auto_run: tool_is_auto_run,
+                    |(
+                        tool_id,
+                        tool_name,
+                        tool_description,
+                        tool_is_enabled,
+                        tool_is_auto_run,
+                        tool_parameters,
+                    )| {
+                        MCPToolInfo {
+                            id: tool_id,
+                            name: tool_name,
+                            description: tool_description,
+                            is_enabled: tool_is_enabled,
+                            is_auto_run: tool_is_auto_run,
+                            parameters: tool_parameters,
+                        }
                     },
                 )
                 .collect();
@@ -640,7 +653,7 @@ pub async fn bulk_update_assistant_mcp_tools(
         .unwrap_or_default();
 
     // Update each tool
-    for (tool_id, _, _, current_auto_run) in tools_data {
+    for (tool_id, _, _, _, current_auto_run, _) in tools_data {
         let auto_run = is_auto_run.unwrap_or(current_auto_run);
         assistant_db
             .upsert_assistant_mcp_tool_config(assistant_id, tool_id, is_enabled, auto_run)
@@ -659,12 +672,12 @@ pub async fn update_assistant_model_config_value(
     value_type: String,
 ) -> Result<(), String> {
     let assistant_db = AssistantDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    
+
     // 首先尝试查找是否已存在该配置
     let existing_configs = assistant_db
         .get_assistant_model_configs(assistant_id)
         .map_err(|e| e.to_string())?;
-    
+
     if let Some(existing_config) = existing_configs.iter().find(|c| c.name == config_name) {
         // 更新现有配置
         assistant_db
@@ -675,7 +688,7 @@ pub async fn update_assistant_model_config_value(
         let models = assistant_db
             .get_assistant_model(assistant_id)
             .map_err(|e| e.to_string())?;
-        
+
         let model_id = if let Some(model) = models.first() {
             model.id
         } else {
@@ -684,7 +697,7 @@ pub async fn update_assistant_model_config_value(
                 .add_assistant_model(assistant_id, 0, "", "")
                 .map_err(|e| e.to_string())?
         };
-        
+
         assistant_db
             .add_assistant_model_config(
                 assistant_id,
@@ -695,6 +708,6 @@ pub async fn update_assistant_model_config_value(
             )
             .map_err(|e| e.to_string())?;
     }
-    
+
     Ok(())
 }

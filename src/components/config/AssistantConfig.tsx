@@ -20,7 +20,6 @@ import {
     SelectOption
 } from "../common";
 
-import "../../styles/AssistantConfig.css";
 import { useForm } from "react-hook-form";
 
 interface ModelForSelect {
