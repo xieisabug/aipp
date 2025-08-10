@@ -1,4 +1,4 @@
-use crate::api::ai::config::{MAX_RETRY_ATTEMPTS, calculate_retry_delay};
+use crate::api::ai::config::{calculate_retry_delay, MAX_RETRY_ATTEMPTS};
 use crate::api::ai::events::{
     ConversationEvent, MessageAddEvent, MessageUpdateEvent, ERROR_NOTIFICATION_EVENT,
 };
@@ -10,7 +10,6 @@ use genai::chat::{ChatOptions, ChatRequest};
 use genai::Client;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::error::Error;
 use tauri::Emitter;
 use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
@@ -18,8 +17,11 @@ use tokio_util::sync::CancellationToken;
 // 将错误信息转换为用户友好的中文提示
 fn get_user_friendly_error_message<E: std::fmt::Display>(error: &E) -> String {
     let error_str = error.to_string().to_lowercase();
-    
-    if error_str.contains("network") || error_str.contains("connection") || error_str.contains("timeout") {
+
+    if error_str.contains("network")
+        || error_str.contains("connection")
+        || error_str.contains("timeout")
+    {
         "网络连接异常，请检查网络设置".to_string()
     } else if error_str.contains("unauthorized") || error_str.contains("401") {
         "身份认证失败，请检查API密钥".to_string()
@@ -31,7 +33,11 @@ fn get_user_friendly_error_message<E: std::fmt::Display>(error: &E) -> String {
         "请求过于频繁，请稍后重试".to_string()
     } else if error_str.contains("quota") || error_str.contains("exceeded") {
         "API配额已用完，请检查账户状态".to_string()
-    } else if error_str.contains("server") || error_str.contains("500") || error_str.contains("502") || error_str.contains("503") {
+    } else if error_str.contains("server")
+        || error_str.contains("500")
+        || error_str.contains("502")
+        || error_str.contains("503")
+    {
         "服务器暂时不可用，请稍后重试".to_string()
     } else if error_str.contains("json") || error_str.contains("parse") {
         "响应数据格式异常".to_string()
@@ -61,12 +67,15 @@ pub async fn handle_stream_chat(
 ) -> Result<(), anyhow::Error> {
     let mut main_attempts = 0;
     let app_handle_clone = app_handle.clone();
-    
+
     // 外层重试循环，处理整个流式会话
     loop {
         main_attempts += 1;
-        println!("[[stream_chat_attempt]]: {}/{}", main_attempts, MAX_RETRY_ATTEMPTS);
-        
+        println!(
+            "[[stream_chat_attempt]]: {}/{}",
+            main_attempts, MAX_RETRY_ATTEMPTS
+        );
+
         let stream_result = attempt_stream_chat(
             client,
             model_name,
@@ -85,28 +94,36 @@ pub async fn handle_stream_chat(
             parent_group_id_override.clone(),
             llm_model_id,
             llm_model_name.clone(),
-        ).await;
-        
+        )
+        .await;
+
         match stream_result {
             Ok(_) => {
                 println!("[[stream_chat_completed_attempt]]: {}", main_attempts);
                 return Ok(());
-            },
+            }
             Err(e) => {
-                println!("[[stream_chat_failed_attempt]]: {} [[error]]: {}", main_attempts, e);
-                
+                println!(
+                    "[[stream_chat_failed_attempt]]: {} [[error]]: {}",
+                    main_attempts, e
+                );
+
                 if main_attempts >= MAX_RETRY_ATTEMPTS {
                     // 最终失败，清理资源并返回错误
                     super::conversation::cleanup_token(tokens, conversation_id).await;
-                    let final_error = format!("AI请求失败: {}", get_user_friendly_error_message(&e));
-                    eprintln!("[[final_stream_error]]: 流式聊天在{}次尝试后失败: {}", main_attempts, e);
-                    
+                    let final_error =
+                        format!("AI请求失败: {}", get_user_friendly_error_message(&e));
+                    eprintln!(
+                        "[[final_stream_error]]: 流式聊天在{}次尝试后失败: {}",
+                        main_attempts, e
+                    );
+
                     // 发送错误通知
                     let _ = window.emit(
                         ERROR_NOTIFICATION_EVENT,
                         get_user_friendly_error_message(&e),
                     );
-                    
+
                     // 创建错误消息
                     create_error_message(
                         conversation_db,
@@ -117,11 +134,12 @@ pub async fn handle_stream_chat(
                         generation_group_id_override.clone(),
                         parent_group_id_override.clone(),
                         window,
-                    ).await;
-                    
+                    )
+                    .await;
+
                     return Err(anyhow::anyhow!("{}", final_error));
                 }
-                
+
                 let delay = calculate_retry_delay(main_attempts);
                 println!("[[retrying_stream_delay_ms]]: {}", delay);
                 sleep(Duration::from_millis(delay)).await;
@@ -154,26 +172,57 @@ async fn attempt_stream_chat(
     println!("[[establishing_stream_connection_model]]: {}", model_name);
     let chat_stream_response = match client
         .exec_chat_stream(model_name, chat_request.clone(), Some(chat_options))
-        .await 
+        .await
     {
         Ok(response) => {
             println!("[[stream_connection_established]]: true");
             response
-        },
+        }
         Err(e) => {
-            // 尝试获取更详细的错误信息
+            // 打印详细的连接错误信息
+            eprintln!("=== Stream Connection Error ===");
             eprintln!("[[stream_connection_failed]]: {:?}", e);
             eprintln!("[[error_details]]: {}", e);
-            
-            // 如果是 reqwest 错误，尝试获取响应体
-            if let Some(source) = e.source() {
-                eprintln!("[[error_source]]: {:?}", source);
+            eprintln!("[[error_debug]]: {:#?}", e);
+
+            // 打印完整的错误链
+            eprintln!("[[error_chain]]:");
+            let mut current_error: Option<&dyn std::error::Error> = Some(&e);
+            let mut i = 0;
+            while let Some(error) = current_error {
+                eprintln!("  [[error_{}]]: {}", i, error);
+                eprintln!("    [[error_type]]: {}", std::any::type_name_of_val(error));
+
+                // 特别检查是否是 reqwest 错误
+                if let Some(reqwest_error) = error.downcast_ref::<reqwest::Error>() {
+                    eprintln!("    [[reqwest_error_details]]:");
+                    if let Some(status) = reqwest_error.status() {
+                        eprintln!("      [[status_code]]: {}", status);
+                        eprintln!("      [[is_client_error]]: {}", status.is_client_error());
+                        eprintln!("      [[is_server_error]]: {}", status.is_server_error());
+                    }
+                    if let Some(url) = reqwest_error.url() {
+                        eprintln!("      [[request_url]]: {}", url);
+                    }
+                    eprintln!("      [[is_timeout]]: {}", reqwest_error.is_timeout());
+                    eprintln!("      [[is_connect]]: {}", reqwest_error.is_connect());
+                    eprintln!("      [[is_request]]: {}", reqwest_error.is_request());
+                    eprintln!("      [[is_body]]: {}", reqwest_error.is_body());
+                    eprintln!("      [[is_decode]]: {}", reqwest_error.is_decode());
+                }
+
+                current_error = error.source();
+                i += 1;
             }
-            
-            return Err(anyhow::anyhow!("Failed to establish stream connection: {}", e));
+            eprintln!("=== End Stream Connection Error Details ===");
+
+            return Err(anyhow::anyhow!(
+                "Failed to establish stream connection: {}",
+                e
+            ));
         }
     };
-    
+
     let mut chat_stream = chat_stream_response.stream;
     let mut reasoning_content = String::new();
     let mut response_content = String::new();
@@ -384,6 +433,9 @@ async fn attempt_stream_chat(
                                     );
                                 }
                             }
+                            ChatStreamEvent::ToolCallChunk(tool_call) => {
+                                println!("[[tool_call]]: {:#?}\n", tool_call);
+                            }
                             ChatStreamEvent::End(_) => {
                                 // 按当前输出类型收尾，确保 response 触发 MCP 检测与事件
                                 match current_output_type.as_deref() {
@@ -479,25 +531,38 @@ async fn attempt_stream_chat(
                         eprintln!("[[error_type]]: {:?}", e);
                         eprintln!("[[error_details]]: {}", e);
                         eprintln!("[[error_debug]]: {:#?}", e);
-                        
-                        // 尝试获取错误源
-                        if let Some(source) = e.source() {
-                            eprintln!("[[error_source]]: {:#?}", source);
-                        }
-                        
-                        // 检查是否是 reqwest 相关错误
+
+                        // 打印完整的错误链，特别关注 reqwest 错误
                         eprintln!("[[error_chain]]:");
                         let mut current_error: Option<&dyn std::error::Error> = Some(&e);
                         let mut i = 0;
                         while let Some(error) = current_error {
                             eprintln!("  [[error_{}]]: {}", i, error);
-                            eprintln!("    [[type]]: {:?}", error);
+                            eprintln!("    [[error_type]]: {}", std::any::type_name_of_val(error));
+
+                            // 特别检查是否是 reqwest 错误并提取详细信息
+                            if let Some(reqwest_error) = error.downcast_ref::<reqwest::Error>() {
+                                eprintln!("    [[reqwest_error_details]]:");
+                                if let Some(status) = reqwest_error.status() {
+                                    eprintln!("      [[status_code]]: {}", status);
+                                    eprintln!("      [[is_client_error]]: {}", status.is_client_error());
+                                    eprintln!("      [[is_server_error]]: {}", status.is_server_error());
+                                }
+                                if let Some(url) = reqwest_error.url() {
+                                    eprintln!("      [[request_url]]: {}", url);
+                                }
+                                eprintln!("      [[is_timeout]]: {}", reqwest_error.is_timeout());
+                                eprintln!("      [[is_connect]]: {}", reqwest_error.is_connect());
+                                eprintln!("      [[is_request]]: {}", reqwest_error.is_request());
+                                eprintln!("      [[is_body]]: {}", reqwest_error.is_body());
+                                eprintln!("      [[is_decode]]: {}", reqwest_error.is_decode());
+                            }
+
                             current_error = error.source();
                             i += 1;
                         }
-                        
                         eprintln!("=== End Stream Error Details ===");
-                        
+
                         // 流处理中的错误，返回错误以便上层重试
                         super::conversation::cleanup_token(tokens, conversation_id).await;
                         return Err(anyhow::anyhow!("Stream processing failed: {}", e));
@@ -528,27 +593,24 @@ async fn create_error_message(
     window: &tauri::Window,
 ) {
     let now = chrono::Utc::now();
-    let generation_group_id = generation_group_id_override.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let generation_group_id =
+        generation_group_id_override.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
-    if let Ok(error_message) = conversation_db
-        .message_repo()
-        .unwrap()
-        .create(&Message {
-            id: 0,
-            parent_id: None,
-            conversation_id,
-            message_type: "error".to_string(),
-            content: error_msg.to_string(),
-            llm_model_id: Some(llm_model_id),
-            llm_model_name: Some(llm_model_name),
-            created_time: now,
-            start_time: Some(now),
-            finish_time: Some(now),
-            token_count: 0,
-            generation_group_id: Some(generation_group_id),
-            parent_group_id: parent_group_id_override,
-        })
-    {
+    if let Ok(error_message) = conversation_db.message_repo().unwrap().create(&Message {
+        id: 0,
+        parent_id: None,
+        conversation_id,
+        message_type: "error".to_string(),
+        content: error_msg.to_string(),
+        llm_model_id: Some(llm_model_id),
+        llm_model_name: Some(llm_model_name),
+        created_time: now,
+        start_time: Some(now),
+        finish_time: Some(now),
+        token_count: 0,
+        generation_group_id: Some(generation_group_id),
+        parent_group_id: parent_group_id_override,
+    }) {
         let error_event = ConversationEvent {
             r#type: "message_add".to_string(),
             data: serde_json::to_value(MessageAddEvent {
@@ -641,9 +703,9 @@ pub async fn handle_non_stream_chat(
             let mut attempts = 0;
             loop {
                 attempts += 1;
-                
+
                 println!("[[non_stream_chat_attempt]]: {}/{}", attempts, MAX_RETRY_ATTEMPTS);
-                
+
                 match client.exec_chat(model_name, chat_request.clone(), Some(chat_options)).await {
                     Ok(response) => {
                         println!("[[non_stream_chat_succeeded_attempt]]: {}", attempts);
@@ -654,36 +716,51 @@ pub async fn handle_non_stream_chat(
                         eprintln!("=== Non-Stream Chat Error (attempt {}/{}) ===", attempts, MAX_RETRY_ATTEMPTS);
                         eprintln!("[[error_details]]: {}", e);
                         eprintln!("[[error_debug]]: {:#?}", e);
-                        
-                        // 尝试获取错误源
-                        if let Some(source) = e.source() {
-                            eprintln!("[[error_source]]: {:#?}", source);
-                        }
-                        
-                        // 打印错误链
+
+                        // 打印完整的错误链，特别关注 reqwest 错误
                         eprintln!("[[error_chain]]:");
                         let mut current_error: Option<&dyn std::error::Error> = Some(&e);
                         let mut i = 0;
                         while let Some(error) = current_error {
                             eprintln!("  [[error_{}]]: {}", i, error);
+                            eprintln!("    [[error_type]]: {}", std::any::type_name_of_val(error));
+
+                            // 特别检查是否是 reqwest 错误并提取详细信息
+                            if let Some(reqwest_error) = error.downcast_ref::<reqwest::Error>() {
+                                eprintln!("    [[reqwest_error_details]]:");
+                                if let Some(status) = reqwest_error.status() {
+                                    eprintln!("      [[status_code]]: {}", status);
+                                    eprintln!("      [[is_client_error]]: {}", status.is_client_error());
+                                    eprintln!("      [[is_server_error]]: {}", status.is_server_error());
+                                }
+                                if let Some(url) = reqwest_error.url() {
+                                    eprintln!("      [[request_url]]: {}", url);
+                                }
+                                eprintln!("      [[is_timeout]]: {}", reqwest_error.is_timeout());
+                                eprintln!("      [[is_connect]]: {}", reqwest_error.is_connect());
+                                eprintln!("      [[is_request]]: {}", reqwest_error.is_request());
+                                eprintln!("      [[is_body]]: {}", reqwest_error.is_body());
+                                eprintln!("      [[is_decode]]: {}", reqwest_error.is_decode());
+                            }
+
                             current_error = error.source();
                             i += 1;
                         }
                         eprintln!("=== End Non-Stream Error Details ===");
-                        
+
                         if attempts >= MAX_RETRY_ATTEMPTS {
                             let final_error = format!("AI请求失败: {}", get_user_friendly_error_message(&e));
                             eprintln!("[[final_non_stream_error]]: Non-stream chat failed after {} attempts: {}", attempts, e);
-                            
+
                             // 发送错误通知给前端
                             let _ = window.emit(
                                 ERROR_NOTIFICATION_EVENT,
                                 get_user_friendly_error_message(&e),
                             );
-                            
+
                             break Err(anyhow::anyhow!("{}", final_error));
                         }
-                        
+
                         let delay = calculate_retry_delay(attempts);
                         println!("[[retrying_delay_ms]]: {}", delay);
                         sleep(Duration::from_millis(delay)).await;
@@ -764,10 +841,7 @@ pub async fn handle_non_stream_chat(
             let user_friendly_error = get_user_friendly_error_message(&e);
             let err_msg = format!("AI请求失败: {}", user_friendly_error);
             let now = chrono::Utc::now();
-            let _ = window.emit(
-                ERROR_NOTIFICATION_EVENT,
-                user_friendly_error,
-            );
+            let _ = window.emit(ERROR_NOTIFICATION_EVENT, user_friendly_error);
 
             let generation_group_id = generation_group_id_override
                 .clone()

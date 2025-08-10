@@ -4,7 +4,9 @@ use crate::api::ai::chat::{
     handle_stream_chat as ai_handle_stream_chat,
 };
 use crate::api::ai::config::{ChatConfig, ConfigBuilder};
-use crate::api::ai::conversation::{build_chat_messages, build_chat_messages_with_context, init_conversation};
+use crate::api::ai::conversation::{
+    build_chat_messages, build_chat_messages_with_context, init_conversation,
+};
 use crate::api::ai::events::{ConversationEvent, MessageAddEvent, MessageUpdateEvent};
 use crate::api::ai::mcp::{collect_mcp_info_for_assistant, format_mcp_prompt};
 use crate::api::ai::title::generate_title;
@@ -21,6 +23,7 @@ use crate::{AppState, FeatureConfigState};
 use anyhow::Context;
 use anyhow::Error;
 use genai::chat::ChatRequest;
+use genai::chat::Tool;
 use std::collections::{HashMap, HashSet};
 use tauri::Emitter;
 use tauri::State;
@@ -69,12 +72,12 @@ pub async fn ask_ai(
     );
     let is_native_toolcall = mcp_info.use_native_toolcall;
 
-    // 注意：是否使用提供商原生 toolcall 在后续构造 ChatRequest 时再判断
+    // 注意：native toolcall 不改写 prompt，仅非原生时拼接 XML 约束
     let assistant_prompt_result =
         if mcp_info.enabled_servers.len() > 0 && !mcp_info.use_native_toolcall {
-            let mcp_formatted_prompt = format_mcp_prompt(assistant_prompt_result, &mcp_info).await;
-            println!("[[MCP formatted_prompt]]: {}\n", mcp_formatted_prompt);
-            mcp_formatted_prompt
+            let prompt = format_mcp_prompt(assistant_prompt_result, &mcp_info).await;
+            println!("[[MCP formatted_prompt]]: {}\n", prompt);
+            prompt
         } else {
             assistant_prompt_result
         };
@@ -98,20 +101,21 @@ pub async fn ask_ai(
 
     // 非原生 toolcall 时，将历史中的 tool_result 在“发送给 LLM 的消息”里当作用户消息。
     // 注意：DB 与 UI 不变，仅用于请求时的上下文构造。
-    let final_message_list_for_llm: Vec<(String, String, Vec<MessageAttachment>)> = if is_native_toolcall {
-        init_message_list.clone()
-    } else {
-        init_message_list
-            .iter()
-            .map(|(message_type, content, attachments)| {
-                if message_type == "tool_result" {
-                    (String::from("user"), content.clone(), Vec::new())
-                } else {
-                    (message_type.clone(), content.clone(), attachments.clone())
-                }
-            })
-            .collect()
-    };
+    let final_message_list_for_llm: Vec<(String, String, Vec<MessageAttachment>)> =
+        if is_native_toolcall {
+            init_message_list.clone()
+        } else {
+            init_message_list
+                .iter()
+                .map(|(message_type, content, attachments)| {
+                    if message_type == "tool_result" {
+                        (String::from("user"), content.clone(), Vec::new())
+                    } else {
+                        (message_type.clone(), content.clone(), attachments.clone())
+                    }
+                })
+                .collect()
+        };
 
     // 总是启动流式处理，即使没有预先创建消息
     let _config_feature_map = feature_config_state.config_feature_map.lock().await.clone();
@@ -140,7 +144,7 @@ pub async fn ask_ai(
     let model_configs = model_detail.configs.clone(); // 提前获取模型配置
     let provider_api_type = model_detail.provider.api_type.clone(); // 提前获取API类型
     let assistant_model_configs = assistant_detail.model_configs.clone(); // 提前获取助手模型配置
-    
+
     let _task_handle = tokio::spawn(async move {
         // 直接创建数据库连接（避免线程安全问题）
         let conversation_db = ConversationDatabase::new(&app_handle_clone).unwrap();
@@ -217,7 +221,31 @@ pub async fn ask_ai(
 
         // 将消息转换为 ChatMessage（已按是否原生 toolcall 处理过 tool_result）
         let chat_messages = build_chat_messages(&final_message_list_for_llm);
-        let chat_request = ChatRequest::new(chat_messages);
+        // 原生模式：把 MCP 工具映射为 genai::chat::Tool 并注入到请求
+        let chat_request = if is_native_toolcall && !mcp_info.enabled_servers.is_empty() {
+            let mut tools: Vec<Tool> = Vec::new();
+            for server in &mcp_info.enabled_servers {
+                for tool in &server.tools {
+                    let name = format!("{}__{}", server.name, tool.name);
+                    let schema = serde_json::from_str::<serde_json::Value>(&tool.parameters)
+                        .unwrap_or_else(|_| {
+                            serde_json::json!({
+                                "type": "object",
+                                "additionalProperties": true
+                            })
+                        });
+                    tools.push(
+                        Tool::new(name)
+                            .with_description(tool.description.clone())
+                            .with_schema(schema),
+                    );
+                }
+            }
+            println!("[[tools]]: {:#?}\n", tools);
+            ChatRequest::new(chat_messages).with_tools(tools)
+        } else {
+            ChatRequest::new(chat_messages)
+        };
 
         if chat_config.stream {
             // 使用 genai 流式处理
@@ -296,7 +324,7 @@ pub async fn tool_result_continue_ask_ai(
 
     let conversation_id_i64 = conversation_id.parse::<i64>()?;
     let db = ConversationDatabase::new(&app_handle).map_err(AppError::from)?;
-    
+
     // Get conversation details (validate exists)
     let _conversation = db
         .conversation_repo()
@@ -305,7 +333,7 @@ pub async fn tool_result_continue_ask_ai(
         .map_err(AppError::from)?
         .ok_or_else(|| AppError::DatabaseError("对话未找到".to_string()))?;
 
-    // Get assistant details  
+    // Get assistant details
     let assistant_detail = get_assistant(app_handle.clone(), assistant_id).unwrap();
     if assistant_detail.model.is_empty() {
         return Err(AppError::NoModelFound);
@@ -314,8 +342,7 @@ pub async fn tool_result_continue_ask_ai(
     // Create tool_result message in database
     let tool_result_content = format!(
         "Tool execution completed:\n\nTool Call ID: {}\nResult:\n{}",
-        tool_call_id,
-        tool_result
+        tool_call_id, tool_result
     );
 
     let _tool_result_message = add_message(
@@ -371,7 +398,10 @@ pub async fn tool_result_continue_ask_ai(
         })
         .collect();
 
-    println!("[[init_message_list (tool_result_continue)]]: {:#?}\n", init_message_list);
+    println!(
+        "[[init_message_list (tool_result_continue)]]: {:#?}\n",
+        init_message_list
+    );
 
     // 收集 MCP 信息
     let mcp_info = collect_mcp_info_for_assistant(&app_handle, assistant_id).await?;
@@ -402,14 +432,11 @@ pub async fn tool_result_continue_ask_ai(
     let model_configs = model_detail.configs.clone();
     let provider_api_type = model_detail.provider.api_type.clone();
     let assistant_model_configs = assistant_detail.model_configs.clone();
-    
+
     let conversation_db = ConversationDatabase::new(&app_handle).map_err(AppError::from)?;
     // Build chat configuration (same as ask_ai)
-    let client = genai_client::create_client_with_config(
-            &model_configs,
-            &model_code,
-            &provider_api_type,
-        )?;
+    let client =
+        genai_client::create_client_with_config(&model_configs, &model_code, &provider_api_type)?;
 
     let temp_model_detail = crate::db::llm_db::ModelDetail {
         model: crate::db::llm_db::LLMModel {
@@ -433,113 +460,139 @@ pub async fn tool_result_continue_ask_ai(
         configs: model_configs.clone(),
     };
 
-    let model_config_clone = ConfigBuilder::merge_model_configs(
-        assistant_model_configs,
-        &temp_model_detail,
-        None,
-    );
+    let model_config_clone =
+        ConfigBuilder::merge_model_configs(assistant_model_configs, &temp_model_detail, None);
 
     let config_map = model_config_clone
-            .iter()
-            .filter_map(|config| {
-                config
-                    .value
-                    .as_ref()
-                    .map(|value| (config.name.clone(), value.clone()))
-            })
-            .collect::<HashMap<String, String>>();
+        .iter()
+        .filter_map(|config| {
+            config
+                .value
+                .as_ref()
+                .map(|value| (config.name.clone(), value.clone()))
+        })
+        .collect::<HashMap<String, String>>();
 
-        let stream = config_map
-            .get("stream")
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(false);
+    let stream = config_map
+        .get("stream")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(false);
 
-        let model_name = config_map
-            .get("model")
-            .cloned()
-            .unwrap_or_else(|| model_code.clone());
+    let model_name = config_map
+        .get("model")
+        .cloned()
+        .unwrap_or_else(|| model_code.clone());
 
-        let chat_options = ConfigBuilder::build_chat_options(&config_map);
+    let chat_options = ConfigBuilder::build_chat_options(&config_map);
 
-        let chat_config = ChatConfig {
-            model_name,
-            stream,
-            chat_options: chat_options.with_normalize_reasoning_content(true),
-            client,
-        };
+    let chat_config = ChatConfig {
+        model_name,
+        stream,
+        chat_options: chat_options.with_normalize_reasoning_content(true),
+        client,
+    };
 
+    println!(
+        "[[model_name]]: {} [[stream]]: {}\n",
+        chat_config.model_name, chat_config.stream
+    );
+
+    // 根据是否为原生 toolcall 选择不同的消息组织策略：
+    // - 原生：将 "tool_result" 转为 ToolResponse（含 tool_call_id）
+    // - 非原生：把所有 "tool_result" 在内存里映射成 "user" 文本消息，避免向提供商发送 ToolResponse 导致 4xx/5xx
+    let chat_request = if is_native_toolcall {
+        let chat_messages =
+            build_chat_messages_with_context(&init_message_list, Some(tool_call_id.clone()));
         println!(
-            "[[model_name]]: {} [[stream]]: {}\n",
-            chat_config.model_name, chat_config.stream
+            "[[chat_messages (tool_result_continue native)]]: {:#?}\n",
+            chat_messages
         );
+        // 注入 MCP 工具
+        let mut tools: Vec<Tool> = Vec::new();
+        if !mcp_info.enabled_servers.is_empty() {
+            for server in &mcp_info.enabled_servers {
+                for tool in &server.tools {
+                    let name = format!("{}__{}", server.name, tool.name);
+                    let schema = serde_json::from_str::<serde_json::Value>(&tool.parameters)
+                        .unwrap_or_else(|_| {
+                            serde_json::json!({
+                                "type": "object",
+                                "additionalProperties": true
+                            })
+                        });
+                    tools.push(
+                        Tool::new(name)
+                            .with_description(tool.description.clone())
+                            .with_schema(schema),
+                    );
+                }
+            }
+        }
+        println!("[[tools]]: {:#?}\n", tools);
+        ChatRequest::new(chat_messages).with_tools(tools)
+    } else {
+        let transformed_list: Vec<(String, String, Vec<MessageAttachment>)> = init_message_list
+            .iter()
+            .map(|(message_type, content, attachments)| {
+                if message_type == "tool_result" {
+                    // 将工具结果作为用户侧输入提供给模型（仅在请求中使用，不更改 DB 与 UI）
+                    (String::from("user"), content.clone(), Vec::new())
+                } else {
+                    (message_type.clone(), content.clone(), attachments.clone())
+                }
+            })
+            .collect();
 
-        // 根据是否为原生 toolcall 选择不同的消息组织策略：
-        // - 原生：将 "tool_result" 转为 ToolResponse（含 tool_call_id）
-        // - 非原生：把所有 "tool_result" 在内存里映射成 "user" 文本消息，避免向提供商发送 ToolResponse 导致 4xx/5xx
-        let chat_request = if is_native_toolcall {
-            let chat_messages = build_chat_messages_with_context(&init_message_list, Some(tool_call_id.clone()));
-            println!("[[chat_messages (tool_result_continue native)]]: {:#?}\n", chat_messages);
-            ChatRequest::new(chat_messages)
-        } else {
-            let transformed_list: Vec<(String, String, Vec<MessageAttachment>)> = init_message_list
-                .iter()
-                .map(|(message_type, content, attachments)| {
-                    if message_type == "tool_result" {
-                        // 将工具结果作为用户侧输入提供给模型（仅在请求中使用，不更改 DB 与 UI）
-                        (String::from("user"), content.clone(), Vec::new())
-                    } else {
-                        (message_type.clone(), content.clone(), attachments.clone())
-                    }
-                })
-                .collect();
+        let chat_messages = build_chat_messages(&transformed_list);
+        println!(
+            "[[chat_messages (tool_result_continue non_native)]]: {:#?}\n",
+            chat_messages
+        );
+        ChatRequest::new(chat_messages)
+    };
 
-            let chat_messages = build_chat_messages(&transformed_list);
-            println!("[[chat_messages (tool_result_continue non_native)]]: {:#?}\n", chat_messages);
-            ChatRequest::new(chat_messages)
-        };
-
-        if chat_config.stream {
-            Box::pin(ai_handle_stream_chat(
-                &chat_config.client,
-                &chat_config.model_name,
-                &chat_request,
-                &chat_config.chat_options,
-                conversation_id_i64,
-                &cancel_token,
-                &conversation_db,
-                &tokens,
-                &window_clone,
-                &app_handle,
-                false,  // no title generation needed
-                String::new(), // no user prompt
-                HashMap::new(), // no feature config needed
-                None,   // no generation_group_id reuse
-                None,   // no parent_group_id
-                model_id,
-                model_code.clone(),
-            ))
-            .await?;
-        } else {
-            Box::pin(ai_handle_non_stream_chat(
-                &chat_config.client,
-                &chat_config.model_name,
-                &chat_request,
-                &chat_config.chat_options,
-                conversation_id_i64,
-                &cancel_token,
-                &conversation_db,
-                &tokens,
-                &window_clone,
-                &app_handle,
-                false,  // no title generation needed
-                String::new(), // no user prompt
-                HashMap::new(), // no feature config needed
-                None,   // no generation_group_id reuse
-                None,   // no parent_group_id
-                model_id,
-                model_code.clone(),
-            ))
-            .await?;
+    if chat_config.stream {
+        Box::pin(ai_handle_stream_chat(
+            &chat_config.client,
+            &chat_config.model_name,
+            &chat_request,
+            &chat_config.chat_options,
+            conversation_id_i64,
+            &cancel_token,
+            &conversation_db,
+            &tokens,
+            &window_clone,
+            &app_handle,
+            false,          // no title generation needed
+            String::new(),  // no user prompt
+            HashMap::new(), // no feature config needed
+            None,           // no generation_group_id reuse
+            None,           // no parent_group_id
+            model_id,
+            model_code.clone(),
+        ))
+        .await?;
+    } else {
+        Box::pin(ai_handle_non_stream_chat(
+            &chat_config.client,
+            &chat_config.model_name,
+            &chat_request,
+            &chat_config.chat_options,
+            conversation_id_i64,
+            &cancel_token,
+            &conversation_db,
+            &tokens,
+            &window_clone,
+            &app_handle,
+            false,          // no title generation needed
+            String::new(),  // no user prompt
+            HashMap::new(), // no feature config needed
+            None,           // no generation_group_id reuse
+            None,           // no parent_group_id
+            model_id,
+            model_code.clone(),
+        ))
+        .await?;
     }
 
     println!("================================ Tool Result Continue AI End ===============================================");
@@ -643,7 +696,10 @@ pub async fn regenerate_ai(
         init_message_list.push((final_msg.message_type, final_msg.content, attachments_vec));
     }
 
-    println!("[[init_message_list (regenerate)]]: {:#?}\n", init_message_list);
+    println!(
+        "[[init_message_list (regenerate)]]: {:#?}\n",
+        init_message_list
+    );
 
     // 获取助手信息（在构建消息列表之后，以确保对话已确定）
     let assistant_id = conversation.assistant_id.unwrap();
@@ -654,7 +710,8 @@ pub async fn regenerate_ai(
     }
 
     // 兼容 MCP：根据助手配置判断是否使用提供商原生 toolcall
-    let mcp_info = crate::api::ai::mcp::collect_mcp_info_for_assistant(&app_handle, assistant_id).await?;
+    let mcp_info =
+        crate::api::ai::mcp::collect_mcp_info_for_assistant(&app_handle, assistant_id).await?;
     let is_native_toolcall = mcp_info.use_native_toolcall;
 
     // 确定要使用的generation_group_id和parent_group_id
@@ -791,24 +848,57 @@ pub async fn regenerate_ai(
         // 将历史消息转换为 ChatMessage：
         // - 原生 toolcall：按默认逻辑（tool_result -> ToolResponse）
         // - 非原生：把所有 tool_result 映射成 "user" 文本，仅用于请求
-        let final_message_list_for_llm: Vec<(String, String, Vec<MessageAttachment>)> = if is_native_toolcall {
-            init_message_list.clone()
-        } else {
-            init_message_list
-                .iter()
-                .map(|(message_type, content, attachments)| {
-                    if message_type == "tool_result" {
-                        (String::from("user"), content.clone(), Vec::new())
-                    } else {
-                        (message_type.clone(), content.clone(), attachments.clone())
-                    }
-                })
-                .collect()
-        };
+        let final_message_list_for_llm: Vec<(String, String, Vec<MessageAttachment>)> =
+            if is_native_toolcall {
+                init_message_list.clone()
+            } else {
+                init_message_list
+                    .iter()
+                    .map(|(message_type, content, attachments)| {
+                        if message_type == "tool_result" {
+                            (String::from("user"), content.clone(), Vec::new())
+                        } else {
+                            (message_type.clone(), content.clone(), attachments.clone())
+                        }
+                    })
+                    .collect()
+            };
 
         let chat_messages = build_chat_messages(&final_message_list_for_llm);
-        println!("[[final_chat_messages (regenerate)]]: {:#?}\n", chat_messages);
-        let chat_request = ChatRequest::new(chat_messages);
+        println!(
+            "[[final_chat_messages (regenerate)]]: {:#?}\n",
+            chat_messages
+        );
+        // 原生：注入 MCP 工具
+        let chat_request = if is_native_toolcall {
+            // 重新拉取一次助手的 MCP 工具，确保一致
+            let mut tools: Vec<Tool> = Vec::new();
+            if let Ok(mcp_info) =
+                crate::api::ai::mcp::collect_mcp_info_for_assistant(&app_handle_clone, assistant_id)
+                    .await
+            {
+                for server in &mcp_info.enabled_servers {
+                    for tool in &server.tools {
+                        let name = format!("{}__{}", server.name, tool.name);
+                        let schema = serde_json::from_str::<serde_json::Value>(&tool.parameters)
+                            .unwrap_or_else(|_| {
+                                serde_json::json!({
+                                    "type": "object",
+                                    "additionalProperties": true
+                                })
+                            });
+                        tools.push(
+                            Tool::new(name)
+                                .with_description(tool.description.clone())
+                                .with_schema(schema),
+                        );
+                    }
+                }
+            }
+            ChatRequest::new(chat_messages).with_tools(tools)
+        } else {
+            ChatRequest::new(chat_messages)
+        };
 
         if chat_config.stream {
             // 使用 genai 流式处理
@@ -955,7 +1045,10 @@ async fn initialize_conversation(
                     message_attachment_list,
                 ),
             ];
-            println!("[[initialize_conversation assistant_id]]: {}\n", request.assistant_id);
+            println!(
+                "[[initialize_conversation assistant_id]]: {}\n",
+                request.assistant_id
+            );
             println!(
                 "[[initialize_conversation init_message_list]]: {:#?}\n",
                 init_message_list

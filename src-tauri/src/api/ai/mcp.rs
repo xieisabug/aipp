@@ -43,7 +43,7 @@ pub async fn format_mcp_prompt(
     assistant_prompt_result: String,
     mcp_info: &MCPInfoForAssistant,
 ) -> String {
-    let mcp_constraint_prompt = r#"
+    let mcp_constraint_prompt: &str = r#"
 # MCP (Model Context Protocol) 工具使用规范
 
 作为 AI 助手，你可以使用以下 MCP 工具来执行各种任务。请严格遵守以下规则：
@@ -58,18 +58,11 @@ pub async fn format_mcp_prompt(
 ## 输出格式
 当需要调用 MCP 工具时，请使用以下 XML 格式：
 
-```xml
 <mcp_tool_call>
-<server_name>服务器名称</server_name>
-<tool_name>工具名称</tool_name>
-<parameters>
-{
-  "parameter1": "value1",
-  "parameter2": "value2"
-}
-</parameters>
+  <server_name>服务器名称</server_name>
+  <tool_name>工具名称</tool_name>
+  <parameters>{"parameter1":"value1"}</parameters>
 </mcp_tool_call>
-```
 
 ## 重要注意事项
 - 参数必须是有效的 JSON 格式
@@ -93,6 +86,44 @@ pub async fn format_mcp_prompt(
     format!(
         "{}\n{}\n{}\n{}",
         mcp_constraint_prompt, tools_info, "## 原始助手指令\n", assistant_prompt_result
+    )
+}
+
+/// 当选择原生工具调用时，给模型附带一段简短的工具清单说明，便于模型更好地理解可用工具。
+pub async fn format_mcp_native_tools_prompt(
+    assistant_prompt_result: String,
+    mcp_info: &MCPInfoForAssistant,
+) -> String {
+    if mcp_info.enabled_servers.is_empty() {
+        return assistant_prompt_result;
+    }
+
+    let mut tools_info = String::from("\n## 可用的工具(原生调用)\n\n");
+    tools_info.push_str(
+        "模型可以通过原生的工具调用机制调用下列工具。每次仅调用一个工具，等待结果再继续。\n\n",
+    );
+
+    for server_details in &mcp_info.enabled_servers {
+        tools_info.push_str(&format!("### 服务器: {}\n", server_details.name));
+        tools_info.push_str("\n#### 工具列表:\n\n");
+
+        for tool in &server_details.tools {
+            tools_info.push_str(&format!("- name: {}__{}\n", server_details.name, tool.name));
+            tools_info.push_str(&format!("  description: {}\n", tool.description));
+            tools_info.push_str("  parameters (json schema):\n");
+            tools_info.push_str("  ```json\n");
+            tools_info.push_str(tool.parameters.as_str());
+            tools_info.push_str("\n  ```\n\n");
+        }
+        tools_info.push_str("\n---\n\n");
+    }
+
+    format!(
+        "{}\n{}\n{}\n{}",
+        "# 工具调用说明\n- 你可以使用原生的 function calling 来调用上述工具\n- 工具名称采用 server__tool 形式，例如 serverA__search\n- 只有在确实需要时才调用工具\n",
+        tools_info,
+        "## 原始助手指令\n",
+        assistant_prompt_result
     )
 }
 
