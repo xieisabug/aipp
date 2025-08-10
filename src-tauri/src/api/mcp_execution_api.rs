@@ -1,5 +1,6 @@
 use crate::db::mcp_db::{MCPDatabase, MCPServer, MCPToolCall};
-use crate::api::ai_api::{AiRequest, ask_ai};
+use crate::api::ai_api::ask_ai;
+use crate::api::ai::types::AiRequest;
 use crate::db::conversation_db::{ConversationDatabase, Repository, Message};
 use anyhow::Result;
 
