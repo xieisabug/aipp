@@ -3,13 +3,22 @@ use crate::db::conversation_db::Repository;
 use crate::db::conversation_db::{Conversation, ConversationDatabase, Message, MessageAttachment};
 use crate::errors::AppError;
 use genai::chat::ChatMessage;
+use genai::chat::ToolResponse;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::Emitter;
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 pub fn build_chat_messages(
     init_message_list: &[(String, String, Vec<MessageAttachment>)],
+) -> Vec<ChatMessage> {
+    build_chat_messages_with_context(init_message_list, None)
+}
+
+pub fn build_chat_messages_with_context(
+    init_message_list: &[(String, String, Vec<MessageAttachment>)],
+    current_tool_call_id: Option<String>,
 ) -> Vec<ChatMessage> {
     let mut chat_messages = Vec::new();
     for (message_type, content, attachment_list) in init_message_list.iter() {
@@ -78,9 +87,23 @@ pub fn build_chat_messages(
                     chat_messages.push(ChatMessage::user(parts));
                 }
             }
+            "tool_result" => {
+                // Priority: 1. current_tool_call_id, 2. extracted from content, 3. random
+                let tool_call_id = current_tool_call_id.clone()
+                    .or_else(|| extract_tool_call_id(content))
+                    .unwrap_or_else(|| format!("tool_call_{}", Uuid::new_v4().to_string()[..8].to_string()));
+                
+                // Try to extract clean result, fallback to full content
+                let tool_result = extract_tool_result(content)
+                    .unwrap_or_else(|| content.to_string());
+                
+                // Create ToolResponse from genai crate
+                let tool_response = ToolResponse::new(tool_call_id, tool_result);
+                chat_messages.push(ChatMessage::from(tool_response));
+            }
             other => {
-                // 将 response / tool_result 统一视为 assistant 历史
-                if other == "response" || other == "tool_result" {
+                // 将 response 统一视为 assistant 历史
+                if other == "response" {
                     chat_messages.push(ChatMessage::assistant(content));
                 } else if other == "system" {
                     chat_messages.push(ChatMessage::system(content));
@@ -91,6 +114,31 @@ pub fn build_chat_messages(
         }
     }
     chat_messages
+}
+
+// Helper function to extract tool call ID from tool result content
+fn extract_tool_call_id(content: &str) -> Option<String> {
+    // Expected format: "Tool execution completed:\n\nTool Call ID: {id}\nResult:\n{result}"
+    if let Some(start) = content.find("Tool Call ID: ") {
+        let start_pos = start + "Tool Call ID: ".len();
+        if let Some(end) = content[start_pos..].find('\n') {
+            return Some(content[start_pos..start_pos + end].to_string());
+        } else {
+            // If no newline found, take rest of string (shouldn't happen with our format)
+            return Some(content[start_pos..].to_string());
+        }
+    }
+    None
+}
+
+// Helper function to extract tool result from tool result content
+fn extract_tool_result(content: &str) -> Option<String> {
+    // Expected format: "Tool execution completed:\n\nTool Call ID: {id}\nResult:\n{result}"
+    if let Some(start) = content.find("Result:\n") {
+        let start_pos = start + "Result:\n".len();
+        return Some(content[start_pos..].to_string());
+    }
+    None
 }
 
 pub fn infer_media_type_from_url(url: &str) -> String {

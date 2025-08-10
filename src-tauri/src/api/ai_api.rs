@@ -4,7 +4,7 @@ use crate::api::ai::chat::{
     handle_stream_chat as ai_handle_stream_chat,
 };
 use crate::api::ai::config::{ChatConfig, ConfigBuilder};
-use crate::api::ai::conversation::{build_chat_messages, init_conversation};
+use crate::api::ai::conversation::{build_chat_messages, build_chat_messages_with_context, init_conversation};
 use crate::api::ai::events::{ConversationEvent, MessageAddEvent, MessageUpdateEvent};
 use crate::api::ai::mcp::{collect_mcp_info_for_assistant, format_mcp_prompt};
 use crate::api::ai::title::generate_title;
@@ -252,6 +252,263 @@ pub async fn ask_ai(
     Ok(AiResponse {
         conversation_id,
         request_prompt_result_with_context,
+    })
+}
+
+#[tauri::command]
+pub async fn tool_result_continue_ask_ai(
+    app_handle: tauri::AppHandle,
+    _state: State<'_, AppState>,
+    _feature_config_state: State<'_, FeatureConfigState>,
+    message_token_manager: State<'_, MessageTokenManager>,
+    window: tauri::Window,
+    conversation_id: String,
+    assistant_id: i64,
+    tool_call_id: String,
+    tool_result: String,
+) -> Result<AiResponse, AppError> {
+    println!("================================ Tool Result Continue AI Start ===============================================");
+    println!(
+        "tool_result_continue_ask_ai: conversation_id: {}, assistant_id: {}, tool_call_id: {}, tool_result: {}",
+        conversation_id, assistant_id, tool_call_id, tool_result
+    );
+
+    let conversation_id_i64 = conversation_id.parse::<i64>()?;
+    let db = ConversationDatabase::new(&app_handle).map_err(AppError::from)?;
+    
+    // Get conversation details (validate exists)
+    let _conversation = db
+        .conversation_repo()
+        .unwrap()
+        .read(conversation_id_i64)
+        .map_err(AppError::from)?
+        .ok_or_else(|| AppError::DatabaseError("对话未找到".to_string()))?;
+
+    // Get assistant details  
+    let assistant_detail = get_assistant(app_handle.clone(), assistant_id).unwrap();
+    if assistant_detail.model.is_empty() {
+        return Err(AppError::NoModelFound);
+    }
+
+    // Create tool_result message in database
+    let tool_result_content = format!(
+        "Tool execution completed:\n\nTool Call ID: {}\nResult:\n{}",
+        tool_call_id,
+        tool_result
+    );
+
+    let _tool_result_message = add_message(
+        &app_handle,
+        None,
+        conversation_id_i64,
+        "tool_result".to_string(),
+        tool_result_content,
+        Some(assistant_detail.model[0].id),
+        Some(assistant_detail.model[0].model_code.clone()),
+        Some(chrono::Utc::now()),
+        Some(chrono::Utc::now()),
+        0,
+        None,
+        None,
+    )?;
+
+    // Get all existing messages
+    let all_messages = db
+        .message_repo()
+        .unwrap()
+        .list_by_conversation_id(conversation_id_i64)?;
+
+    // Build message list with latest children (same logic as ask_ai)
+    let mut latest_children: HashMap<i64, (Message, Option<MessageAttachment>)> = HashMap::new();
+    let mut child_ids: HashSet<i64> = HashSet::new();
+
+    for (message, attachment) in all_messages.iter() {
+        if let Some(parent_id) = message.parent_id {
+            child_ids.insert(message.id);
+            latest_children
+                .entry(parent_id)
+                .and_modify(|e| *e = (message.clone(), attachment.clone()))
+                .or_insert((message.clone(), attachment.clone()));
+        }
+    }
+
+    // Build final message list including the new tool_result message
+    let init_message_list: Vec<(String, String, Vec<MessageAttachment>)> = all_messages
+        .into_iter()
+        .filter(|(message, _)| !child_ids.contains(&message.id))
+        .map(|(message, attachment)| {
+            let (final_message, final_attachment) = latest_children
+                .get(&message.id)
+                .map(|child| child.clone())
+                .unwrap_or((message, attachment));
+
+            (
+                final_message.message_type,
+                final_message.content,
+                final_attachment.map(|a| vec![a]).unwrap_or_else(Vec::new),
+            )
+        })
+        .collect();
+
+    println!("init_message_list (tool_result_continue): {:?}", init_message_list);
+
+    // 收集 MCP 信息
+    let mcp_info = collect_mcp_info_for_assistant(&app_handle, assistant_id).await?;
+    println!(
+        "Collected MCP info: {} enabled servers, native toolcall: {}",
+        mcp_info.enabled_servers.len(),
+        mcp_info.use_native_toolcall
+    );
+
+    let cancel_token = CancellationToken::new();
+    message_token_manager
+        .store_token(conversation_id_i64, cancel_token.clone())
+        .await;
+
+    // Get model details (same as ask_ai)
+    let llm_db = LLMDatabase::new(&app_handle).map_err(AppError::from)?;
+    let provider_id = &assistant_detail.model[0].provider_id;
+    let model_code = &assistant_detail.model[0].model_code;
+    let model_detail = llm_db
+        .get_llm_model_detail(provider_id, model_code)
+        .context("Failed to get LLM model detail")?;
+
+    let tokens = message_token_manager.get_tokens();
+    let window_clone = window.clone();
+    let model_id = model_detail.model.id;
+    let model_code = model_detail.model.code.clone();
+    let model_configs = model_detail.configs.clone();
+    let provider_api_type = model_detail.provider.api_type.clone();
+    let assistant_model_configs = assistant_detail.model_configs.clone();
+    
+    tokio::spawn(async move {
+        let conversation_db = ConversationDatabase::new(&app_handle).unwrap();
+
+        // Build chat configuration (same as ask_ai)
+        let client = genai_client::create_client_with_config(
+            &model_configs,
+            &model_code,
+            &provider_api_type,
+        )?;
+
+        let temp_model_detail = crate::db::llm_db::ModelDetail {
+            model: crate::db::llm_db::LLMModel {
+                id: model_id,
+                name: model_code.clone(),
+                code: model_code.clone(),
+                llm_provider_id: 0,
+                description: String::new(),
+                vision_support: false,
+                audio_support: false,
+                video_support: false,
+            },
+            provider: crate::db::llm_db::LLMProvider {
+                id: 0,
+                name: String::new(),
+                api_type: provider_api_type.clone(),
+                description: String::new(),
+                is_official: false,
+                is_enabled: true,
+            },
+            configs: model_configs.clone(),
+        };
+
+        let model_config_clone = ConfigBuilder::merge_model_configs(
+            assistant_model_configs,
+            &temp_model_detail,
+            None,
+        );
+
+        let config_map = model_config_clone
+            .iter()
+            .filter_map(|config| {
+                config
+                    .value
+                    .as_ref()
+                    .map(|value| (config.name.clone(), value.clone()))
+            })
+            .collect::<HashMap<String, String>>();
+
+        let stream = config_map
+            .get("stream")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(false);
+
+        let model_name = config_map
+            .get("model")
+            .cloned()
+            .unwrap_or_else(|| model_code.clone());
+
+        let chat_options = ConfigBuilder::build_chat_options(&config_map);
+
+        let chat_config = ChatConfig {
+            model_name,
+            stream,
+            chat_options: chat_options.with_normalize_reasoning_content(true),
+            client,
+        };
+
+        println!(
+            "Using model: {}, stream: {}",
+            chat_config.model_name, chat_config.stream
+        );
+
+        // Convert messages to ChatMessage format with tool call ID context
+        let chat_messages = build_chat_messages_with_context(&init_message_list, Some(tool_call_id.clone()));
+        let chat_request = ChatRequest::new(chat_messages);
+
+        if chat_config.stream {
+            ai_handle_stream_chat(
+                &chat_config.client,
+                &chat_config.model_name,
+                &chat_request,
+                &chat_config.chat_options,
+                conversation_id_i64,
+                &cancel_token,
+                &conversation_db,
+                &tokens,
+                &window_clone,
+                &app_handle,
+                false,  // no title generation needed
+                String::new(), // no user prompt
+                HashMap::new(), // no feature config needed
+                None,   // no generation_group_id reuse
+                None,   // no parent_group_id
+                model_id,
+                model_code.clone(),
+            )
+            .await?;
+        } else {
+            ai_handle_non_stream_chat(
+                &chat_config.client,
+                &chat_config.model_name,
+                &chat_request,
+                &chat_config.chat_options,
+                conversation_id_i64,
+                &cancel_token,
+                &conversation_db,
+                &tokens,
+                &window_clone,
+                &app_handle,
+                false,  // no title generation needed
+                String::new(), // no user prompt
+                HashMap::new(), // no feature config needed
+                None,   // no generation_group_id reuse
+                None,   // no parent_group_id
+                model_id,
+                model_code.clone(),
+            )
+            .await?;
+        }
+
+        Ok::<(), Error>(())
+    });
+
+    println!("================================ Tool Result Continue AI End ===============================================");
+
+    Ok(AiResponse {
+        conversation_id: conversation_id_i64,
+        request_prompt_result_with_context: format!("Tool result: {}", tool_result),
     })
 }
 

@@ -13,7 +13,7 @@ mod template_engine;
 mod utils;
 mod window;
 
-use crate::api::ai_api::{ask_ai, cancel_ai, regenerate_ai, regenerate_conversation_title};
+use crate::api::ai_api::{ask_ai, cancel_ai, regenerate_ai, regenerate_conversation_title, tool_result_continue_ask_ai};
 use crate::api::artifacts_api::{
     check_bun_version, check_uv_version, confirm_environment_install, install_bun, install_uv,
     open_react_component_preview, preview_react_component, retry_preview_after_install,
@@ -280,6 +280,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .manage(MessageTokenManager::new())
         .invoke_handler(tauri::generate_handler![
             ask_ai,
+            tool_result_continue_ask_ai,
             regenerate_ai,
             regenerate_conversation_title,
             cancel_ai,

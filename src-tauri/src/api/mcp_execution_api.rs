@@ -1,6 +1,5 @@
 use crate::db::mcp_db::{MCPDatabase, MCPServer, MCPToolCall};
-use crate::api::ai_api::ask_ai;
-use crate::api::ai::types::AiRequest;
+use crate::api::ai_api::tool_result_continue_ask_ai;
 use crate::db::conversation_db::{ConversationDatabase, Repository, Message};
 use anyhow::Result;
 
@@ -251,37 +250,20 @@ async fn handle_retry_success_continuation(
     
     let assistant_id = conversation.assistant_id.ok_or("No assistant associated with conversation")?;
     
-    // Trigger AI continuation with retry-specific prompt (genai style - direct prompt, not stored as user message)
-    let tool_result_prompt = format!(
-        "Tool execution has been retried and completed successfully:\n\nTool: {}\nServer: {}\nParameters: {}\nResult:\n{}\n\nPlease continue responding to the user based on this updated tool execution result.",
-        tool_call.tool_name,
-        tool_call.server_name,
-        tool_call.parameters,
-        result
-    );
+    // Use the new tool_result_continue_ask_ai function for retry continuation
+    let tool_call_id = format!("mcp_tool_call_retry_{}", tool_call.id);
     
-    let ai_request = AiRequest {
-        conversation_id: tool_call.conversation_id.to_string(),
-        assistant_id,
-        prompt: tool_result_prompt, // Direct tool result, not stored as user message
-        model: None,
-        temperature: None,
-        top_p: None,
-        max_tokens: None,
-        stream: None,
-        attachment_list: None,
-    };
-    
-    // Call ask_ai to continue the conversation
-    match ask_ai(
+    // Call tool_result_continue_ask_ai to continue the conversation after retry
+    match tool_result_continue_ask_ai(
         app_handle.clone(),
         state.clone(),
         feature_config_state.clone(),
         message_token_manager.clone(),
         window.clone(),
-        ai_request,
-        None, // override_model_config
-        None, // override_prompt
+        tool_call.conversation_id.to_string(),
+        assistant_id,
+        tool_call_id,
+        result.to_string(),
     ).await {
         Ok(_) => {
             println!("Successfully triggered conversation continuation for tool call retry {}", tool_call.id);
@@ -317,60 +299,20 @@ async fn trigger_conversation_continuation(
     
     let assistant_id = conversation.assistant_id.ok_or("No assistant associated with conversation")?;
     
-    // Store tool result in database for record keeping and AI conversation history
-    let tool_result_content = format!(
-        "Tool execution completed:\n\nTool: {}\nServer: {}\nParameters: {}\nResult:\n{}",
-        tool_call.tool_name,
-        tool_call.server_name,
-        tool_call.parameters,
-        result
-    );
+    // Use the new tool_result_continue_ask_ai function instead of creating user message
+    let tool_call_id = format!("mcp_tool_call_{}", tool_call.id);
     
-    let _tool_result_message = conversation_db
-        .message_repo()
-        .unwrap()
-        .create(&Message {
-            id: 0,
-            parent_id: None,
-            conversation_id: tool_call.conversation_id,
-            message_type: "tool_result".to_string(), // 包含在AI对话历史中但不显示在UI
-            content: tool_result_content,
-            llm_model_id: None,
-            llm_model_name: None,
-            created_time: chrono::Utc::now(),
-            start_time: None,
-            finish_time: None,
-            token_count: 0,
-            generation_group_id: None,
-            parent_group_id: None,
-        })
-        .map_err(|e| e.to_string())?;
-    
-    println!("Stored tool result in database (included in AI history) for tool call {}", tool_call.id);
-    
-    // Create AI request with empty prompt since tool result is now part of conversation history
-    let ai_request = AiRequest {
-        conversation_id: tool_call.conversation_id.to_string(),
-        assistant_id,
-        prompt: "继续对话，基于上述工具执行结果回复用户。".to_string(), // 简单的继续指令
-        model: None,
-        temperature: None,
-        top_p: None,
-        max_tokens: None,
-        stream: None,
-        attachment_list: None,
-    };
-    
-    // Call ask_ai to continue the conversation
-    match ask_ai(
+    // Call tool_result_continue_ask_ai to continue the conversation with tool result
+    match tool_result_continue_ask_ai(
         app_handle.clone(),
         state.clone(),
         feature_config_state.clone(),
         message_token_manager.clone(),
         window.clone(),
-        ai_request,
-        None, // override_model_config
-        None, // override_prompt
+        tool_call.conversation_id.to_string(),
+        assistant_id,
+        tool_call_id,
+        result.to_string(),
     ).await {
         Ok(_) => {
             println!("Successfully triggered conversation continuation for tool call {}", tool_call.id);
