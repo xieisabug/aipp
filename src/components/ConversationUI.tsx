@@ -202,9 +202,10 @@ function ConversationUI({
 
     const handleError = useCallback((errorMessage: string) => {
         console.error("Stream error from conversation events:", errorMessage);
-        // 错误处理在useConversationEvents中的错误处理逻辑和直接的error notification listener中都会处理
-        // 这里主要是为了确保响应状态被正确重置
+        // 确保AI响应状态被重置
         setAiIsResponsing(false);
+        // 显示用户友好的错误信息
+        toast.error(`AI请求失败: ${errorMessage}`);
     }, []);
 
     // handleMessageUpdate 将在后面定义，这里先声明一个空的引用
@@ -228,7 +229,6 @@ function ConversationUI({
         streamingMessages,
         shiningMessageIds,
         setShiningMessageIds,
-        clearShiningMessages,
     } = useConversationEvents(conversationEventsOptions);
 
     // ============= UI 状态管理和交互相关逻辑 =============
@@ -417,7 +417,11 @@ function ConversationUI({
                 })
                 .catch((e) => {
                     console.error("ask assistant error", e);
-                    toast.error("发送消息失败: " + e);
+                    setAiIsResponsing(false);
+                    setShiningMessageIds(new Set());
+                    // 显示更友好的错误信息
+                    const errorMessage = typeof e === 'string' ? e : "助手请求失败，请稍后重试";
+                    toast.error(errorMessage);
                     throw e;
                 });
         },
@@ -584,14 +588,14 @@ function ConversationUI({
             const errorMessage = event.payload as string;
             console.error("Received error notification:", errorMessage);
             
-            // 显示错误通知
-            toast.error(`AI请求失败: ${errorMessage}`);
-            
             // 重置AI响应状态
             setAiIsResponsing(false);
             
             // 清除闪烁状态
-            clearShiningMessages();
+            setShiningMessageIds(new Set());
+            
+            // 显示错误通知（不重复显示，因为useConversationEvents已经处理了）
+            // toast.error(`AI请求失败: ${errorMessage}`);
         });
 
         return () => {
@@ -599,7 +603,7 @@ function ConversationUI({
                 unsubscribe.then((f) => f());
             }
         };
-    }, [clearShiningMessages]);
+    }, []);
 
     // ============= 数据计算和处理 =============
 
@@ -839,11 +843,13 @@ function ConversationUI({
                     console.error("Regenerate error:", error);
                     setAiIsResponsing(false);
                     // 错误时清除shine-border
-                    clearShiningMessages();
-                    toast.error("重新生成失败: " + error);
+                    setShiningMessageIds(new Set());
+                    // 显示更友好的错误信息
+                    const errorMessage = typeof error === 'string' ? error : "重新生成失败，请稍后重试";
+                    toast.error(errorMessage);
                 });
         },
-        [],
+        [setShiningMessageIds],
     );
 
     // 消息编辑相关处理函数
@@ -923,7 +929,7 @@ function ConversationUI({
             invoke("cancel_ai", { conversationId: +conversationId }).then(() => {
                 setAiIsResponsing(false);
                 // shine-border 状态现在由 useConversationEvents hook 管理
-                clearShiningMessages();
+                setShiningMessageIds(new Set());
             });
         } else {
             // 正常发送消息流程
@@ -967,10 +973,13 @@ function ConversationUI({
                         }
                     })
                     .catch((error) => {
+                        console.error("Send message error:", error);
                         setAiIsResponsing(false);
                         // 发送消息失败时清除shine-border
-                        clearShiningMessages();
-                        toast.error("发送消息失败: " + error);
+                        setShiningMessageIds(new Set());
+                        // 显示更友好的错误信息
+                        const errorMessage = typeof error === 'string' ? error : "发送消息失败，请检查网络连接或稍后重试";
+                        toast.error(errorMessage);
                     });
             }
 
@@ -979,10 +988,10 @@ function ConversationUI({
         }
     }, 200);
 
-    // 过滤系统消息并渲染MessageItem组件
+    // 过滤系统消息和工具结果消息并渲染MessageItem组件
     const filteredMessages = useMemo(() => {
         const result = allDisplayMessages
-            .filter((m) => m.message_type !== "system")
+            .filter((m) => m.message_type !== "system" && m.message_type !== "tool_result")
             .map((message) => {
                 // 查找对应的流式消息信息（如果存在）
                 const streamEvent = streamingMessages.get(message.id);

@@ -71,14 +71,17 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
 
                 // 检查是否是错误消息
                 if (messageUpdateData.message_type === "error") {
-                    // 对于错误消息，立即触发错误处理
+                    // 对于错误消息，立即触发错误处理和状态清理
+                    console.error("Received error message:", messageUpdateData.content);
+                    
+                    // 调用错误处理回调
                     callbacksRef.current.onError?.(messageUpdateData.content);
                     callbacksRef.current.onAiResponseComplete?.(); // 错误也算作响应完成
                     
                     // 清除所有shine-border，因为出现错误
                     setShiningMessageIds(new Set());
                     
-                    // 对于错误消息，直接处理完成状态
+                    // 对于错误消息，处理完成状态并延长显示时间
                     if (messageUpdateData.is_done) {
                         setStreamingMessages((prev) => {
                             const newMap = new Map(prev);
@@ -90,14 +93,14 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
                             return newMap;
                         });
 
-                        // 错误消息保留更长时间，让用户能看到
+                        // 错误消息保留更长时间，让用户能看到完整的错误信息
                         setTimeout(() => {
                             setStreamingMessages((prev) => {
                                 const newMap = new Map(prev);
                                 newMap.delete(streamEvent.message_id);
                                 return newMap;
                             });
-                        }, 5000); // 5秒后清理错误消息
+                        }, 8000); // 8秒后清理错误消息，给用户更多时间阅读
                     }
                 } else {
                     // 正常消息处理逻辑
@@ -206,12 +209,15 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
     }, []);
 
     const handleError = useCallback((errorMessage: string) => {
+        console.error("Global error handler called:", errorMessage);
+        
         // 清理所有流式消息状态
         setStreamingMessages(new Map());
         setShiningMessageIds(new Set());
         
-        // 调用外部错误处理
+        // 调用外部错误处理，确保状态重置
         callbacksRef.current.onError?.(errorMessage);
+        callbacksRef.current.onAiResponseComplete?.();
     }, []);
 
     return {

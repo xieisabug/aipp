@@ -41,13 +41,13 @@ const StatusIndicator: React.FC<{ state: ExecutionState }> = ({ state }) => {
     switch (state) {
         case "idle": return null;
         case "pending":
-            return <Badge variant="secondary" className="flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />等待中</Badge>;
+            return <Badge variant="secondary" className="flex items-center gap-1 ml-3"><Loader2 className="h-3 w-3 animate-spin" />等待中</Badge>;
         case "executing":
-            return <Badge variant="secondary" className="flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />执行中</Badge>;
+            return <Badge variant="secondary" className="flex items-center gap-1 ml-3"><Loader2 className="h-3 w-3 animate-spin" />执行中</Badge>;
         case "success":
-            return <Badge variant="default" className="flex items-center gap-1 bg-green-100 text-green-800 border-green-200"><CheckCircle className="h-3 w-3" />成功</Badge>;
+            return <Badge variant="default" className="flex items-center gap-1 bg-green-100 text-green-800 border-green-200 ml-3"><CheckCircle className="h-3 w-3" />成功</Badge>;
         case "failed":
-            return <Badge variant="destructive" className="flex items-center gap-1"><XCircle className="h-3 w-3" />失败</Badge>;
+            return <Badge variant="destructive" className="flex items-center gap-1 ml-3"><XCircle className="h-3 w-3" />失败</Badge>;
         default: return null;
     }
 };
@@ -80,7 +80,7 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
                     const result = await invoke<MCPToolCall>('get_mcp_tool_call', {
                         callId: callId
                     });
-                    
+
                     if (result.status === 'success' && result.result) {
                         setExecutionResult(result.result);
                         setExecutionState("success");
@@ -92,7 +92,7 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
                     console.warn('Failed to fetch existing tool call result:', error);
                 }
             };
-            
+
             fetchExistingResult();
         }
     }, [callId, executionState]);
@@ -105,18 +105,18 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
                     const allCalls = await invoke<MCPToolCall[]>('get_mcp_tool_calls_by_conversation', {
                         conversationId: conversationId
                     });
-                    
+
                     // 查找匹配的工具调用（相同的消息ID、服务器名和工具名）
-                    const matchingCall = allCalls.find(call => 
-                        call.message_id === messageId && 
-                        call.server_name === serverName && 
+                    const matchingCall = allCalls.find(call =>
+                        call.message_id === messageId &&
+                        call.server_name === serverName &&
                         call.tool_name === toolName &&
                         call.parameters === parameters
                     );
-                    
+
                     if (matchingCall) {
                         setToolCallId(matchingCall.id);
-                        
+
                         if (matchingCall.status === 'success' && matchingCall.result) {
                             setExecutionResult(matchingCall.result);
                             setExecutionState("success");
@@ -131,7 +131,7 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
                     console.warn('Failed to find existing tool call:', error);
                 }
             };
-            
+
             findExistingToolCall();
         }
     }, [callId, conversationId, messageId, serverName, toolName, parameters, executionState]);

@@ -39,7 +39,7 @@ pub async fn ask_ai(
 ) -> Result<AiResponse, AppError> {
     println!("================================ Ask AI Start ===============================================");
     println!(
-        "ask_ai: {:?}, override_model_config: {:?}, override_prompt: {:?}",
+        "ask_ai - [[request]]: {:#?}\n[[override_model_config]]: {:#?}\n[[override_prompt]]: {:#?}\n",
         request, override_model_config, override_prompt
     );
     let template_engine = TemplateEngine::new();
@@ -54,7 +54,7 @@ pub async fn ask_ai(
     let assistant_prompt_result = template_engine
         .parse(&assistant_prompt_origin, &template_context)
         .await;
-    println!("assistant_prompt_result: {}", assistant_prompt_result);
+    println!("[[assistant_prompt_result]]: {}\n", assistant_prompt_result);
 
     if assistant_detail.model.is_empty() {
         return Err(AppError::NoModelFound);
@@ -63,14 +63,14 @@ pub async fn ask_ai(
     // 收集 MCP 信息
     let mcp_info = collect_mcp_info_for_assistant(&app_handle, request.assistant_id).await?;
     println!(
-        "Collected MCP info: {} enabled servers, native toolcall: {}",
+        "[[MCP enabled_servers]]: {} [[native_toolcall]]: {}\n",
         mcp_info.enabled_servers.len(),
         mcp_info.use_native_toolcall
     );
     let assistant_prompt_result =
         if mcp_info.enabled_servers.len() > 0 && !mcp_info.use_native_toolcall {
             let mcp_formatted_prompt = format_mcp_prompt(assistant_prompt_result, &mcp_info).await;
-            println!("MCP prompt: {}", mcp_formatted_prompt);
+            println!("[[MCP formatted_prompt]]: {}\n", mcp_formatted_prompt);
             mcp_formatted_prompt
         } else {
             assistant_prompt_result
@@ -120,7 +120,8 @@ pub async fn ask_ai(
     let model_configs = model_detail.configs.clone(); // 提前获取模型配置
     let provider_api_type = model_detail.provider.api_type.clone(); // 提前获取API类型
     let assistant_model_configs = assistant_detail.model_configs.clone(); // 提前获取助手模型配置
-    tokio::spawn(async move {
+    
+    let task_handle = tokio::spawn(async move {
         // 直接创建数据库连接（避免线程安全问题）
         let conversation_db = ConversationDatabase::new(&app_handle_clone).unwrap();
 
@@ -190,7 +191,7 @@ pub async fn ask_ai(
         };
 
         println!(
-            "Using model: {}, stream: {}",
+            "[[model_name]]: {} [[stream]]: {}\n",
             chat_config.model_name, chat_config.stream
         );
 
@@ -246,6 +247,12 @@ pub async fn ask_ai(
 
         Ok::<(), Error>(())
     });
+    
+    // 等待任务完成并处理错误
+    if let Err(join_error) = task_handle.await {
+        eprintln!("[[task_join_error]]: {}\n", join_error);
+        return Err(AppError::InternalError(format!("任务执行失败: {}", join_error)));
+    }
 
     println!("================================ Ask AI End ===============================================");
 
@@ -269,7 +276,7 @@ pub async fn tool_result_continue_ask_ai(
 ) -> Result<AiResponse, AppError> {
     println!("================================ Tool Result Continue AI Start ===============================================");
     println!(
-        "tool_result_continue_ask_ai: conversation_id: {}, assistant_id: {}, tool_call_id: {}, tool_result: {}",
+        "[[conversation_id]]: {}\n[[assistant_id]]: {}\n[[tool_call_id]]: {}\n[[tool_result]]: {}\n",
         conversation_id, assistant_id, tool_call_id, tool_result
     );
 
@@ -350,12 +357,12 @@ pub async fn tool_result_continue_ask_ai(
         })
         .collect();
 
-    println!("init_message_list (tool_result_continue): {:?}", init_message_list);
+    println!("[[init_message_list (tool_result_continue)]]: {:#?}\n", init_message_list);
 
     // 收集 MCP 信息
     let mcp_info = collect_mcp_info_for_assistant(&app_handle, assistant_id).await?;
     println!(
-        "Collected MCP info: {} enabled servers, native toolcall: {}",
+        "[[MCP enabled_servers]]: {} [[native_toolcall]]: {}\n",
         mcp_info.enabled_servers.len(),
         mcp_info.use_native_toolcall
     );
@@ -381,7 +388,7 @@ pub async fn tool_result_continue_ask_ai(
     let provider_api_type = model_detail.provider.api_type.clone();
     let assistant_model_configs = assistant_detail.model_configs.clone();
     
-    tokio::spawn(async move {
+    let task_handle = tokio::spawn(async move {
         let conversation_db = ConversationDatabase::new(&app_handle).unwrap();
 
         // Build chat configuration (same as ask_ai)
@@ -449,12 +456,13 @@ pub async fn tool_result_continue_ask_ai(
         };
 
         println!(
-            "Using model: {}, stream: {}",
+            "[[model_name]]: {} [[stream]]: {}\n",
             chat_config.model_name, chat_config.stream
         );
 
         // Convert messages to ChatMessage format with tool call ID context
         let chat_messages = build_chat_messages_with_context(&init_message_list, Some(tool_call_id.clone()));
+        println!("[[chat_messages (tool_result_continue)]]: {:#?}\n", chat_messages);
         let chat_request = ChatRequest::new(chat_messages);
 
         if chat_config.stream {
@@ -503,6 +511,12 @@ pub async fn tool_result_continue_ask_ai(
 
         Ok::<(), Error>(())
     });
+    
+    // 等待任务完成并处理错误
+    if let Err(join_error) = task_handle.await {
+        eprintln!("[[tool_continue_task_join_error]]: {}\n", join_error);
+        return Err(AppError::InternalError(format!("工具继续任务执行失败: {}", join_error)));
+    }
 
     println!("================================ Tool Result Continue AI End ===============================================");
 
@@ -605,7 +619,7 @@ pub async fn regenerate_ai(
         init_message_list.push((final_msg.message_type, final_msg.content, attachments_vec));
     }
 
-    println!("init_message_list (regenerate): {:?}", init_message_list);
+    println!("[[init_message_list (regenerate)]]: {:#?}\n", init_message_list);
 
     // 获取助手信息（在构建消息列表之后，以确保对话已确定）
     let assistant_id = conversation.assistant_id.unwrap();
@@ -641,7 +655,7 @@ pub async fn regenerate_ai(
                     {
                         parent_group_id = next_msg.generation_group_id.clone();
                         println!(
-                            "Found parent group ID for user message regenerate: {:?}",
+                            "[[parent_group_id for user message regenerate]]: {:?}\n",
                             parent_group_id
                         );
                         break;
@@ -677,7 +691,7 @@ pub async fn regenerate_ai(
     let regenerate_model_configs = model_detail.configs.clone(); // 提前获取模型配置
     let regenerate_provider_api_type = model_detail.provider.api_type.clone(); // 提前获取API类型
     let regenerate_assistant_model_configs = assistant_detail.model_configs.clone(); // 提前获取助手模型配置
-    tokio::spawn(async move {
+    let task_handle = tokio::spawn(async move {
         // 直接创建数据库连接（避免线程安全问题）
         let conversation_db = ConversationDatabase::new(&app_handle_clone).unwrap();
 
@@ -748,7 +762,7 @@ pub async fn regenerate_ai(
 
         // Convert messages to ChatMessage format
         let chat_messages = build_chat_messages(&init_message_list);
-        println!("final chat_messages: {:?}", chat_messages);
+        println!("[[final_chat_messages]]: {:#?}\n", chat_messages);
         let chat_request = ChatRequest::new(chat_messages);
 
         if chat_config.stream {
@@ -799,6 +813,12 @@ pub async fn regenerate_ai(
 
         Ok::<(), Error>(())
     });
+    
+    // 等待任务完成并处理错误
+    if let Err(join_error) = task_handle.await {
+        eprintln!("[[regenerate_task_join_error]]: {}\n", join_error);
+        return Err(AppError::InternalError(format!("重新生成任务执行失败: {}", join_error)));
+    }
 
     println!("================================ Regenerate AI End ===============================================");
 
@@ -896,9 +916,9 @@ async fn initialize_conversation(
                     message_attachment_list,
                 ),
             ];
-            println!("initialize_conversation {:?}", request.assistant_id);
+            println!("[[initialize_conversation assistant_id]]: {}\n", request.assistant_id);
             println!(
-                "initialize_conversation init_message_list {:?}",
+                "[[initialize_conversation init_message_list]]: {:#?}\n",
                 init_message_list
             );
             let (conversation, _) = init_conversation(

@@ -86,7 +86,12 @@ impl ConfigBuilder {
     }
 }
 
-pub const MAX_RETRY_ATTEMPTS: u32 = 1;
-pub const RETRY_DELAY_MS: u64 = 1000;
+pub const MAX_RETRY_ATTEMPTS: u32 = 3;
+pub const RETRY_DELAY_BASE_MS: u64 = 2000;
+
+/// 计算重试延迟，使用指数退避策略
+pub fn calculate_retry_delay(attempt: u32) -> u64 {
+    RETRY_DELAY_BASE_MS * (2_u64.pow(attempt.saturating_sub(1)))
+}
 
 

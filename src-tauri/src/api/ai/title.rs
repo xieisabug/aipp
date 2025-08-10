@@ -7,7 +7,7 @@ use crate::db::conversation_db::{ConversationDatabase, Conversation};
 use genai::chat::{ChatMessage, ChatRequest};
 use std::collections::HashMap;
 use tokio::time::{sleep, Duration};
-use crate::api::ai::config::{MAX_RETRY_ATTEMPTS, RETRY_DELAY_MS};
+use crate::api::ai::config::{MAX_RETRY_ATTEMPTS, calculate_retry_delay};
 use tauri::Emitter;
 
 pub async fn generate_title(
@@ -138,7 +138,8 @@ pub async fn generate_title(
                         "Title generation attempt {} failed: {}, retrying...",
                         attempts, e
                     );
-                    sleep(Duration::from_millis(RETRY_DELAY_MS)).await;
+                    let delay = calculate_retry_delay(attempts);
+                    sleep(Duration::from_millis(delay)).await;
                 }
             }
         };
