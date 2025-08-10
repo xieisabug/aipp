@@ -267,12 +267,6 @@ pub async fn ask_ai(
 
         Ok::<(), Error>(())
     });
-    
-    // 等待任务完成并处理错误
-    if let Err(join_error) = task_handle.await {
-        eprintln!("[[task_join_error]]: {}\n", join_error);
-        return Err(AppError::InternalError(format!("任务执行失败: {}", join_error)));
-    }
 
     println!("================================ Ask AI End ===============================================");
 
@@ -552,12 +546,6 @@ pub async fn tool_result_continue_ask_ai(
 
         Ok::<(), Error>(())
     });
-    
-    // 等待任务完成并处理错误
-    if let Err(join_error) = task_handle.await {
-        eprintln!("[[tool_continue_task_join_error]]: {}\n", join_error);
-        return Err(AppError::InternalError(format!("工具继续任务执行失败: {}", join_error)));
-    }
 
     println!("================================ Tool Result Continue AI End ===============================================");
 
@@ -875,12 +863,6 @@ pub async fn regenerate_ai(
 
         Ok::<(), Error>(())
     });
-    
-    // 等待任务完成并处理错误
-    if let Err(join_error) = task_handle.await {
-        eprintln!("[[regenerate_task_join_error]]: {}\n", join_error);
-        return Err(AppError::InternalError(format!("重新生成任务执行失败: {}", join_error)));
-    }
 
     println!("================================ Regenerate AI End ===============================================");
 

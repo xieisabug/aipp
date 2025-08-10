@@ -188,6 +188,7 @@ async fn attempt_stream_chat(
 
     let mut current_output_type: Option<String> = None;
     let mut reasoning_start_time: Option<chrono::DateTime<chrono::Utc>> = None;
+    let mut response_start_time: Option<chrono::DateTime<chrono::Utc>> = None;
 
     loop {
         tokio::select! {
@@ -223,6 +224,7 @@ async fn attempt_stream_chat(
 
                                 if response_message_id.is_none() {
                                     let now = chrono::Utc::now();
+                                    response_start_time = Some(now);
 
                                     let new_message = conversation_db
                                         .message_repo()
@@ -382,15 +384,64 @@ async fn attempt_stream_chat(
                                 }
                             }
                             ChatStreamEvent::End(_) => {
-                                super::conversation::finish_stream_messages(
-                                    &conversation_db,
-                                    reasoning_message_id,
-                                    response_message_id,
-                                    &reasoning_content,
-                                    &response_content,
-                                    &window,
-                                    conversation_id,
-                                )?;
+                                // 按当前输出类型收尾，确保 response 触发 MCP 检测与事件
+                                match current_output_type.as_deref() {
+                                    Some("reasoning") => {
+                                        if let (Some(msg_id), Some(start_time)) = (reasoning_message_id, reasoning_start_time) {
+                                            if let Err(e) = super::conversation::handle_message_type_end(
+                                                msg_id,
+                                                "reasoning",
+                                                &reasoning_content,
+                                                start_time,
+                                                &conversation_db,
+                                                &window,
+                                                conversation_id,
+                                                &app_handle,
+                                            ).await {
+                                                eprintln!("[[reasoning_type_end_failed]]: {}", e);
+                                            }
+                                        }
+                                    }
+                                    Some("response") => {
+                                        if let (Some(msg_id), Some(start_time)) = (response_message_id, response_start_time) {
+                                            if let Err(e) = super::conversation::handle_message_type_end(
+                                                msg_id,
+                                                "response",
+                                                &response_content,
+                                                start_time,
+                                                &conversation_db,
+                                                &window,
+                                                conversation_id,
+                                                &app_handle,
+                                            ).await {
+                                                eprintln!("[[response_type_end_failed]]: {}", e);
+                                            }
+                                        } else {
+                                            // 兜底：如果缺少 start_time 或 msg_id，至少完成事件更新
+                                            super::conversation::finish_stream_messages(
+                                                &conversation_db,
+                                                reasoning_message_id,
+                                                response_message_id,
+                                                &reasoning_content,
+                                                &response_content,
+                                                &window,
+                                                conversation_id,
+                                            )?;
+                                        }
+                                    }
+                                    _ => {
+                                        // 无活跃类型时，走统一收尾
+                                        super::conversation::finish_stream_messages(
+                                            &conversation_db,
+                                            reasoning_message_id,
+                                            response_message_id,
+                                            &reasoning_content,
+                                            &response_content,
+                                            &window,
+                                            conversation_id,
+                                        )?;
+                                    }
+                                }
 
                                 if need_generate_title && !response_content.is_empty() {
                                     let app_handle_clone = app_handle.clone();
