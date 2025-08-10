@@ -67,6 +67,9 @@ pub async fn ask_ai(
         mcp_info.enabled_servers.len(),
         mcp_info.use_native_toolcall
     );
+    let is_native_toolcall = mcp_info.use_native_toolcall;
+
+    // 注意：是否使用提供商原生 toolcall 在后续构造 ChatRequest 时再判断
     let assistant_prompt_result =
         if mcp_info.enabled_servers.len() > 0 && !mcp_info.use_native_toolcall {
             let mcp_formatted_prompt = format_mcp_prompt(assistant_prompt_result, &mcp_info).await;
@@ -92,6 +95,23 @@ pub async fn ask_ai(
             override_prompt.clone(),
         )
         .await?;
+
+    // 非原生 toolcall 时，将历史中的 tool_result 在“发送给 LLM 的消息”里当作用户消息。
+    // 注意：DB 与 UI 不变，仅用于请求时的上下文构造。
+    let final_message_list_for_llm: Vec<(String, String, Vec<MessageAttachment>)> = if is_native_toolcall {
+        init_message_list.clone()
+    } else {
+        init_message_list
+            .iter()
+            .map(|(message_type, content, attachments)| {
+                if message_type == "tool_result" {
+                    (String::from("user"), content.clone(), Vec::new())
+                } else {
+                    (message_type.clone(), content.clone(), attachments.clone())
+                }
+            })
+            .collect()
+    };
 
     // 总是启动流式处理，即使没有预先创建消息
     let _config_feature_map = feature_config_state.config_feature_map.lock().await.clone();
@@ -195,8 +215,8 @@ pub async fn ask_ai(
             chat_config.model_name, chat_config.stream
         );
 
-        // Convert messages to ChatMessage format
-        let chat_messages = build_chat_messages(&init_message_list);
+        // 将消息转换为 ChatMessage（已按是否原生 toolcall 处理过 tool_result）
+        let chat_messages = build_chat_messages(&final_message_list_for_llm);
         let chat_request = ChatRequest::new(chat_messages);
 
         if chat_config.stream {
@@ -366,6 +386,7 @@ pub async fn tool_result_continue_ask_ai(
         mcp_info.enabled_servers.len(),
         mcp_info.use_native_toolcall
     );
+    let is_native_toolcall = mcp_info.use_native_toolcall;
 
     let cancel_token = CancellationToken::new();
     message_token_manager
@@ -460,10 +481,30 @@ pub async fn tool_result_continue_ask_ai(
             chat_config.model_name, chat_config.stream
         );
 
-        // Convert messages to ChatMessage format with tool call ID context
-        let chat_messages = build_chat_messages_with_context(&init_message_list, Some(tool_call_id.clone()));
-        println!("[[chat_messages (tool_result_continue)]]: {:#?}\n", chat_messages);
-        let chat_request = ChatRequest::new(chat_messages);
+        // 根据是否为原生 toolcall 选择不同的消息组织策略：
+        // - 原生：将 "tool_result" 转为 ToolResponse（含 tool_call_id）
+        // - 非原生：把所有 "tool_result" 在内存里映射成 "user" 文本消息，避免向提供商发送 ToolResponse 导致 4xx/5xx
+        let chat_request = if is_native_toolcall {
+            let chat_messages = build_chat_messages_with_context(&init_message_list, Some(tool_call_id.clone()));
+            println!("[[chat_messages (tool_result_continue native)]]: {:#?}\n", chat_messages);
+            ChatRequest::new(chat_messages)
+        } else {
+            let transformed_list: Vec<(String, String, Vec<MessageAttachment>)> = init_message_list
+                .iter()
+                .map(|(message_type, content, attachments)| {
+                    if message_type == "tool_result" {
+                        // 将工具结果作为用户侧输入提供给模型（仅在请求中使用，不更改 DB 与 UI）
+                        (String::from("user"), content.clone(), Vec::new())
+                    } else {
+                        (message_type.clone(), content.clone(), attachments.clone())
+                    }
+                })
+                .collect();
+
+            let chat_messages = build_chat_messages(&transformed_list);
+            println!("[[chat_messages (tool_result_continue non_native)]]: {:#?}\n", chat_messages);
+            ChatRequest::new(chat_messages)
+        };
 
         if chat_config.stream {
             ai_handle_stream_chat(
@@ -629,6 +670,10 @@ pub async fn regenerate_ai(
         return Err(AppError::NoModelFound);
     }
 
+    // 兼容 MCP：根据助手配置判断是否使用提供商原生 toolcall
+    let mcp_info = crate::api::ai::mcp::collect_mcp_info_for_assistant(&app_handle, assistant_id).await?;
+    let is_native_toolcall = mcp_info.use_native_toolcall;
+
     // 确定要使用的generation_group_id和parent_group_id
     let (regenerate_generation_group_id, regenerate_parent_group_id) =
         if message.message_type == "user" {
@@ -760,9 +805,26 @@ pub async fn regenerate_ai(
             client,
         };
 
-        // Convert messages to ChatMessage format
-        let chat_messages = build_chat_messages(&init_message_list);
-        println!("[[final_chat_messages]]: {:#?}\n", chat_messages);
+        // 将历史消息转换为 ChatMessage：
+        // - 原生 toolcall：按默认逻辑（tool_result -> ToolResponse）
+        // - 非原生：把所有 tool_result 映射成 "user" 文本，仅用于请求
+        let final_message_list_for_llm: Vec<(String, String, Vec<MessageAttachment>)> = if is_native_toolcall {
+            init_message_list.clone()
+        } else {
+            init_message_list
+                .iter()
+                .map(|(message_type, content, attachments)| {
+                    if message_type == "tool_result" {
+                        (String::from("user"), content.clone(), Vec::new())
+                    } else {
+                        (message_type.clone(), content.clone(), attachments.clone())
+                    }
+                })
+                .collect()
+        };
+
+        let chat_messages = build_chat_messages(&final_message_list_for_llm);
+        println!("[[final_chat_messages (regenerate)]]: {:#?}\n", chat_messages);
         let chat_request = ChatRequest::new(chat_messages);
 
         if chat_config.stream {

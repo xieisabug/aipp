@@ -4,6 +4,24 @@ use crate::db::conversation_db::{ConversationDatabase, Repository, Message};
 use anyhow::Result;
 
 // MCP Tool Execution API
+
+// 规范化从 LLM 返回的 parameters JSON，移除可能的代码块包裹
+fn normalize_parameters_json(parameters: &str) -> String {
+    let trimmed = parameters.trim();
+    if trimmed.starts_with("```") {
+        // 去掉首尾 ```，并移除可能的语言标识（如 ```json）
+        let without_start = trimmed.trim_start_matches("```");
+        // 可能存在语言标签，截到首个换行
+        let without_lang = match without_start.find('\n') {
+            Some(idx) => &without_start[idx + 1..],
+            None => without_start,
+        };
+        let without_end = without_lang.trim_end_matches("```").trim();
+        without_end.to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
 #[tauri::command]
 pub async fn create_mcp_tool_call(
     app_handle: tauri::AppHandle,
@@ -362,8 +380,9 @@ async fn execute_stdio_tool(server: &MCPServer, tool_name: &str, parameters: &st
                 .await
                 .map_err(|e| format!("Failed to initialize client: {}", e))?;
             
-            // Parse parameters as JSON
-            let params_value: serde_json::Value = serde_json::from_str(parameters)
+            // Parse parameters as JSON（容错：移除 ``` 包裹）
+            let params_clean = normalize_parameters_json(parameters);
+            let params_value: serde_json::Value = serde_json::from_str(&params_clean)
                 .map_err(|e| format!("Invalid parameters JSON: {}", e))?;
             
             // Convert Value to Map<String, Value>
@@ -427,8 +446,9 @@ async fn execute_sse_tool(server: &MCPServer, tool_name: &str, parameters: &str)
             let client = client_info.serve(transport).await
                 .map_err(|e| format!("Failed to initialize SSE client: {}", e))?;
             
-            // Parse parameters as JSON
-            let params_value: serde_json::Value = serde_json::from_str(parameters)
+            // Parse parameters as JSON（容错：移除 ``` 包裹）
+            let params_clean = normalize_parameters_json(parameters);
+            let params_value: serde_json::Value = serde_json::from_str(&params_clean)
                 .map_err(|e| format!("Invalid parameters JSON: {}", e))?;
             
             // Convert Value to Map<String, Value>
@@ -492,8 +512,9 @@ async fn execute_http_tool(server: &MCPServer, tool_name: &str, parameters: &str
             let client = client_info.serve(transport).await
                 .map_err(|e| format!("Failed to initialize HTTP client: {}", e))?;
             
-            // Parse parameters as JSON
-            let params_value: serde_json::Value = serde_json::from_str(parameters)
+            // Parse parameters as JSON（容错：移除 ``` 包裹）
+            let params_clean = normalize_parameters_json(parameters);
+            let params_value: serde_json::Value = serde_json::from_str(&params_clean)
                 .map_err(|e| format!("Invalid parameters JSON: {}", e))?;
             
             // Convert Value to Map<String, Value>
