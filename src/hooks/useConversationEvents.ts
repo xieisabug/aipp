@@ -5,6 +5,7 @@ import {
     ConversationEvent,
     MessageUpdateEvent,
     GroupMergeEvent,
+    MCPToolCallUpdateEvent,
 } from "../data/Conversation";
 
 export interface UseConversationEventsOptions {
@@ -12,6 +13,7 @@ export interface UseConversationEventsOptions {
     onMessageAdd?: (messageData: any) => void;
     onMessageUpdate?: (streamEvent: StreamEvent) => void;
     onGroupMerge?: (groupMergeData: GroupMergeEvent) => void;
+    onMCPToolCallUpdate?: (mcpUpdateData: MCPToolCallUpdateEvent) => void;
     onAiResponseStart?: () => void;
     onAiResponseComplete?: () => void;
     onError?: (errorMessage: string) => void;
@@ -27,6 +29,11 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
     const [shiningMessageIds, setShiningMessageIds] = useState<Set<number>>(
         new Set(),
     );
+
+    // MCP工具调用状态管理
+    const [mcpToolCallStates, setMCPToolCallStates] = useState<
+        Map<number, MCPToolCallUpdateEvent>
+    >(new Map());
 
     // 事件监听取消订阅引用
     const unsubscribeRef = useRef<Promise<() => void> | null>(null);
@@ -161,6 +168,20 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
 
                 // 调用外部的组合并处理函数
                 callbacksRef.current.onGroupMerge?.(groupMergeData);
+            } else if (conversationEvent.type === "mcp_tool_call_update") {
+                // 处理MCP工具调用状态更新事件
+                const mcpUpdateData = conversationEvent.data as MCPToolCallUpdateEvent;
+                console.log("Received mcp_tool_call_update event:", mcpUpdateData);
+
+                // 更新MCP工具调用状态
+                setMCPToolCallStates((prev) => {
+                    const newMap = new Map(prev);
+                    newMap.set(mcpUpdateData.call_id, mcpUpdateData);
+                    return newMap;
+                });
+
+                // 调用外部的MCP状态更新处理函数
+                callbacksRef.current.onMCPToolCallUpdate?.(mcpUpdateData);
             }
         },
         [], // 不再依赖 options，因为我们使用 callbacksRef
@@ -172,6 +193,7 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
             // 清理状态
             setStreamingMessages(new Map());
             setShiningMessageIds(new Set());
+            setMCPToolCallStates(new Map());
             return;
         }
 
@@ -214,6 +236,7 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
         // 清理所有流式消息状态
         setStreamingMessages(new Map());
         setShiningMessageIds(new Set());
+        setMCPToolCallStates(new Map());
         
         // 调用外部错误处理，确保状态重置
         callbacksRef.current.onError?.(errorMessage);
@@ -224,6 +247,7 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
         streamingMessages,
         shiningMessageIds,
         setShiningMessageIds,
+        mcpToolCallStates,
         clearStreamingMessages,
         clearShiningMessages,
         handleError,

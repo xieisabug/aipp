@@ -15,6 +15,7 @@ import {
     StreamEvent,
     ConversationWithMessages,
     GroupMergeEvent,
+    MCPToolCallUpdateEvent,
 } from "../data/Conversation";
 import "katex/dist/katex.min.css";
 import { listen } from "@tauri-apps/api/event";
@@ -211,6 +212,12 @@ function ConversationUI({
     // handleMessageUpdate 将在后面定义，这里先声明一个空的引用
     let handleMessageUpdateRef: ((streamEvent: StreamEvent) => void) | undefined;
 
+    // 添加MCP工具调用状态更新的处理函数
+    const handleMCPToolCallUpdate = useCallback((mcpUpdateData: MCPToolCallUpdateEvent) => {
+        console.log("ConversationUI received MCP update:", mcpUpdateData);
+        // MCP状态更新已经在useConversationEvents中处理，这里可以添加额外的逻辑
+    }, []);
+
     // 使用 useMemo 稳定 options 对象，避免频繁触发 useConversationEvents 内部的 useEffect
     const conversationEventsOptions = useMemo(
         () => ({
@@ -218,10 +225,11 @@ function ConversationUI({
             onMessageAdd: handleMessageAdd,
             onMessageUpdate: (streamEvent: StreamEvent) => handleMessageUpdateRef?.(streamEvent),
             onGroupMerge: handleGroupMerge,
+            onMCPToolCallUpdate: handleMCPToolCallUpdate,
             onAiResponseComplete: handleAiResponseComplete,
             onError: handleError,
         }),
-        [conversationId, handleMessageAdd, handleGroupMerge, handleAiResponseComplete, handleError]
+        [conversationId, handleMessageAdd, handleGroupMerge, handleMCPToolCallUpdate, handleAiResponseComplete, handleError]
     );
 
     // 使用共享的消息事件处理 hook
@@ -229,6 +237,7 @@ function ConversationUI({
         streamingMessages,
         shiningMessageIds,
         setShiningMessageIds,
+        mcpToolCallStates,
     } = useConversationEvents(conversationEventsOptions);
 
     // ============= UI 状态管理和交互相关逻辑 =============
@@ -1029,6 +1038,8 @@ function ConversationUI({
                             shouldShowShineBorder={shouldShowShineBorder}
                             // MCP 工具调用需要的上下文信息
                             conversationId={message.conversation_id}
+                            // 传递 MCP 工具调用状态
+                            mcpToolCallStates={mcpToolCallStates}
                         />
                         {/* 在 generation group 的最后一个消息下方显示版本控制 */}
                         {groupControl && (

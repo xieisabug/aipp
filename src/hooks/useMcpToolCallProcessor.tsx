@@ -1,6 +1,7 @@
 import React, { useCallback } from 'react';
 import ReactMarkdown, { Components } from 'react-markdown';
 import McpToolCall from '@/components/McpToolCall';
+import { MCPToolCallUpdateEvent } from '@/data/Conversation';
 
 interface McpProcessorOptions {
     remarkPlugins: readonly any[];
@@ -11,11 +12,12 @@ interface McpProcessorOptions {
 interface ProcessorContext {
     conversationId?: number;
     messageId?: number;
+    mcpToolCallStates?: Map<number, MCPToolCallUpdateEvent>;
 }
 
 export const useMcpToolCallProcessor = (options: McpProcessorOptions, context?: ProcessorContext) => {
     const { remarkPlugins, rehypePlugins, markdownComponents } = options;
-    const { conversationId, messageId } = context || {};
+    const { conversationId, messageId, mcpToolCallStates } = context || {};
 
     const processContent = useCallback((
         markdownContent: string,
@@ -61,6 +63,7 @@ export const useMcpToolCallProcessor = (options: McpProcessorOptions, context?: 
                         conversationId={conversationId}
                         messageId={messageId}
                         callId={data.call_id} // 传递 callId，如果存在的话
+                        mcpToolCallStates={mcpToolCallStates} // 传递全局 MCP 状态
                     />
                 );
 
@@ -85,7 +88,7 @@ export const useMcpToolCallProcessor = (options: McpProcessorOptions, context?: 
         }
 
         return <div>{parts}</div>;
-    }, [remarkPlugins, rehypePlugins, markdownComponents, conversationId, messageId]);
+    }, [remarkPlugins, rehypePlugins, markdownComponents, conversationId, messageId, mcpToolCallStates]);
 
     return { processContent };
 };

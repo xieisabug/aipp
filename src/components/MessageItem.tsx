@@ -5,7 +5,7 @@ import ErrorMessage from './MessageItem/ErrorMessage';
 import MessageActionButtons from './MessageItem/MessageActionButtons';
 import ImageAttachments from './MessageItem/ImageAttachments';
 import { ShineBorder } from './magicui/shine-border';
-import { Message, StreamEvent } from '../data/Conversation';
+import { Message, StreamEvent, MCPToolCallUpdateEvent } from '../data/Conversation';
 import { usePerformanceMonitor, measureSync } from '../hooks/usePerformanceMonitor';
 import { useCopyHandler } from '../hooks/useCopyHandler';
 import { useCustomTagParser } from '../hooks/useCustomTagParser';
@@ -22,6 +22,7 @@ interface MessageItemProps {
     onToggleReasoningExpand?: () => void;
     shouldShowShineBorder?: boolean;
     conversationId?: number; // Add conversation_id context
+    mcpToolCallStates?: Map<number, MCPToolCallUpdateEvent>; // Add MCP states
 }
 
 const MessageItem = React.memo<MessageItemProps>(({
@@ -34,6 +35,7 @@ const MessageItem = React.memo<MessageItemProps>(({
     onToggleReasoningExpand,
     shouldShowShineBorder = false,
     conversationId,
+    mcpToolCallStates,
 }) => {
     // 性能监控
     usePerformanceMonitor(
@@ -54,7 +56,8 @@ const MessageItem = React.memo<MessageItemProps>(({
     const markdownConfig = useMarkdownConfig({ onCodeRun });
     const mcpProcessor = useMcpToolCallProcessor(markdownConfig, { 
         conversationId, 
-        messageId: message.id 
+        messageId: message.id,
+        mcpToolCallStates
     });
 
     // 处理自定义标签解析

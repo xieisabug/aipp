@@ -1,9 +1,44 @@
 use crate::db::mcp_db::{MCPDatabase, MCPServer, MCPToolCall};
 use crate::api::ai_api::tool_result_continue_ask_ai;
 use crate::db::conversation_db::{ConversationDatabase, Repository};
+use crate::api::ai::events::{ConversationEvent, MCPToolCallUpdateEvent};
 use anyhow::Result;
+use tauri::Emitter;
 
 // MCP Tool Execution API
+
+// 发送MCP工具调用状态更新事件
+fn emit_mcp_tool_call_update(
+    window: &tauri::Window,
+    conversation_id: i64,
+    tool_call: &MCPToolCall,
+) {
+    let update_event = ConversationEvent {
+        r#type: "mcp_tool_call_update".to_string(),
+        data: serde_json::to_value(MCPToolCallUpdateEvent {
+            call_id: tool_call.id,
+            conversation_id: tool_call.conversation_id,
+            status: tool_call.status.clone(),
+            result: tool_call.result.clone(),
+            error: tool_call.error.clone(),
+            started_time: tool_call.started_time.as_ref().map(|s| {
+                chrono::DateTime::parse_from_rfc3339(s)
+                    .unwrap_or_else(|_| chrono::Utc::now().into())
+                    .with_timezone(&chrono::Utc)
+            }),
+            finished_time: tool_call.finished_time.as_ref().map(|s| {
+                chrono::DateTime::parse_from_rfc3339(s)
+                    .unwrap_or_else(|_| chrono::Utc::now().into())
+                    .with_timezone(&chrono::Utc)
+            }),
+        }).unwrap(),
+    };
+
+    let _ = window.emit(
+        format!("conversation_event_{}", conversation_id).as_str(),
+        update_event,
+    );
+}
 
 // 规范化从 LLM 返回的 parameters JSON，移除可能的代码块包裹
 fn normalize_parameters_json(parameters: &str) -> String {
@@ -88,6 +123,10 @@ pub async fn execute_mcp_tool_call(
         return Ok(current);
     }
     
+    // Reload tool call to get updated status and emit event
+    tool_call = db.get_mcp_tool_call(call_id).map_err(|e| e.to_string())?;
+    emit_mcp_tool_call_update(&window, tool_call.conversation_id, &tool_call);
+    
     // Execute the tool based on transport type
     let execution_result = match server.transport_type.as_str() {
         "stdio" => execute_stdio_tool(&server, &tool_call.tool_name, &tool_call.parameters).await,
@@ -104,6 +143,9 @@ pub async fn execute_mcp_tool_call(
             tool_call.status = "success".to_string();
             tool_call.result = Some(result.clone());
             tool_call.error = None; // Clear any previous error
+            
+            // Emit status update event
+            emit_mcp_tool_call_update(&window, tool_call.conversation_id, &tool_call);
             
             // Auto-trigger conversation continuation after successful tool execution
             // For retries, we need to handle this differently to avoid duplicate messages
@@ -126,6 +168,9 @@ pub async fn execute_mcp_tool_call(
             tool_call.status = "failed".to_string();
             tool_call.error = Some(error);
             tool_call.result = None; // Clear any previous result
+            
+            // Emit status update event
+            emit_mcp_tool_call_update(&window, tool_call.conversation_id, &tool_call);
         }
     }
     

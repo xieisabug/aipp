@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { invoke } from '@tauri-apps/api/core';
 import { MCPToolCall } from '@/data/MCPToolCall';
+import { MCPToolCallUpdateEvent } from '@/data/Conversation';
 
 interface McpToolCallProps {
     serverName?: string;
@@ -14,6 +15,7 @@ interface McpToolCallProps {
     conversationId?: number;
     messageId?: number;
     callId?: number; // If provided, this is an existing call
+    mcpToolCallStates?: Map<number, MCPToolCallUpdateEvent>; // Global MCP states
 }
 
 type ExecutionState = "idle" | "pending" | "executing" | "success" | "failed";
@@ -58,7 +60,8 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
     parameters = "{}",
     conversationId,
     messageId,
-    callId
+    callId,
+    mcpToolCallStates
 }) => {
     const [executionState, setExecutionState] = useState<ExecutionState>("idle");
     const [executionResult, setExecutionResult] = useState<string | null>(null);
@@ -66,6 +69,34 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
     const [isExpanded, setIsExpanded] = useState<boolean>(false);
     const [toolCallId, setToolCallId] = useState<number | null>(callId || null);
     // 移除前端自动执行，避免与后端 detect_and_process_mcp_calls 的自动执行叠加
+
+    // 监听全局MCP状态变化
+    useEffect(() => {
+        if (mcpToolCallStates && toolCallId && mcpToolCallStates.has(toolCallId)) {
+            const globalState = mcpToolCallStates.get(toolCallId)!;
+            console.log(`McpToolCall ${toolCallId} received global state update:`, globalState);
+            
+            // 同步全局状态到本地状态
+            switch (globalState.status) {
+                case 'pending':
+                    setExecutionState('pending');
+                    break;
+                case 'executing':
+                    setExecutionState('executing');
+                    break;
+                case 'success':
+                    setExecutionState('success');
+                    setExecutionResult(globalState.result || null);
+                    setExecutionError(null);
+                    break;
+                case 'failed':
+                    setExecutionState('failed');
+                    setExecutionError(globalState.error || null);
+                    setExecutionResult(null);
+                    break;
+            }
+        }
+    }, [mcpToolCallStates, toolCallId]);
 
     // 检查执行状态
     const isSuccess = executionState === "success";
