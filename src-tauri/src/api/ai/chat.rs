@@ -210,6 +210,7 @@ async fn attempt_stream_chat(
                                             &window,
                                             conversation_id,
                                             &app_handle,
+                                            false, // allow MCP detection
                                         ).await {
                                             eprintln!("[[reasoning_type_end_failed]]: {}", e);
                                         }
@@ -397,6 +398,7 @@ async fn attempt_stream_chat(
                                                 &window,
                                                 conversation_id,
                                                 &app_handle,
+                                                false, // allow MCP detection
                                             ).await {
                                                 eprintln!("[[reasoning_type_end_failed]]: {}", e);
                                             }
@@ -413,6 +415,7 @@ async fn attempt_stream_chat(
                                                 &window,
                                                 conversation_id,
                                                 &app_handle,
+                                                false, // allow MCP detection
                                             ).await {
                                                 eprintln!("[[response_type_end_failed]]: {}", e);
                                             }

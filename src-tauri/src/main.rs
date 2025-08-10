@@ -365,13 +365,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build(tauri::generate_context!())
         .expect("error while running tauri application");
 
-    app.run(|app_handle, e| match e {
+    app.run(|_app_handle, e| match e {
         RunEvent::ExitRequested { api, .. } => {
             api.prevent_exit();
         }
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => {
-            awaken_aipp(app_handle);
+            awaken_aipp(_app_handle);
         }
         _ => {}
     });

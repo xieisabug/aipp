@@ -141,7 +141,7 @@ pub async fn ask_ai(
     let provider_api_type = model_detail.provider.api_type.clone(); // 提前获取API类型
     let assistant_model_configs = assistant_detail.model_configs.clone(); // 提前获取助手模型配置
     
-    let task_handle = tokio::spawn(async move {
+    let _task_handle = tokio::spawn(async move {
         // 直接创建数据库连接（避免线程安全问题）
         let conversation_db = ConversationDatabase::new(&app_handle_clone).unwrap();
 
@@ -403,45 +403,43 @@ pub async fn tool_result_continue_ask_ai(
     let provider_api_type = model_detail.provider.api_type.clone();
     let assistant_model_configs = assistant_detail.model_configs.clone();
     
-    let task_handle = tokio::spawn(async move {
-        let conversation_db = ConversationDatabase::new(&app_handle).unwrap();
-
-        // Build chat configuration (same as ask_ai)
-        let client = genai_client::create_client_with_config(
+    let conversation_db = ConversationDatabase::new(&app_handle).map_err(AppError::from)?;
+    // Build chat configuration (same as ask_ai)
+    let client = genai_client::create_client_with_config(
             &model_configs,
             &model_code,
             &provider_api_type,
         )?;
 
-        let temp_model_detail = crate::db::llm_db::ModelDetail {
-            model: crate::db::llm_db::LLMModel {
-                id: model_id,
-                name: model_code.clone(),
-                code: model_code.clone(),
-                llm_provider_id: 0,
-                description: String::new(),
-                vision_support: false,
-                audio_support: false,
-                video_support: false,
-            },
-            provider: crate::db::llm_db::LLMProvider {
-                id: 0,
-                name: String::new(),
-                api_type: provider_api_type.clone(),
-                description: String::new(),
-                is_official: false,
-                is_enabled: true,
-            },
-            configs: model_configs.clone(),
-        };
+    let temp_model_detail = crate::db::llm_db::ModelDetail {
+        model: crate::db::llm_db::LLMModel {
+            id: model_id,
+            name: model_code.clone(),
+            code: model_code.clone(),
+            llm_provider_id: 0,
+            description: String::new(),
+            vision_support: false,
+            audio_support: false,
+            video_support: false,
+        },
+        provider: crate::db::llm_db::LLMProvider {
+            id: 0,
+            name: String::new(),
+            api_type: provider_api_type.clone(),
+            description: String::new(),
+            is_official: false,
+            is_enabled: true,
+        },
+        configs: model_configs.clone(),
+    };
 
-        let model_config_clone = ConfigBuilder::merge_model_configs(
-            assistant_model_configs,
-            &temp_model_detail,
-            None,
-        );
+    let model_config_clone = ConfigBuilder::merge_model_configs(
+        assistant_model_configs,
+        &temp_model_detail,
+        None,
+    );
 
-        let config_map = model_config_clone
+    let config_map = model_config_clone
             .iter()
             .filter_map(|config| {
                 config
@@ -501,7 +499,7 @@ pub async fn tool_result_continue_ask_ai(
         };
 
         if chat_config.stream {
-            ai_handle_stream_chat(
+            Box::pin(ai_handle_stream_chat(
                 &chat_config.client,
                 &chat_config.model_name,
                 &chat_request,
@@ -519,10 +517,10 @@ pub async fn tool_result_continue_ask_ai(
                 None,   // no parent_group_id
                 model_id,
                 model_code.clone(),
-            )
+            ))
             .await?;
         } else {
-            ai_handle_non_stream_chat(
+            Box::pin(ai_handle_non_stream_chat(
                 &chat_config.client,
                 &chat_config.model_name,
                 &chat_request,
@@ -540,12 +538,9 @@ pub async fn tool_result_continue_ask_ai(
                 None,   // no parent_group_id
                 model_id,
                 model_code.clone(),
-            )
+            ))
             .await?;
-        }
-
-        Ok::<(), Error>(())
-    });
+    }
 
     println!("================================ Tool Result Continue AI End ===============================================");
 
@@ -724,7 +719,7 @@ pub async fn regenerate_ai(
     let regenerate_model_configs = model_detail.configs.clone(); // 提前获取模型配置
     let regenerate_provider_api_type = model_detail.provider.api_type.clone(); // 提前获取API类型
     let regenerate_assistant_model_configs = assistant_detail.model_configs.clone(); // 提前获取助手模型配置
-    let task_handle = tokio::spawn(async move {
+    let _task_handle = tokio::spawn(async move {
         // 直接创建数据库连接（避免线程安全问题）
         let conversation_db = ConversationDatabase::new(&app_handle_clone).unwrap();
 

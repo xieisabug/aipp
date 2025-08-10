@@ -197,6 +197,7 @@ pub async fn handle_message_type_end(
     window: &tauri::Window,
     conversation_id: i64,
     app_handle: &tauri::AppHandle,
+    skip_mcp_detection: bool,
 ) -> Result<(), anyhow::Error> {
     let end_time = chrono::Utc::now();
     let duration_ms = end_time.timestamp_millis() - start_time.timestamp_millis();
@@ -205,9 +206,10 @@ pub async fn handle_message_type_end(
         .message_repo()?
         .update_finish_time(message_id)?;
 
-    if message_type == "response" {
+    if message_type == "response" && !skip_mcp_detection {
         if let Err(e) = crate::api::ai::mcp::detect_and_process_mcp_calls(
             app_handle,
+            window,
             conversation_id,
             message_id,
             content,

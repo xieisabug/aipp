@@ -1,4 +1,6 @@
 use crate::api::assistant_api::{get_assistant_mcp_servers_with_tools, MCPServerWithTools};
+use crate::db::conversation_db::Repository;
+use tauri::Manager;
 use crate::api::mcp_execution_api::create_mcp_tool_call;
 use crate::errors::AppError;
 
@@ -94,12 +96,34 @@ pub async fn format_mcp_prompt(
     )
 }
 
+use std::cell::RefCell;
+
+thread_local! {
+    static MCP_RECURSION_DEPTH: RefCell<u32> = RefCell::new(0);
+}
+
+const MAX_MCP_RECURSION_DEPTH: u32 = 5;
+
 pub async fn detect_and_process_mcp_calls(
     app_handle: &tauri::AppHandle,
+    window: &tauri::Window,
     conversation_id: i64,
     message_id: i64,
     content: &str,
 ) -> Result<(), anyhow::Error> {
+    // Check recursion depth to prevent infinite loops
+    let current_depth = MCP_RECURSION_DEPTH.with(|depth| *depth.borrow());
+    if current_depth >= MAX_MCP_RECURSION_DEPTH {
+        println!("MCP recursion depth limit reached ({}), skipping detection", current_depth);
+        return Ok(());
+    }
+
+    // Increment recursion depth
+    MCP_RECURSION_DEPTH.with(|depth| {
+        *depth.borrow_mut() += 1;
+    });
+
+    let result = async {
     let mcp_regex = regex::Regex::new(r"<mcp_tool_call>\s*<server_name>([^<]*)</server_name>\s*<tool_name>([^<]*)</tool_name>\s*<parameters>([\s\S]*?)</parameters>\s*</mcp_tool_call>").unwrap();
     for cap in mcp_regex.captures_iter(content) {
         let server_name = cap[1].trim().to_string();
@@ -109,14 +133,73 @@ pub async fn detect_and_process_mcp_calls(
             app_handle.clone(),
             conversation_id,
             Some(message_id),
-            server_name,
-            tool_name,
-            parameters,
+            server_name.clone(),
+            tool_name.clone(),
+            parameters.clone(),
         )
         .await
         {
             Ok(tool_call) => {
                 println!("Created MCP tool call with ID: {}", tool_call.id);
+
+                // 尝试根据助手配置自动执行（is_auto_run）
+                // 1) 获取该对话的助手ID
+                if let Ok(conversation_db) = crate::db::conversation_db::ConversationDatabase::new(app_handle) {
+                    if let Ok(repository) = conversation_db.conversation_repo() {
+                        if let Ok(Some(conversation)) = repository.read(conversation_id) {
+                            if let Some(assistant_id) = conversation.assistant_id {
+                            // 2) 读取助手的 MCP 服务器与工具配置
+                            match crate::api::assistant_api::get_assistant_mcp_servers_with_tools(
+                                app_handle.clone(),
+                                assistant_id,
+                            )
+                            .await
+                            {
+                                Ok(servers_with_tools) => {
+                                    // 3) 定位到当前 server/tool 的配置
+                                    let mut should_auto_run = false;
+                                    for s in servers_with_tools.iter() {
+                                        if s.name == server_name && s.is_enabled {
+                                                if let Some(tool) = s.tools.iter().find(|t| t.name == tool_name && t.is_enabled) {
+                                                    if tool.is_auto_run {
+                                                        should_auto_run = true;
+                                                    }
+                                                }
+                                        }
+                                    }
+
+                                    if should_auto_run {
+                                        let state = app_handle.state::<crate::AppState>();
+                                        let feature_config_state = app_handle.state::<crate::FeatureConfigState>();
+                                        let message_token_manager = app_handle.state::<crate::state::message_token::MessageTokenManager>();
+                                        if let Err(e) = crate::api::mcp_execution_api::execute_mcp_tool_call(
+                                            app_handle.clone(),
+                                            state,
+                                            feature_config_state,
+                                            message_token_manager,
+                                            window.clone(),
+                                            tool_call.id,
+                                        )
+                                        .await
+                                        {
+                                            eprintln!(
+                                                "Auto-execute MCP tool failed (call_id={}): {}",
+                                                tool_call.id, e
+                                            );
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!(
+                                        "Failed to load assistant MCP configs for auto-run: {}",
+                                        e
+                                    );
+                                }
+                            }
+                            }
+                        }
+                    }
+                }
             }
             Err(e) => {
                 eprintln!("Failed to create MCP tool call: {}", e);
@@ -124,5 +207,13 @@ pub async fn detect_and_process_mcp_calls(
         }
     }
     Ok(())
+    }.await;
+
+    // Decrement recursion depth
+    MCP_RECURSION_DEPTH.with(|depth| {
+        *depth.borrow_mut() -= 1;
+    });
+
+    result
 }
 
