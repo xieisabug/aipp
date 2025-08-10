@@ -20,7 +20,7 @@ interface McpToolCallProps {
 
 type ExecutionState = "idle" | "pending" | "executing" | "success" | "failed";
 
-const JsonDisplay: React.FC<{ content: string; maxHeight?: string }> = ({ content, maxHeight = "120px" }) => {
+const JsonDisplay: React.FC<{ content: string; maxHeight?: string; className?: string }> = ({ content, maxHeight = "120px", className = "" }) => {
     const formattedJson = useMemo(() => {
         try {
             const parsed = JSON.parse(content);
@@ -31,11 +31,13 @@ const JsonDisplay: React.FC<{ content: string; maxHeight?: string }> = ({ conten
     }, [content]);
 
     return (
-        <ScrollArea className="w-full" style={{ maxHeight }}>
-            <pre className="text-xs font-mono bg-secondary p-2 mt-1 mb-4 rounded text-secondary-foreground whitespace-pre-wrap break-words">
-                {formattedJson}
-            </pre>
-        </ScrollArea>
+        <div className={`border rounded ${className}`} style={{ maxHeight: maxHeight }}>
+            <ScrollArea>
+                <pre className="text-xs font-mono p-2 whitespace-pre-wrap break-words mt-0 mb-0">
+                    {formattedJson}
+                </pre>
+            </ScrollArea>
+        </div>
     );
 };
 
@@ -75,7 +77,7 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
         if (mcpToolCallStates && toolCallId && mcpToolCallStates.has(toolCallId)) {
             const globalState = mcpToolCallStates.get(toolCallId)!;
             console.log(`McpToolCall ${toolCallId} received global state update:`, globalState);
-            
+
             // 同步全局状态到本地状态
             switch (globalState.status) {
                 case 'pending':
@@ -215,18 +217,18 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
         }
     }, [conversationId, messageId, serverName, toolName, parameters, toolCallId]);
 
-    const renderResult = () => {
+    const renderResult = (fixedHeight = false) => {
         if (executionResult) {
             return (
                 <div className="mt-2">
                     <span className="text-xs text-muted-foreground">结果:</span>
-                    <ScrollArea className="w-full mt-1 max-w-full" style={{ maxHeight: "200px" }}>
-                        <div className="text-xs font-mono bg-muted p-2 rounded max-w-full overflow-hidden">
-                            <pre className="whitespace-pre-wrap break-words text-muted-foreground max-w-full overflow-hidden">
+                    <div className="border rounded mt-1">
+                        <ScrollArea className="h-72">
+                            <pre className="whitespace-pre-wrap break-words mt-0 mb-0">
                                 {executionResult}
                             </pre>
-                        </div>
-                    </ScrollArea>
+                        </ScrollArea>
+                    </div>
                 </div>
             );
         }
@@ -235,11 +237,13 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
             return (
                 <div className="mt-2">
                     <span className="text-xs text-muted-foreground">错误:</span>
-                    <ScrollArea className="w-full mt-1 max-w-full" style={{ maxHeight: "200px" }}>
-                        <div className="text-xs font-mono bg-muted p-2 rounded max-w-full overflow-hidden">
-                            <div className="text-red-600 max-w-full overflow-hidden"><strong>错误:</strong> {executionError}</div>
-                        </div>
-                    </ScrollArea>
+                    <div className="border rounded mt-1" style={{ height: fixedHeight ? "200px" : "auto", maxHeight: fixedHeight ? "none" : "200px" }}>
+                        <ScrollArea className="h-full w-full">
+                            <div className="text-xs font-mono bg-muted p-2">
+                                <div className="text-red-600 whitespace-pre-wrap break-words"><strong>错误:</strong> {executionError}</div>
+                            </div>
+                        </ScrollArea>
+                    </div>
                 </div>
             );
         }
@@ -247,44 +251,8 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
         return null;
     };
 
-    const DialogContent_: React.FC = () => (
-        <DialogContent className="max-w-4xl max-h-[80vh]">
-            <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                    <Blocks className="h-4 w-4" />
-                    {serverName}
-                    <span className="text-xs font-bold mb-1 text-muted-foreground"> - </span>
-                    {toolName}
-                </DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-                <div>
-                    <h4 className="text-sm font-medium mb-2">参数:</h4>
-                    <JsonDisplay content={parameters} maxHeight="400px" />
-                </div>
-                {canExecute && (
-                    <div className="flex items-center gap-2">
-                        <Button onClick={handleExecute} disabled={isExecuting} size="sm" className="flex items-center gap-2">
-                            {isExecuting ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : isFailed ? (
-                                <RotateCcw className="h-4 w-4" />
-                            ) : (
-                                <Play className="h-4 w-4" />
-                            )}
-                            {isFailed ? "重新执行" : "执行"}
-                        </Button>
-                        <StatusIndicator state={executionState} />
-                    </div>
-                )}
-                {!canExecute && <StatusIndicator state={executionState} />}
-                {renderResult()}
-            </div>
-        </DialogContent>
-    );
-
     return (
-        <div className="w-full max-w-full my-1 p-2 border border-border rounded-md bg-card overflow-hidden">
+        <div className="w-full max-w-[600px] my-1 p-2 border border-border rounded-md bg-card overflow-hidden">
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm min-w-0 flex-1">
                     <Blocks className="h-4 w-4 flex-shrink-0" />
@@ -293,7 +261,7 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
                     <span className="truncate">{toolName}</span>
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
-                    {!isExpanded && <StatusIndicator state={executionState} />}
+                    <StatusIndicator state={executionState} />
                     {!isExpanded && canExecute && (
                         <Button
                             onClick={handleExecute}
@@ -325,12 +293,9 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
 
             {isExpanded && (
                 <div className="mt-2 space-y-2 max-w-full overflow-hidden">
-                    <div className="flex items-center justify-end mb-2">
-                        <StatusIndicator state={executionState} />
-                    </div>
                     <div className="max-w-full overflow-hidden">
                         <span className="text-xs font-medium mb-1 text-muted-foreground">参数:</span>
-                        <JsonDisplay content={parameters} />
+                        <JsonDisplay content={parameters} maxHeight="120px" className="mt-1" />
                     </div>
                     {canExecute && (
                         <div className="flex items-center gap-2">
@@ -344,27 +309,7 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
                                 )}
                                 {isFailed ? "重新执行" : "执行"}
                             </Button>
-                            <Dialog>
-                                <DialogTrigger asChild>
-                                    <Button variant="outline" size="sm" className="flex items-center gap-1 h-7 text-xs">
-                                        <Maximize2 className="h-3 w-3" />
-                                        展开
-                                    </Button>
-                                </DialogTrigger>
-                                <DialogContent_ />
-                            </Dialog>
                         </div>
-                    )}
-                    {isSuccess && (
-                        <Dialog>
-                            <DialogTrigger asChild>
-                                <Button variant="outline" size="sm" className="flex items-center gap-1 h-7 text-xs">
-                                    <Maximize2 className="h-3 w-3" />
-                                    展开查看
-                                </Button>
-                            </DialogTrigger>
-                            <DialogContent_ />
-                        </Dialog>
                     )}
                     <div className="max-w-full overflow-hidden">
                         {renderResult()}
