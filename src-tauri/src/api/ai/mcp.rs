@@ -96,13 +96,18 @@ pub async fn format_mcp_prompt(
     )
 }
 
-use std::cell::RefCell;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
-thread_local! {
-    static MCP_RECURSION_DEPTH: RefCell<u32> = RefCell::new(0);
+// 对话级别的 MCP 执行状态管理
+type ConversationMcpState = Arc<Mutex<HashMap<i64, u32>>>;
+
+lazy_static::lazy_static! {
+    static ref CONVERSATION_MCP_DEPTH: ConversationMcpState = Arc::new(Mutex::new(HashMap::new()));
 }
 
-const MAX_MCP_RECURSION_DEPTH: u32 = 5;
+const MAX_MCP_RECURSION_DEPTH: u32 = 3;
 
 pub async fn detect_and_process_mcp_calls(
     app_handle: &tauri::AppHandle,
@@ -111,34 +116,61 @@ pub async fn detect_and_process_mcp_calls(
     message_id: i64,
     content: &str,
 ) -> Result<(), anyhow::Error> {
-    // Check recursion depth to prevent infinite loops
-    let current_depth = MCP_RECURSION_DEPTH.with(|depth| *depth.borrow());
+    // Check conversation-level recursion depth to prevent infinite loops
+    let mut depth_map = CONVERSATION_MCP_DEPTH.lock().await;
+    let current_depth = *depth_map.get(&conversation_id).unwrap_or(&0);
+    
     if current_depth >= MAX_MCP_RECURSION_DEPTH {
-        println!("MCP recursion depth limit reached ({}), skipping detection", current_depth);
+        println!("MCP recursion depth limit reached for conversation {} (depth: {}), skipping detection", 
+                conversation_id, current_depth);
         return Ok(());
     }
 
-    // Increment recursion depth
-    MCP_RECURSION_DEPTH.with(|depth| {
-        *depth.borrow_mut() += 1;
-    });
+    // Increment conversation-level recursion depth
+    depth_map.insert(conversation_id, current_depth + 1);
+    drop(depth_map); // 释放锁
 
     let result = async {
     let mcp_regex = regex::Regex::new(r"<mcp_tool_call>\s*<server_name>([^<]*)</server_name>\s*<tool_name>([^<]*)</tool_name>\s*<parameters>([\s\S]*?)</parameters>\s*</mcp_tool_call>").unwrap();
-    for cap in mcp_regex.captures_iter(content) {
+    
+    // 只处理第一个匹配的 MCP 调用，避免单次回复中执行多个工具
+    if let Some(cap) = mcp_regex.captures_iter(content).next() {
         let server_name = cap[1].trim().to_string();
         let tool_name = cap[2].trim().to_string();
         let parameters = cap[3].trim().to_string();
-        match create_mcp_tool_call(
-            app_handle.clone(),
-            conversation_id,
-            Some(message_id),
-            server_name.clone(),
-            tool_name.clone(),
-            parameters.clone(),
-        )
-        .await
-        {
+        
+        println!("Detected MCP call: server={}, tool={}, conversation_id={}, message_id={}", 
+                server_name, tool_name, conversation_id, message_id);
+        
+        // 避免重复：若已存在相同 message_id/server/tool/parameters 的 pending/failed/success 记录，则复用
+        let existing_call_opt = {
+            let db = crate::db::mcp_db::MCPDatabase::new(app_handle).ok();
+            db.and_then(|db| db.get_mcp_tool_calls_by_conversation(conversation_id).ok())
+                .and_then(|calls| {
+                    calls.into_iter().find(|c| {
+                        c.message_id == Some(message_id)
+                            && c.server_name == server_name
+                            && c.tool_name == tool_name
+                            && c.parameters.trim() == parameters.trim()
+                    })
+                })
+        };
+
+        let create_result = if let Some(existing) = existing_call_opt {
+            Ok(existing)
+        } else {
+            create_mcp_tool_call(
+                app_handle.clone(),
+                conversation_id,
+                Some(message_id),
+                server_name.clone(),
+                tool_name.clone(),
+                parameters.clone(),
+            )
+            .await
+        };
+
+        match create_result {
             Ok(tool_call) => {
                 println!("Created MCP tool call with ID: {}", tool_call.id);
 
@@ -187,6 +219,8 @@ pub async fn detect_and_process_mcp_calls(
                                                 tool_call.id, e
                                             );
                                         }
+                                    } else {
+                                        println!("MCP tool auto-run is disabled for {}/{}", server_name, tool_name);
                                     }
                                 }
                                 Err(e) => {
@@ -205,14 +239,23 @@ pub async fn detect_and_process_mcp_calls(
                 eprintln!("Failed to create MCP tool call: {}", e);
             }
         }
+    } else {
+        println!("No MCP tool calls detected in message content");
     }
     Ok(())
     }.await;
 
-    // Decrement recursion depth
-    MCP_RECURSION_DEPTH.with(|depth| {
-        *depth.borrow_mut() -= 1;
-    });
+    // Decrement conversation-level recursion depth
+    let mut depth_map = CONVERSATION_MCP_DEPTH.lock().await;
+    if let Some(depth) = depth_map.get_mut(&conversation_id) {
+        if *depth > 0 {
+            *depth -= 1;
+        }
+        // 如果深度为0，移除记录以节省内存
+        if *depth == 0 {
+            depth_map.remove(&conversation_id);
+        }
+    }
 
     result
 }

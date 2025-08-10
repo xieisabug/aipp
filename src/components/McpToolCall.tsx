@@ -65,7 +65,7 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
     const [executionError, setExecutionError] = useState<string | null>(null);
     const [isExpanded, setIsExpanded] = useState<boolean>(false);
     const [toolCallId, setToolCallId] = useState<number | null>(callId || null);
-    const [autoRunTriggered, setAutoRunTriggered] = useState<boolean>(false);
+    // 移除前端自动执行，避免与后端 detect_and_process_mcp_calls 的自动执行叠加
 
     // 检查执行状态
     const isSuccess = executionState === "success";
@@ -137,75 +137,7 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
         }
     }, [callId, conversationId, messageId, serverName, toolName, parameters, executionState]);
 
-    // 根据助手配置自动执行（is_auto_run）
-    useEffect(() => {
-        if (!conversationId) return;
-        if (autoRunTriggered) return;
-        if (executionState !== "idle" && executionState !== "failed") return;
-
-        const checkAndRun = async () => {
-            try {
-                // 获取对话，拿到 assistant_id
-                const conv = await invoke<any>('get_conversation_with_messages', { conversationId });
-                const assistantId: number | undefined = conv?.conversation?.assistant_id ?? undefined;
-                if (!assistantId) return;
-
-                // 读取助手的 MCP 配置，判断是否 is_auto_run
-                const servers: Array<{ id: number; name: string; is_enabled: boolean; tools: Array<{ id: number; name: string; is_enabled: boolean; is_auto_run: boolean; }> }> =
-                    await invoke('get_assistant_mcp_servers_with_tools', { assistantId });
-
-                const server = servers.find(s => s.name === serverName && s.is_enabled);
-                const tool = server?.tools.find(t => t.name === toolName && t.is_enabled);
-                const shouldAutoRun = !!tool?.is_auto_run;
-
-                if (!shouldAutoRun) return;
-
-                // 触发一次自动执行
-                setAutoRunTriggered(true);
-                // 在 effect 中直接调用内部逻辑，避免闭包依赖 handleExecute 的声明顺序
-                await (async () => {
-                    try {
-                        setExecutionState("executing");
-                        setExecutionResult(null);
-                        setExecutionError(null);
-
-                        let currentCallId = toolCallId;
-                        if (!currentCallId) {
-                            const createdCall = await invoke<MCPToolCall>('create_mcp_tool_call', {
-                                conversationId: conversationId,
-                                messageId: messageId,
-                                serverName: serverName,
-                                toolName: toolName,
-                                parameters,
-                            });
-                            currentCallId = createdCall.id;
-                            setToolCallId(currentCallId);
-                        }
-
-                        const result = await invoke<MCPToolCall>('execute_mcp_tool_call', {
-                            callId: currentCallId
-                        });
-
-                        if (result.status === 'success' && result.result) {
-                            setExecutionResult(result.result);
-                            setExecutionState("success");
-                        } else if (result.status === 'failed' && result.error) {
-                            setExecutionError(result.error);
-                            setExecutionState("failed");
-                        }
-                    } catch (error) {
-                        const errorMessage = error instanceof Error ? error.message : "执行失败";
-                        setExecutionError(errorMessage);
-                        setExecutionState("failed");
-                    }
-                })();
-            } catch (e) {
-                // 静默失败
-            }
-        };
-
-        checkAndRun();
-    }, [conversationId, serverName, toolName, executionState, autoRunTriggered, toolCallId, messageId, parameters]);
+    // 注意：后端 `detect_and_process_mcp_calls` 已根据助手配置自动执行，这里不再做自动执行
 
     const handleExecute = useCallback(async () => {
         if (!conversationId) {

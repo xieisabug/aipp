@@ -634,6 +634,18 @@ impl MCPDatabase {
         Ok(())
     }
 
+    /// Try to transition a tool call to executing state only if it is currently pending/failed and not yet started.
+    /// Returns true if the transition happened, false if another executor already took it.
+    pub fn mark_mcp_tool_call_executing_if_pending(&self, id: i64) -> rusqlite::Result<bool> {
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        // 允许从 pending/failed 进入 executing；对于 failed 的重试，覆盖 started_time 即可
+        let rows = self.conn.execute(
+            "UPDATE mcp_tool_call SET status = 'executing', started_time = ? WHERE id = ? AND status IN ('pending', 'failed')",
+            params![now, id],
+        )?;
+        Ok(rows > 0)
+    }
+
     pub fn get_mcp_tool_calls_by_conversation(&self, conversation_id: i64) -> rusqlite::Result<Vec<MCPToolCall>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, conversation_id, message_id, server_id, server_name, tool_name, 

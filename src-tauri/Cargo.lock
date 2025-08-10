@@ -17,6 +17,7 @@ dependencies = [
  "hex",
  "htmd",
  "image 0.25.6",
+ "lazy_static",
  "macos-accessibility-client",
  "mime_guess",
  "mockito",
