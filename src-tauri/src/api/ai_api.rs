@@ -1,77 +1,30 @@
+use super::assistant_api::AssistantDetail;
+use crate::api::ai::chat::{
+    handle_non_stream_chat as ai_handle_non_stream_chat,
+    handle_stream_chat as ai_handle_stream_chat,
+};
+use crate::api::ai::config::{ChatConfig, ConfigBuilder};
+use crate::api::ai::conversation::{build_chat_messages, init_conversation};
+use crate::api::ai::events::{ConversationEvent, MessageAddEvent, MessageUpdateEvent};
+use crate::api::ai::mcp::{collect_mcp_info_for_assistant, format_mcp_prompt};
+use crate::api::ai::title::generate_title;
+use crate::api::ai::types::{AiRequest, AiResponse};
 use crate::api::assistant_api::get_assistant;
 use crate::api::genai_client;
 use crate::db::conversation_db::{AttachmentType, Repository};
-use crate::db::conversation_db::{Conversation, ConversationDatabase, Message, MessageAttachment};
+use crate::db::conversation_db::{ConversationDatabase, Message, MessageAttachment};
 use crate::db::llm_db::LLMDatabase;
-use crate::db::system_db::FeatureConfig;
 use crate::errors::AppError;
 use crate::state::message_token::MessageTokenManager;
 use crate::template_engine::TemplateEngine;
 use crate::{AppState, FeatureConfigState};
 use anyhow::Context;
 use anyhow::Error;
-// use serde::{Deserialize, Serialize};
+use genai::chat::ChatRequest;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use tauri::Emitter;
 use tauri::State;
 use tokio_util::sync::CancellationToken;
-use crate::api::ai::events::{ConversationEvent, MessageAddEvent, MessageUpdateEvent, ERROR_NOTIFICATION_EVENT};
-use crate::api::ai::types::{AiRequest, AiResponse};
-
-// 事件类型已抽到 crate::api::ai::events
-
-// use futures::StreamExt; // 已迁移到 ai::chat
-use genai::chat::ChatRequest;
-// use genai::Client; // 已迁移到 ai::chat
-// use tokio::time::{sleep, Duration}; // 已迁移到 ai::*
-
-// 本地 MCP 工具调用检测逻辑已迁移至 crate::api::ai::mcp::detect_and_process_mcp_calls
-
-use super::assistant_api::AssistantDetail;
-use crate::api::ai::config::{ChatConfig, ConfigBuilder};
-use crate::api::ai::conversation::build_chat_messages;
-use crate::api::ai::mcp::{collect_mcp_info_for_assistant, format_mcp_prompt};
-use tokio::time::{sleep, Duration};
-use crate::api::ai::chat::{handle_non_stream_chat as ai_handle_non_stream_chat, handle_stream_chat as ai_handle_stream_chat};
-// 重复导入移除（已在文件顶部导入 AiRequest/AiResponse）
-use crate::api::ai::title::generate_title;
-
-
-// 事件名称常量已抽到 crate::api::ai::events
-
-// 重试配置常量已从 crate::api::ai::config 引入
-
-// ChatConfig/ConfigBuilder 已迁移至 crate::api::ai::config
-
-// ConfigBuilder 实现已迁移
-
-/// 将消息列表转换为 ChatMessage 格式，并处理多媒体附件
-/// 过滤掉推理类型的消息，tool_result消息参与AI对话历史但不显示在UI
-// 已迁移至 crate::api::ai::conversation::build_chat_messages
-
-/// 根据URL推断图像的媒体类型
-// 已迁移至 crate::api::ai::conversation::infer_media_type_from_url
-
-/// 解析 data URL 格式的内容，提取 MIME type 和纯 base64 内容
-/// 支持格式：data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...
-// 已迁移至 crate::api::ai::conversation::parse_data_url
-
-/// 清理消息令牌
-// 已迁移至 crate::api::ai::conversation::cleanup_token
-
-/// 处理消息类型结束事件
-// 已迁移至 crate::api::ai::conversation::handle_message_type_end
-
-// MCP 信息数据结构已抽到 crate::api::ai::mcp
-
-// AiRequest/AiResponse 已抽到 crate::api::ai::types
-
-// 收集助手的 MCP 信息已迁移至 crate::api::ai::mcp::collect_mcp_info_for_assistant
-
-// 格式化 MCP 提示词逻辑已迁移至 crate::api::ai::mcp::format_mcp_prompt
-
-
 
 #[tauri::command]
 pub async fn ask_ai(
@@ -309,66 +262,6 @@ pub async fn cancel_ai(
 ) -> Result<(), String> {
     message_token_manager.cancel_request(conversation_id).await;
     Ok(())
-}
-
-// 已迁移至 crate::api::ai::conversation::init_conversation（原地保留：调用路径较多）
-// 本地实现重命名以避免与导入的函数同名
-#[allow(dead_code)]
-fn init_conversation(
-    app_handle: &tauri::AppHandle,
-    assistant_id: i64,
-    llm_model_id: i64,
-    llm_model_code: String,
-    messages: &Vec<(String, String, Vec<MessageAttachment>)>,
-) -> Result<(Conversation, Vec<Message>), AppError> {
-    let db = ConversationDatabase::new(app_handle).map_err(AppError::from)?;
-    println!("init_conversation !{:?}", assistant_id);
-    let conversation = db
-        .conversation_repo()
-        .unwrap()
-        .create(&Conversation {
-            id: 0,
-            name: "新对话".to_string(),
-            assistant_id: Some(assistant_id),
-            created_time: chrono::Utc::now(),
-        })
-        .map_err(AppError::from)?;
-    let conversation_clone = conversation.clone();
-    let conversation_id = conversation_clone.id;
-    let mut message_result_array = vec![];
-
-    for (message_type, content, attachment_list) in messages {
-        let message = db
-            .message_repo()
-            .unwrap()
-            .create(&Message {
-                id: 0,
-                parent_id: None,
-                conversation_id,
-                message_type: message_type.clone(),
-                content: content.clone(),
-                llm_model_id: Some(llm_model_id),
-                llm_model_name: Some(llm_model_code.clone()),
-                created_time: chrono::Utc::now(),
-                start_time: None,
-                finish_time: None,
-                token_count: 0,
-                generation_group_id: None, // 初始化消息不需要 generation_group_id
-                parent_group_id: None,
-            })
-            .map_err(AppError::from)?;
-        for attachment in attachment_list {
-            let mut updated_attachment = attachment.clone();
-            updated_attachment.message_id = message.id;
-            db.attachment_repo()
-                .unwrap()
-                .update(&updated_attachment)
-                .map_err(AppError::from)?;
-        }
-        message_result_array.push(message.clone());
-    }
-
-    Ok((conversation_clone, message_result_array))
 }
 
 #[tauri::command]
@@ -896,8 +789,6 @@ async fn initialize_conversation(
     ))
 }
 
-// 已迁移至 crate::api::ai::title::generate_title
-
 /// 重新生成对话标题
 #[tauri::command]
 pub async fn regenerate_conversation_title(
@@ -951,5 +842,3 @@ pub async fn regenerate_conversation_title(
 
     Ok(())
 }
-
-// 完成流式消息处理的统一函数已迁移至 crate::api::ai::conversation::finish_stream_messages

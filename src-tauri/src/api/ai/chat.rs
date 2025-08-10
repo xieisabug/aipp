@@ -1,15 +1,17 @@
 use crate::api::ai::config::{MAX_RETRY_ATTEMPTS, RETRY_DELAY_MS};
-use crate::api::ai::events::{ConversationEvent, MessageAddEvent, MessageUpdateEvent, ERROR_NOTIFICATION_EVENT};
+use crate::api::ai::events::{
+    ConversationEvent, MessageAddEvent, MessageUpdateEvent, ERROR_NOTIFICATION_EVENT,
+};
 use crate::db::conversation_db::{ConversationDatabase, Message, Repository};
 use crate::db::system_db::FeatureConfig;
-use anyhow::Error;
+
 use futures::StreamExt;
 use genai::chat::{ChatOptions, ChatRequest};
 use genai::Client;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::time::{sleep, Duration};
 use tauri::Emitter;
+use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
 
 pub async fn handle_stream_chat(
@@ -70,7 +72,6 @@ pub async fn handle_stream_chat(
 
             let mut current_output_type: Option<String> = None;
             let mut reasoning_start_time: Option<chrono::DateTime<chrono::Utc>> = None;
-            let mut response_start_time: Option<chrono::DateTime<chrono::Utc>> = None;
 
             loop {
                 tokio::select! {
@@ -106,7 +107,6 @@ pub async fn handle_stream_chat(
 
                                         if response_message_id.is_none() {
                                             let now = chrono::Utc::now();
-                                            response_start_time = Some(now);
 
                                             let new_message = conversation_db
                                                 .message_repo()
@@ -595,5 +595,3 @@ pub async fn handle_non_stream_chat(
         }
     }
 }
-
-

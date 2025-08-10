@@ -1,12 +1,12 @@
+use crate::db::conversation_db::AttachmentType;
+use crate::db::conversation_db::Repository;
 use crate::db::conversation_db::{Conversation, ConversationDatabase, Message, MessageAttachment};
 use crate::errors::AppError;
-use crate::db::conversation_db::AttachmentType;
 use genai::chat::ChatMessage;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
-use tokio_util::sync::CancellationToken;
 use tauri::Emitter;
-use crate::db::conversation_db::Repository;
+use tokio_util::sync::CancellationToken;
 
 pub fn build_chat_messages(
     init_message_list: &[(String, String, Vec<MessageAttachment>)],
@@ -48,15 +48,19 @@ pub fn build_chat_messages(
                             {
                                 if let Some((mime, b64)) = parse_data_url(attachment_content) {
                                     parts.push(genai::chat::ContentPart::from_image_base64(
-                                        mime,
-                                        b64,
+                                        mime, b64,
                                     ));
                                 }
-                            } else if matches!(attachment.attachment_type, AttachmentType::Text | AttachmentType::PDF | AttachmentType::Word | AttachmentType::PowerPoint | AttachmentType::Excel) {
-                                let file_name = attachment
-                                    .attachment_url
-                                    .as_deref()
-                                    .unwrap_or("未知文档");
+                            } else if matches!(
+                                attachment.attachment_type,
+                                AttachmentType::Text
+                                    | AttachmentType::PDF
+                                    | AttachmentType::Word
+                                    | AttachmentType::PowerPoint
+                                    | AttachmentType::Excel
+                            ) {
+                                let file_name =
+                                    attachment.attachment_url.as_deref().unwrap_or("未知文档");
                                 let file_type = match attachment.attachment_type {
                                     AttachmentType::PDF => "PDF文档",
                                     AttachmentType::Word => "Word文档",
@@ -111,14 +115,20 @@ pub fn parse_data_url(data_url: &str) -> Option<(String, String)> {
         return None;
     }
     let parts: Vec<&str> = data_url.splitn(2, ',').collect();
-    if parts.len() != 2 { return None; }
+    if parts.len() != 2 {
+        return None;
+    }
     let header = parts[0];
     let content = parts[1];
     let header_without_data = header.strip_prefix("data:")?;
     let mime_type = if let Some(semicolon_pos) = header_without_data.find(';') {
         &header_without_data[..semicolon_pos]
-    } else { header_without_data };
-    if !header.contains("base64") { return None; }
+    } else {
+        header_without_data
+    };
+    if !header.contains("base64") {
+        return None;
+    }
     Some((mime_type.to_string(), content.to_string()))
 }
 
@@ -149,7 +159,13 @@ pub async fn handle_message_type_end(
 
     if message_type == "response" {
         if let Err(e) = crate::api::ai::mcp::detect_and_process_mcp_calls(
-            app_handle, conversation_id, message_id, content).await {
+            app_handle,
+            conversation_id,
+            message_id,
+            content,
+        )
+        .await
+        {
             eprintln!("Failed to detect MCP calls: {}", e);
         }
     }
@@ -297,5 +313,3 @@ pub fn init_conversation(
     }
     Ok((conversation_clone, message_result_array))
 }
-
-
