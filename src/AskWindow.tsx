@@ -98,7 +98,7 @@ function AskWindow() {
             console.error("Received error notification in AskWindow:", errorMsg);
             
             // 显示错误通知
-            toast.error(`AI请求失败: ${errorMsg}`);
+            toast.error(`${errorMsg}`);
             
             // 重置AI响应状态
             setAiIsResponsing(false);

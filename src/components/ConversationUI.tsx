@@ -206,7 +206,7 @@ function ConversationUI({
         // 确保AI响应状态被重置
         setAiIsResponsing(false);
         // 显示用户友好的错误信息
-        toast.error(`AI请求失败: ${errorMessage}`);
+        toast.error(`${errorMessage}`);
     }, []);
 
     // handleMessageUpdate 将在后面定义，这里先声明一个空的引用
@@ -602,9 +602,6 @@ function ConversationUI({
             
             // 清除闪烁状态
             setShiningMessageIds(new Set());
-            
-            // 显示错误通知（不重复显示，因为useConversationEvents已经处理了）
-            // toast.error(`AI请求失败: ${errorMessage}`);
         });
 
         return () => {
