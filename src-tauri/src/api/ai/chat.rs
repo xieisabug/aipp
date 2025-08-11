@@ -6,13 +6,249 @@ use crate::db::conversation_db::{ConversationDatabase, Message, Repository};
 use crate::db::system_db::FeatureConfig;
 
 use futures::StreamExt;
-use genai::chat::{ChatOptions, ChatRequest};
+use genai::chat::ChatStreamEvent;
+use genai::chat::{ChatOptions, ChatRequest, ToolCall};
 use genai::Client;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
+
+// 尝试获取HTTP错误的响应体（改进版，支持POST请求）
+async fn try_fetch_error_body_advanced(
+    url: &str,
+    status: reqwest::StatusCode,
+    is_chat_api: bool,
+) -> Option<String> {
+    if !status.is_client_error() && !status.is_server_error() {
+        return None;
+    }
+
+    println!("[[attempting_to_fetch_error_body_from_url]]: {}", url);
+
+    // 创建一个简单的客户端来获取错误信息
+    let client = reqwest::Client::new();
+
+    if is_chat_api && url.contains("/chat/completions") {
+        // 方法1: 发送一个故意错误的请求来获取错误响应
+        let invalid_payload = serde_json::json!({
+            "model": "invalid-model-name-that-does-not-exist",
+            "messages": []
+        });
+
+        println!("[[trying_invalid_payload_method]]");
+        match client.post(url).json(&invalid_payload).send().await {
+            Ok(response) => {
+                println!("[[error_response_status]]: {}", response.status());
+                if response.status().is_client_error() || response.status().is_server_error() {
+                    match response.text().await {
+                        Ok(body) => {
+                            println!("[[error_response_body]]: {}", body);
+                            return Some(body);
+                        }
+                        Err(e) => {
+                            println!("[[failed_to_read_error_body]]: {}", e);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                println!("[[invalid_payload_request_failed]]: {}", e);
+            }
+        }
+
+        // 方法2: 发送空的POST请求
+        println!("[[trying_empty_post_method]]");
+        match client
+            .post(url)
+            .header("Content-Type", "application/json")
+            .body("{}")
+            .send()
+            .await
+        {
+            Ok(response) => {
+                println!("[[empty_post_response_status]]: {}", response.status());
+                if response.status().is_client_error() || response.status().is_server_error() {
+                    match response.text().await {
+                        Ok(body) => {
+                            println!("[[empty_post_error_body]]: {}", body);
+                            return Some(body);
+                        }
+                        Err(e) => {
+                            println!("[[failed_to_read_empty_post_body]]: {}", e);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                println!("[[empty_post_request_failed]]: {}", e);
+            }
+        }
+
+        // 方法3: 尝试用HEAD请求来获取一些信息
+        println!("[[trying_head_request_method]]");
+        match client.head(url).send().await {
+            Ok(response) => {
+                println!("[[head_response_status]]: {}", response.status());
+                println!("[[head_response_headers]]: {:?}", response.headers());
+                // HEAD请求通常不会有响应体，但可能有有用的头信息
+            }
+            Err(e) => {
+                println!("[[head_request_failed]]: {}", e);
+
+                // 尝试从错误消息中提取有用信息
+                let error_msg = e.to_string();
+                if error_msg.contains("{") && error_msg.contains("}") {
+                    // 尝试从错误消息中提取JSON
+                    if let Some(start) = error_msg.find("{") {
+                        if let Some(end) = error_msg.rfind("}") {
+                            let json_part = &error_msg[start..=end];
+                            println!("[[extracted_json_from_head_error]]: {}", json_part);
+                            return Some(json_part.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        // 对于其他API，使用GET请求
+        println!("[[trying_get_request_method]]");
+        match client.get(url).send().await {
+            Ok(response) => {
+                if response.status().is_client_error() || response.status().is_server_error() {
+                    match response.text().await {
+                        Ok(body) => {
+                            println!("[[get_error_response_body]]: {}", body);
+                            return Some(body);
+                        }
+                        Err(e) => {
+                            println!("[[failed_to_read_get_error_body]]: {}", e);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                println!("[[get_request_failed]]: {}", e);
+            }
+        }
+    }
+
+    None
+}
+
+// 增强的错误处理函数（简化版，避免Send问题）
+async fn enhanced_error_logging_v2<E: std::error::Error + 'static>(
+    error: &E,
+    context: &str,
+) -> String {
+    eprintln!("=== {} Error ===", context);
+    eprintln!("[[error_type]]: {:?}", error);
+    eprintln!("[[error_details]]: {}", error);
+    eprintln!("[[error_debug]]: {:#?}", error);
+
+    // 收集错误链信息，不进行异步操作
+    let mut current_error: Option<&dyn std::error::Error> = Some(error);
+    let mut i = 0;
+    let mut error_urls = Vec::new(); // 收集URL用于后续处理
+
+    while let Some(err) = current_error {
+        eprintln!("  [[error_{}]]: {}", i, err);
+        eprintln!("    [[error_type]]: {}", std::any::type_name_of_val(err));
+
+        // 检查错误字符串中是否包含有用信息
+        let error_string = err.to_string();
+        eprintln!("    [[error_string]]: {}", error_string);
+
+        // 尝试从错误字符串中提取URL和状态码
+        if error_string.contains("400") && error_string.contains("https://") {
+            if let Some(start) = error_string.find("https://") {
+                if let Some(end) = error_string[start..].find("\"") {
+                    let url = &error_string[start..start + end];
+                    eprintln!("    [[extracted_url]]: {}", url);
+                    error_urls.push((url.to_string(), reqwest::StatusCode::from_u16(400).unwrap()));
+                }
+            }
+        }
+
+        // 特别检查是否是 reqwest 错误并提取详细信息
+        if let Some(reqwest_error) = err.downcast_ref::<reqwest::Error>() {
+            eprintln!("    [[reqwest_error_details]]:");
+
+            if let Some(status) = reqwest_error.status() {
+                eprintln!("      [[status_code]]: {}", status);
+                eprintln!("      [[is_client_error]]: {}", status.is_client_error());
+                eprintln!("      [[is_server_error]]: {}", status.is_server_error());
+
+                if let Some(url) = reqwest_error.url() {
+                    let url_str = url.to_string();
+                    eprintln!("      [[request_url]]: {}", url_str);
+
+                    // 对于错误状态码，收集URL信息但不在这里执行异步操作
+                    if status.is_client_error() || status.is_server_error() {
+                        error_urls.push((url_str, status));
+                    }
+                }
+            }
+
+            eprintln!("      [[is_timeout]]: {}", reqwest_error.is_timeout());
+            eprintln!("      [[is_connect]]: {}", reqwest_error.is_connect());
+            eprintln!("      [[is_request]]: {}", reqwest_error.is_request());
+            eprintln!("      [[is_body]]: {}", reqwest_error.is_body());
+            eprintln!("      [[is_decode]]: {}", reqwest_error.is_decode());
+        } else {
+            // 如果不是reqwest错误，尝试其他方式解析
+            eprintln!("    [[not_reqwest_error]]: attempting string parsing");
+
+            // 检查是否是EventSource相关的错误
+            if error_string.contains("EventSource") || error_string.contains("Invalid status code")
+            {
+                eprintln!("    [[event_source_error_detected]]: true");
+
+                // 尝试从字符串中提取状态码
+                if error_string.contains("400") {
+                    eprintln!("    [[detected_status_code]]: 400");
+                }
+
+                // 尝试提取URL
+                if let Some(start) = error_string.find("url: \"") {
+                    let start = start + 6; // 跳过 'url: "'
+                    if let Some(end) = error_string[start..].find("\"") {
+                        let url = &error_string[start..start + end];
+                        eprintln!("    [[extracted_url_from_string]]: {}", url);
+                        if !error_urls.iter().any(|(u, _)| u == url) {
+                            error_urls.push((
+                                url.to_string(),
+                                reqwest::StatusCode::from_u16(400).unwrap(),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        current_error = err.source();
+        i += 1;
+    }
+
+    // 现在在循环外处理URL（如果有的话）
+    for (url_str, status) in error_urls {
+        eprintln!(
+            "[[processing_extracted_url]]: {} with status {}",
+            url_str, status
+        );
+        let is_chat_api = url_str.contains("/chat/completions");
+        if let Some(error_body) = try_fetch_error_body_advanced(&url_str, status, is_chat_api).await
+        {
+            eprintln!("      [[extracted_error_body]]: {}", error_body);
+        }
+    }
+
+    eprintln!("=== End {} Error Details ===", context);
+
+    // 返回用户友好的错误信息
+    get_user_friendly_error_message(error)
+}
 
 // 将错误信息转换为用户友好的中文提示
 fn get_user_friendly_error_message<E: std::fmt::Display>(error: &E) -> String {
@@ -170,8 +406,9 @@ async fn attempt_stream_chat(
 ) -> Result<(), anyhow::Error> {
     // 尝试建立流式连接
     println!("[[establishing_stream_connection_model]]: {}", model_name);
+
     let chat_stream_response = match client
-        .exec_chat_stream(model_name, chat_request.clone(), Some(chat_options))
+        .exec_chat_stream(model_name, chat_request.clone(), Some(&chat_options))
         .await
     {
         Ok(response) => {
@@ -179,43 +416,7 @@ async fn attempt_stream_chat(
             response
         }
         Err(e) => {
-            // 打印详细的连接错误信息
-            eprintln!("=== Stream Connection Error ===");
-            eprintln!("[[stream_connection_failed]]: {:?}", e);
-            eprintln!("[[error_details]]: {}", e);
-            eprintln!("[[error_debug]]: {:#?}", e);
-
-            // 打印完整的错误链
-            eprintln!("[[error_chain]]:");
-            let mut current_error: Option<&dyn std::error::Error> = Some(&e);
-            let mut i = 0;
-            while let Some(error) = current_error {
-                eprintln!("  [[error_{}]]: {}", i, error);
-                eprintln!("    [[error_type]]: {}", std::any::type_name_of_val(error));
-
-                // 特别检查是否是 reqwest 错误
-                if let Some(reqwest_error) = error.downcast_ref::<reqwest::Error>() {
-                    eprintln!("    [[reqwest_error_details]]:");
-                    if let Some(status) = reqwest_error.status() {
-                        eprintln!("      [[status_code]]: {}", status);
-                        eprintln!("      [[is_client_error]]: {}", status.is_client_error());
-                        eprintln!("      [[is_server_error]]: {}", status.is_server_error());
-                    }
-                    if let Some(url) = reqwest_error.url() {
-                        eprintln!("      [[request_url]]: {}", url);
-                    }
-                    eprintln!("      [[is_timeout]]: {}", reqwest_error.is_timeout());
-                    eprintln!("      [[is_connect]]: {}", reqwest_error.is_connect());
-                    eprintln!("      [[is_request]]: {}", reqwest_error.is_request());
-                    eprintln!("      [[is_body]]: {}", reqwest_error.is_body());
-                    eprintln!("      [[is_decode]]: {}", reqwest_error.is_decode());
-                }
-
-                current_error = error.source();
-                i += 1;
-            }
-            eprintln!("=== End Stream Connection Error Details ===");
-
+            let _user_friendly_error = enhanced_error_logging_v2(&e, "Stream Connection").await;
             return Err(anyhow::anyhow!(
                 "Failed to establish stream connection: {}",
                 e
@@ -228,6 +429,7 @@ async fn attempt_stream_chat(
     let mut response_content = String::new();
     let mut reasoning_message_id: Option<i64> = None;
     let mut response_message_id: Option<i64> = None;
+    let mut captured_tool_calls: Vec<ToolCall> = Vec::new();
 
     let generation_group_id =
         generation_group_id_override.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
@@ -244,7 +446,6 @@ async fn attempt_stream_chat(
             stream_result = chat_stream.next() => {
                 match stream_result {
                     Some(Ok(stream_event)) => {
-                        use genai::chat::ChatStreamEvent;
                         match stream_event {
                             ChatStreamEvent::Start => {}
                             ChatStreamEvent::Chunk(chunk) => {
@@ -433,10 +634,182 @@ async fn attempt_stream_chat(
                                     );
                                 }
                             }
-                            ChatStreamEvent::ToolCallChunk(tool_call) => {
-                                println!("[[tool_call]]: {:#?}\n", tool_call);
+                            ChatStreamEvent::ToolCallChunk(tool_call_chunk) => {
+                                println!("[[tool_call_chunk]]: {:#?}\n", tool_call_chunk);
                             }
-                            ChatStreamEvent::End(_) => {
+                            ChatStreamEvent::End(end_event) => {
+                                println!("[[end_event]]: {:#?}\n", end_event);
+                                // Capture tool calls if they exist
+                                if let Some(tool_calls) = end_event.captured_into_tool_calls() {
+                                    captured_tool_calls = tool_calls;
+                                    println!("[[captured_tool_calls]]: {:#?}\n", captured_tool_calls);
+                                }
+
+                                // If native tool calls were captured, persist UI hints and DB records, and optionally auto-run
+                                if !captured_tool_calls.is_empty() {
+                                    // Ensure we have a response message to attach UI hints
+                                    if response_message_id.is_none() {
+                                        // Create a minimal response message to host MCP UI hints
+                                        let now = chrono::Utc::now();
+                                        response_start_time = Some(now);
+                                        let new_message = conversation_db
+                                            .message_repo()
+                                            .unwrap()
+                                            .create(&Message {
+                                                id: 0,
+                                                parent_id: None,
+                                                conversation_id,
+                                                message_type: "response".to_string(),
+                                                content: String::new(),
+                                                llm_model_id: Some(llm_model_id),
+                                                llm_model_name: Some(llm_model_name.clone()),
+                                                created_time: now,
+                                                start_time: Some(now),
+                                                finish_time: None,
+                                                token_count: 0,
+                                                generation_group_id: Some(generation_group_id.clone()),
+                                                parent_group_id: parent_group_id_override.clone(),
+                                            })
+                                            .unwrap();
+                                        response_message_id = Some(new_message.id);
+
+                                        let add_event = ConversationEvent {
+                                            r#type: "message_add".to_string(),
+                                            data: serde_json::to_value(MessageAddEvent {
+                                                message_id: new_message.id,
+                                                message_type: "response".to_string(),
+                                            })
+                                            .unwrap(),
+                                        };
+                                        let _ = window.emit(
+                                            format!("conversation_event_{}", conversation_id).as_str(),
+                                            add_event,
+                                        );
+                                    }
+
+                                    // Create DB records for tool calls, then append UI hints with DB call_id
+                                    for tool_call in &captured_tool_calls {
+                                        // Our tool name format is "{server}__{tool}", split it safely
+                                        let (server_name, tool_name) = if let Some((s, t)) = tool_call
+                                            .fn_name
+                                            .split_once("__")
+                                        {
+                                            (s.to_string(), t.to_string())
+                                        } else {
+                                            // Fallback: no server prefix
+                                            (String::from("default"), tool_call.fn_name.clone())
+                                        };
+
+                                        // Create MCP tool call record for later manual execution or auto-run
+                                        let params_str = tool_call.fn_arguments.to_string();
+                                        let created_call = crate::api::mcp_execution_api::create_mcp_tool_call(
+                                            app_handle.clone(),
+                                            conversation_id,
+                                            response_message_id, // bind to this response message
+                                            server_name.clone(),
+                                            tool_name.clone(),
+                                            params_str.clone(),
+                                        )
+                                        .await;
+
+                                        if let Ok(tool_call_record) = created_call {
+                                            // 记录原生 LLM tool_call_id 到 DB 调用映射，用于 ToolResponse 匹配
+                                            crate::api::mcp_execution_api::set_llm_call_id_for_db_call(
+                                                tool_call_record.id,
+                                                tool_call.call_id.clone(),
+                                            ).await;
+                                            // Append UI hint comment for frontend renderer, now with DB call_id
+                                            let ui_hint = format!(
+                                                "\n\n<!-- MCP_TOOL_CALL:{} -->\n",
+                                                serde_json::json!({
+                                                    "server_name": server_name,
+                                                    "tool_name": tool_name,
+                                                    "parameters": params_str,
+                                                    "call_id": tool_call_record.id,
+                                                })
+                                            );
+                                            response_content.push_str(&ui_hint);
+
+                                            // Persist updated content to DB and emit update (not done yet)
+                                            if let Some(msg_id) = response_message_id {
+                                                if let Ok(Some(mut msg)) = conversation_db
+                                                    .message_repo()
+                                                    .unwrap()
+                                                    .read(msg_id)
+                                                {
+                                                    msg.content = response_content.clone();
+                                                    let _ = conversation_db
+                                                        .message_repo()
+                                                        .unwrap()
+                                                        .update(&msg);
+
+                                                    let update_event = ConversationEvent {
+                                                        r#type: "message_update".to_string(),
+                                                        data: serde_json::to_value(MessageUpdateEvent {
+                                                            message_id: msg_id,
+                                                            message_type: "response".to_string(),
+                                                            content: response_content.clone(),
+                                                            is_done: false,
+                                                        })
+                                                        .unwrap(),
+                                                    };
+                                                    let _ = window.emit(
+                                                        format!("conversation_event_{}", conversation_id).as_str(),
+                                                        update_event,
+                                                    );
+                                                }
+                                            }
+
+                                            // Auto-run if configured on assistant's MCP tool
+                                            if let Ok(conv) = conversation_db
+                                                .conversation_repo()
+                                                .unwrap()
+                                                .read(conversation_id)
+                                            {
+                                                if let Some(assistant_id) = conv.and_then(|c| c.assistant_id) {
+                                                    if let Ok(servers) = crate::api::assistant_api::get_assistant_mcp_servers_with_tools(
+                                                        app_handle.clone(),
+                                                        assistant_id,
+                                                    )
+                                                    .await
+                                                    {
+                                                        let mut should_auto_run = false;
+                                                        for s in servers.iter() {
+                                                            if s.name == server_name && s.is_enabled {
+                                                                if let Some(t) = s.tools.iter().find(|t| t.name == tool_name && t.is_enabled) {
+                                                                    if t.is_auto_run { should_auto_run = true; }
+                                                                }
+                                                            }
+                                                        }
+                                                        if should_auto_run {
+                                                            let state = app_handle.state::<crate::AppState>();
+                                                            let feature_config_state = app_handle.state::<crate::FeatureConfigState>();
+                                                            let message_token_manager = app_handle.state::<crate::state::message_token::MessageTokenManager>();
+                                                            if let Err(e) = crate::api::mcp_execution_api::execute_mcp_tool_call(
+                                                                app_handle.clone(),
+                                                                state,
+                                                                feature_config_state,
+                                                                message_token_manager,
+                                                                window.clone(),
+                                                                tool_call_record.id,
+                                                            )
+                                                            .await
+                                                            {
+                                                                eprintln!(
+                                                                    "Auto-execute MCP tool failed (call_id={}): {}",
+                                                                    tool_call_record.id, e
+                                                                );
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        } else if let Err(e) = created_call {
+                                            eprintln!("Failed to create MCP tool call record: {}", e);
+                                        }
+                                    }
+                                }
+
                                 // 按当前输出类型收尾，确保 response 触发 MCP 检测与事件
                                 match current_output_type.as_deref() {
                                     Some("reasoning") => {
@@ -498,6 +871,36 @@ async fn attempt_stream_chat(
                                     }
                                 }
 
+                                // Handle captured tool calls for MCP integration
+                                if !captured_tool_calls.is_empty() {
+                                    println!("[[processing_tool_calls_count]]: {}", captured_tool_calls.len());
+
+                                    // Send tool call information to frontend for potential MCP execution
+                                    for tool_call in &captured_tool_calls {
+                                        println!("[[tool_call_to_process]]: {} with args: {}", tool_call.fn_name, tool_call.fn_arguments);
+
+                                        // Emit tool call event for MCP handling
+                                        let tool_call_event = serde_json::json!({
+                                            "type": "tool_call",
+                                            "data": {
+                                                "conversation_id": conversation_id,
+                                                "call_id": tool_call.call_id,
+                                                "function_name": tool_call.fn_name,
+                                                "arguments": tool_call.fn_arguments,
+                                                "response_message_id": response_message_id
+                                            }
+                                        });
+
+                                        let _ = window.emit(
+                                            format!("conversation_event_{}", conversation_id).as_str(),
+                                            tool_call_event
+                                        );
+                                    }
+
+                                    // Note: In stream mode, we emit the tool calls and let the frontend handle MCP execution
+                                    // The conversation continues after tool results are provided via tool_result_continue_ask_ai
+                                }
+
                                 if need_generate_title && !response_content.is_empty() {
                                     let app_handle_clone = app_handle.clone();
                                     let user_prompt_clone = user_prompt.clone();
@@ -526,44 +929,7 @@ async fn attempt_stream_chat(
                         }
                     }
                     Some(Err(e)) => {
-                        // 打印详细的流处理错误信息
-                        eprintln!("=== Stream Processing Error ===");
-                        eprintln!("[[error_type]]: {:?}", e);
-                        eprintln!("[[error_details]]: {}", e);
-                        eprintln!("[[error_debug]]: {:#?}", e);
-
-                        // 打印完整的错误链，特别关注 reqwest 错误
-                        eprintln!("[[error_chain]]:");
-                        let mut current_error: Option<&dyn std::error::Error> = Some(&e);
-                        let mut i = 0;
-                        while let Some(error) = current_error {
-                            eprintln!("  [[error_{}]]: {}", i, error);
-                            eprintln!("    [[error_type]]: {}", std::any::type_name_of_val(error));
-
-                            // 特别检查是否是 reqwest 错误并提取详细信息
-                            if let Some(reqwest_error) = error.downcast_ref::<reqwest::Error>() {
-                                eprintln!("    [[reqwest_error_details]]:");
-                                if let Some(status) = reqwest_error.status() {
-                                    eprintln!("      [[status_code]]: {}", status);
-                                    eprintln!("      [[is_client_error]]: {}", status.is_client_error());
-                                    eprintln!("      [[is_server_error]]: {}", status.is_server_error());
-                                }
-                                if let Some(url) = reqwest_error.url() {
-                                    eprintln!("      [[request_url]]: {}", url);
-                                }
-                                eprintln!("      [[is_timeout]]: {}", reqwest_error.is_timeout());
-                                eprintln!("      [[is_connect]]: {}", reqwest_error.is_connect());
-                                eprintln!("      [[is_request]]: {}", reqwest_error.is_request());
-                                eprintln!("      [[is_body]]: {}", reqwest_error.is_body());
-                                eprintln!("      [[is_decode]]: {}", reqwest_error.is_decode());
-                            }
-
-                            current_error = error.source();
-                            i += 1;
-                        }
-                        eprintln!("=== End Stream Error Details ===");
-
-                        // 流处理中的错误，返回错误以便上层重试
+                        let _user_friendly_error = enhanced_error_logging_v2(&e, "Stream Processing").await;
                         super::conversation::cleanup_token(tokens, conversation_id).await;
                         return Err(anyhow::anyhow!("Stream processing failed: {}", e));
                     }
@@ -698,6 +1064,8 @@ pub async fn handle_non_stream_chat(
         add_event,
     );
 
+    // 非流式：强制捕获工具调用，便于将工具以 UI 注释形式插入
+    let non_stream_options = chat_options.clone().with_capture_tool_calls(true);
     let chat_result = tokio::select! {
         result = async {
             let mut attempts = 0;
@@ -706,56 +1074,22 @@ pub async fn handle_non_stream_chat(
 
                 println!("[[non_stream_chat_attempt]]: {}/{}", attempts, MAX_RETRY_ATTEMPTS);
 
-                match client.exec_chat(model_name, chat_request.clone(), Some(chat_options)).await {
+                match client.exec_chat(model_name, chat_request.clone(), Some(&non_stream_options)).await {
                     Ok(response) => {
                         println!("[[non_stream_chat_succeeded_attempt]]: {}", attempts);
                         break Ok(response);
                     },
                     Err(e) => {
-                        // 打印详细的非流式聊天错误信息
-                        eprintln!("=== Non-Stream Chat Error (attempt {}/{}) ===", attempts, MAX_RETRY_ATTEMPTS);
-                        eprintln!("[[error_details]]: {}", e);
-                        eprintln!("[[error_debug]]: {:#?}", e);
-
-                        // 打印完整的错误链，特别关注 reqwest 错误
-                        eprintln!("[[error_chain]]:");
-                        let mut current_error: Option<&dyn std::error::Error> = Some(&e);
-                        let mut i = 0;
-                        while let Some(error) = current_error {
-                            eprintln!("  [[error_{}]]: {}", i, error);
-                            eprintln!("    [[error_type]]: {}", std::any::type_name_of_val(error));
-
-                            // 特别检查是否是 reqwest 错误并提取详细信息
-                            if let Some(reqwest_error) = error.downcast_ref::<reqwest::Error>() {
-                                eprintln!("    [[reqwest_error_details]]:");
-                                if let Some(status) = reqwest_error.status() {
-                                    eprintln!("      [[status_code]]: {}", status);
-                                    eprintln!("      [[is_client_error]]: {}", status.is_client_error());
-                                    eprintln!("      [[is_server_error]]: {}", status.is_server_error());
-                                }
-                                if let Some(url) = reqwest_error.url() {
-                                    eprintln!("      [[request_url]]: {}", url);
-                                }
-                                eprintln!("      [[is_timeout]]: {}", reqwest_error.is_timeout());
-                                eprintln!("      [[is_connect]]: {}", reqwest_error.is_connect());
-                                eprintln!("      [[is_request]]: {}", reqwest_error.is_request());
-                                eprintln!("      [[is_body]]: {}", reqwest_error.is_body());
-                                eprintln!("      [[is_decode]]: {}", reqwest_error.is_decode());
-                            }
-
-                            current_error = error.source();
-                            i += 1;
-                        }
-                        eprintln!("=== End Non-Stream Error Details ===");
+                        let user_friendly_error = enhanced_error_logging_v2(&e, &format!("Non-Stream Chat (attempt {}/{})", attempts, MAX_RETRY_ATTEMPTS)).await;
 
                         if attempts >= MAX_RETRY_ATTEMPTS {
-                            let final_error = format!("AI请求失败: {}", get_user_friendly_error_message(&e));
+                            let final_error = format!("AI请求失败: {}", user_friendly_error);
                             eprintln!("[[final_non_stream_error]]: Non-stream chat failed after {} attempts: {}", attempts, e);
 
                             // 发送错误通知给前端
                             let _ = window.emit(
                                 ERROR_NOTIFICATION_EVENT,
-                                get_user_friendly_error_message(&e),
+                                user_friendly_error,
                             );
 
                             break Err(anyhow::anyhow!("{}", final_error));
@@ -776,7 +1110,98 @@ pub async fn handle_non_stream_chat(
 
     match chat_result {
         Ok(chat_response) => {
-            let content = chat_response.first_text().unwrap_or("").to_string();
+            let mut content = chat_response.first_text().unwrap_or("").to_string();
+
+            // 非流式：捕获原生 ToolCall 并处理（创建DB、UI注释、自动执行）
+            let tool_calls: Vec<ToolCall> = chat_response
+                .tool_calls()
+                .into_iter()
+                .map(|tc| tc.clone())
+                .collect();
+
+            if !tool_calls.is_empty() {
+                println!(
+                    "[[non_stream_captured_tool_calls_count]]: {}",
+                    tool_calls.len()
+                );
+                for tool_call in tool_calls.iter() {
+                    let (server_name, tool_name) =
+                        if let Some((s, t)) = tool_call.fn_name.split_once("__") {
+                            (s.to_string(), t.to_string())
+                        } else {
+                            (String::from("default"), tool_call.fn_name.clone())
+                        };
+
+                    let params_str = tool_call.fn_arguments.to_string();
+                    match crate::api::mcp_execution_api::create_mcp_tool_call(
+                        app_handle.clone(),
+                        conversation_id,
+                        Some(response_message_id),
+                        server_name.clone(),
+                        tool_name.clone(),
+                        params_str.clone(),
+                    )
+                    .await
+                    {
+                        Ok(tool_call_record) => {
+                            crate::api::mcp_execution_api::set_llm_call_id_for_db_call(
+                                tool_call_record.id,
+                                tool_call.call_id.clone(),
+                            )
+                            .await;
+
+                            let ui_hint = format!(
+                                "\n\n<!-- MCP_TOOL_CALL:{} -->\n",
+                                serde_json::json!({
+                                    "server_name": server_name,
+                                    "tool_name": tool_name,
+                                    "parameters": params_str,
+                                    "call_id": tool_call_record.id,
+                                })
+                            );
+                            content.push_str(&ui_hint);
+
+                            // 自动执行（若配置）
+                            if let Ok(conv) = conversation_db
+                                .conversation_repo()
+                                .unwrap()
+                                .read(conversation_id)
+                            {
+                                if let Some(assistant_id) = conv.and_then(|c| c.assistant_id) {
+                                    if let Ok(servers) = crate::api::assistant_api::get_assistant_mcp_servers_with_tools(app_handle.clone(), assistant_id).await {
+                                        let mut should_auto_run = false;
+                                        for s in servers.iter() {
+                                            if s.name == server_name && s.is_enabled {
+                                                if let Some(t) = s.tools.iter().find(|t| t.name == tool_name && t.is_enabled) {
+                                                    if t.is_auto_run { should_auto_run = true; }
+                                                }
+                                            }
+                                        }
+                                        if should_auto_run {
+                                            let state = app_handle.state::<crate::AppState>();
+                                            let feature_config_state = app_handle.state::<crate::FeatureConfigState>();
+                                            let message_token_manager = app_handle.state::<crate::state::message_token::MessageTokenManager>();
+                                            if let Err(e) = crate::api::mcp_execution_api::execute_mcp_tool_call(
+                                                app_handle.clone(),
+                                                state,
+                                                feature_config_state,
+                                                message_token_manager,
+                                                window.clone(),
+                                                tool_call_record.id,
+                                            ).await {
+                                                eprintln!("Auto-execute MCP tool failed (call_id={}): {}", tool_call_record.id, e);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to create MCP tool call record (non-stream): {}", e)
+                        }
+                    }
+                }
+            }
             let mut message = conversation_db
                 .message_repo()
                 .unwrap()

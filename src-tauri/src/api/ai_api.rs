@@ -24,6 +24,7 @@ use anyhow::Context;
 use anyhow::Error;
 use genai::chat::ChatRequest;
 use genai::chat::Tool;
+use genai::chat::ToolCall;
 use std::collections::{HashMap, HashSet};
 use tauri::Emitter;
 use tauri::State;
@@ -210,7 +211,10 @@ pub async fn ask_ai(
         let chat_config = ChatConfig {
             model_name,
             stream,
-            chat_options: chat_options.with_normalize_reasoning_content(true),
+            chat_options: chat_options
+                .with_normalize_reasoning_content(true)
+                .with_capture_usage(true)
+                .with_capture_tool_calls(true),
             client,
         };
 
@@ -221,7 +225,7 @@ pub async fn ask_ai(
 
         // 将消息转换为 ChatMessage（已按是否原生 toolcall 处理过 tool_result）
         let chat_messages = build_chat_messages(&final_message_list_for_llm);
-        // 原生模式：把 MCP 工具映射为 genai::chat::Tool 并注入到请求
+        // 原生模式：把 MCP 工具映射为 genai::chat::Tool 并注入到请求，并附加轻量提示
         let chat_request = if is_native_toolcall && !mcp_info.enabled_servers.is_empty() {
             let mut tools: Vec<Tool> = Vec::new();
             for server in &mcp_info.enabled_servers {
@@ -500,13 +504,53 @@ pub async fn tool_result_continue_ask_ai(
     // 根据是否为原生 toolcall 选择不同的消息组织策略：
     // - 原生：将 "tool_result" 转为 ToolResponse（含 tool_call_id）
     // - 非原生：把所有 "tool_result" 在内存里映射成 "user" 文本消息，避免向提供商发送 ToolResponse 导致 4xx/5xx
-    let chat_request = if is_native_toolcall {
-        let chat_messages =
+    // 兼容：Gemini 通过 OpenAI 适配时，服务端要求 function_response.name 不为空。通用 ToolResponse 不带 name。
+    // 为避免 400，这里在该场景下对“继续对话”强制降级为非原生。
+    let force_non_native_for_toolresult =
+        provider_api_type == "openai" && model_code.to_lowercase().contains("gemini");
+    let use_native_for_continue = is_native_toolcall && !force_non_native_for_toolresult;
+    println!(
+        "[[tool_result_continue native?]]: {} (provider_api_type={}, model_code={})",
+        use_native_for_continue, provider_api_type, model_code
+    );
+    let chat_request = if use_native_for_continue {
+        let mut chat_messages =
             build_chat_messages_with_context(&init_message_list, Some(tool_call_id.clone()));
         println!(
             "[[chat_messages (tool_result_continue native)]]: {:#?}\n",
             chat_messages
         );
+        // 为提供商（如 Gemini）补齐上一轮 assistant 的 tool_calls，便于匹配 ToolResponse
+        if let Some(tool_call_record) =
+            crate::api::mcp_execution_api::get_mcp_tool_call_by_llm_call_id(
+                &app_handle,
+                &tool_call_id,
+            )
+            .await
+        {
+            let fn_name = format!(
+                "{}__{}",
+                tool_call_record.server_name, tool_call_record.tool_name
+            );
+            let fn_arguments =
+                serde_json::from_str::<serde_json::Value>(&tool_call_record.parameters)
+                    .unwrap_or_else(|_| serde_json::json!({}));
+            let upstream_tool_call = ToolCall {
+                call_id: tool_call_id.clone(),
+                fn_name,
+                fn_arguments,
+            };
+            let tool_call_msg = genai::chat::ChatMessage::from(vec![upstream_tool_call]);
+            if !chat_messages.is_empty() {
+                // 确保 tool_call 出现在 tool_response 之前
+                let insert_pos = chat_messages.len().saturating_sub(1);
+                chat_messages.insert(insert_pos, tool_call_msg);
+            } else {
+                chat_messages.push(tool_call_msg);
+            }
+        } else {
+            println!("[tool_result_continue] No DB record found for LLM call_id={}, skip injecting tool_call message", tool_call_id);
+        }
         // 注入 MCP 工具
         let mut tools: Vec<Tool> = Vec::new();
         if !mcp_info.enabled_servers.is_empty() {
