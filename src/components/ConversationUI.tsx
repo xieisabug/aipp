@@ -238,6 +238,7 @@ function ConversationUI({
         shiningMessageIds,
         setShiningMessageIds,
         mcpToolCallStates,
+        updateShiningMessages,
     } = useConversationEvents(conversationEventsOptions);
 
     // ============= UI 状态管理和交互相关逻辑 =============
@@ -427,7 +428,8 @@ function ConversationUI({
                 .catch((e) => {
                     console.error("ask assistant error", e);
                     setAiIsResponsing(false);
-                    setShiningMessageIds(new Set());
+                    // 使用智能边框控制，而不是直接清空
+                    updateShiningMessages();
                     // 显示更友好的错误信息
                     const errorMessage = typeof e === 'string' ? e : "助手请求失败，请稍后重试";
                     toast.error(errorMessage);
@@ -600,8 +602,8 @@ function ConversationUI({
             // 重置AI响应状态
             setAiIsResponsing(false);
             
-            // 清除闪烁状态
-            setShiningMessageIds(new Set());
+            // 使用智能边框控制，而不是直接清空
+            updateShiningMessages();
         });
 
         return () => {
@@ -848,8 +850,8 @@ function ConversationUI({
                 .catch((error) => {
                     console.error("Regenerate error:", error);
                     setAiIsResponsing(false);
-                    // 错误时清除shine-border
-                    setShiningMessageIds(new Set());
+                    // 使用智能边框控制，而不是直接清空
+                    updateShiningMessages();
                     // 显示更友好的错误信息
                     const errorMessage = typeof error === 'string' ? error : "重新生成失败，请稍后重试";
                     toast.error(errorMessage);
@@ -934,8 +936,8 @@ function ConversationUI({
             console.log(conversationId);
             invoke("cancel_ai", { conversationId: +conversationId }).then(() => {
                 setAiIsResponsing(false);
-                // shine-border 状态现在由 useConversationEvents hook 管理
-                setShiningMessageIds(new Set());
+                // 使用智能边框控制
+                updateShiningMessages();
             });
         } else {
             // 正常发送消息流程
@@ -981,8 +983,8 @@ function ConversationUI({
                     .catch((error) => {
                         console.error("Send message error:", error);
                         setAiIsResponsing(false);
-                        // 发送消息失败时清除shine-border
-                        setShiningMessageIds(new Set());
+                        // 使用智能边框控制，而不是直接清空
+                        updateShiningMessages();
                         // 显示更友好的错误信息
                         const errorMessage = typeof error === 'string' ? error : "发送消息失败，请检查网络连接或稍后重试";
                         toast.error(errorMessage);

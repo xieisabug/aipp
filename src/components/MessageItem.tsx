@@ -5,6 +5,7 @@ import ErrorMessage from './MessageItem/ErrorMessage';
 import MessageActionButtons from './MessageItem/MessageActionButtons';
 import ImageAttachments from './MessageItem/ImageAttachments';
 import { ShineBorder } from './magicui/shine-border';
+import { DEFAULT_SHINE_BORDER_CONFIG } from '@/lib/shine-config';
 import { Message, StreamEvent, MCPToolCallUpdateEvent } from '../data/Conversation';
 import { usePerformanceMonitor, measureSync } from '../hooks/usePerformanceMonitor';
 import { useCopyHandler } from '../hooks/useCopyHandler';
@@ -122,9 +123,9 @@ const MessageItem = React.memo<MessageItemProps>(({
         >
             {shouldShowShineBorder && (
                 <ShineBorder
-                    shineColor={['#A07CFE', '#FE8FB5', '#FFBE7B']}
-                    borderWidth={2}
-                    duration={8}
+                    shineColor={DEFAULT_SHINE_BORDER_CONFIG.shineColor}
+                    borderWidth={DEFAULT_SHINE_BORDER_CONFIG.borderWidth}
+                    duration={DEFAULT_SHINE_BORDER_CONFIG.duration}
                 />
             )}
 

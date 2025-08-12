@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ShineBorder } from "@/components/magicui/shine-border";
+import { DEFAULT_SHINE_BORDER_CONFIG } from "@/lib/shine-config";
 import { invoke } from '@tauri-apps/api/core';
 import { MCPToolCall } from '@/data/MCPToolCall';
 import { MCPToolCallUpdateEvent } from '@/data/Conversation';
@@ -255,9 +256,9 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
         <div className="w-full max-w-[600px] my-1 p-2 border border-border rounded-md bg-card overflow-hidden relative">
             {isRunning && (
                 <ShineBorder
-                    shineColor={['#A07CFE', '#FE8FB5', '#FFBE7B']}
-                    borderWidth={2}
-                    duration={8}
+                    shineColor={DEFAULT_SHINE_BORDER_CONFIG.shineColor}
+                    borderWidth={DEFAULT_SHINE_BORDER_CONFIG.borderWidth}
+                    duration={DEFAULT_SHINE_BORDER_CONFIG.duration}
                 />
             )}
             <div className="flex items-center justify-between">
