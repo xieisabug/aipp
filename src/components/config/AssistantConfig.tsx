@@ -145,6 +145,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
         assistantTypeApi.addFieldTips("temperature", "控制生成的随机性，越高越随机");
         assistantTypeApi.addFieldTips("top_p", "控制生成的多样性，越高越多样");
         assistantTypeApi.addFieldTips("stream", "是否流式输出，开启后可能会有延迟");
+        assistantTypeApi.hideField("use_native_toolcall");
     }, [assistantTypeApi]);
 
     // 助手类型

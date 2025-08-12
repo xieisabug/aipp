@@ -3,7 +3,7 @@ use crate::db::conversation_db::Repository;
 use tauri::Manager;
 use crate::errors::AppError;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex;
 
 #[derive(Debug, Clone)]
@@ -113,9 +113,7 @@ pub fn format_native_mcp_hint(mcp_info: &MCPInfoForAssistant) -> String {
 // 对话级别的 MCP 执行状态管理
 type ConversationMcpState = Arc<Mutex<HashMap<i64, u32>>>;
 
-lazy_static::lazy_static! {
-    static ref CONVERSATION_MCP_DEPTH: ConversationMcpState = Arc::new(Mutex::new(HashMap::new()));
-}
+static CONVERSATION_MCP_DEPTH: OnceLock<ConversationMcpState> = OnceLock::new();
 
 const MAX_MCP_RECURSION_DEPTH: u32 = 3;
 
@@ -127,7 +125,8 @@ pub async fn detect_and_process_mcp_calls(
     content: &str,
 ) -> Result<(), anyhow::Error> {
     // Check conversation-level recursion depth to prevent infinite loops
-    let mut depth_map = CONVERSATION_MCP_DEPTH.lock().await;
+    let depth_state = CONVERSATION_MCP_DEPTH.get_or_init(|| Arc::new(Mutex::new(HashMap::new())));
+    let mut depth_map = depth_state.lock().await;
     let current_depth = *depth_map.get(&conversation_id).unwrap_or(&0);
     
     if current_depth >= MAX_MCP_RECURSION_DEPTH {
@@ -258,7 +257,8 @@ pub async fn detect_and_process_mcp_calls(
     }.await;
 
     // Decrement conversation-level recursion depth
-    let mut depth_map = CONVERSATION_MCP_DEPTH.lock().await;
+    let depth_state = CONVERSATION_MCP_DEPTH.get_or_init(|| Arc::new(Mutex::new(HashMap::new())));
+    let mut depth_map = depth_state.lock().await;
     if let Some(depth) = depth_map.get_mut(&conversation_id) {
         if *depth > 0 {
             *depth -= 1;
