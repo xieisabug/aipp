@@ -1,7 +1,6 @@
 use crate::api::assistant_api::{get_assistant_mcp_servers_with_tools, MCPServerWithTools};
 use crate::db::conversation_db::Repository;
 use tauri::Manager;
-use crate::api::mcp_execution_api::create_mcp_tool_call;
 use crate::errors::AppError;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -170,13 +169,15 @@ pub async fn detect_and_process_mcp_calls(
         let create_result = if let Some(existing) = existing_call_opt {
             Ok(existing)
         } else {
-            create_mcp_tool_call(
+            crate::api::mcp_execution_api::create_mcp_tool_call_with_llm_id(
                 app_handle.clone(),
                 conversation_id,
                 Some(message_id),
                 server_name.clone(),
                 tool_name.clone(),
                 parameters.clone(),
+                None, // llm_call_id - MCP检测创建的调用没有LLM call ID
+                None, // assistant_message_id - MCP检测创建的调用没有关联的assistant消息
             )
             .await
         };

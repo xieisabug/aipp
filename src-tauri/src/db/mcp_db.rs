@@ -64,6 +64,8 @@ pub struct MCPToolCall {
     pub created_time: String,
     pub started_time: Option<String>,
     pub finished_time: Option<String>,
+    pub llm_call_id: Option<String>, // LLM 原生 tool_call_id
+    pub assistant_message_id: Option<i64>, // 关联的 assistant 消息ID
 }
 
 pub struct MCPDatabase {
@@ -161,11 +163,59 @@ impl MCPDatabase {
                 created_time DATETIME DEFAULT CURRENT_TIMESTAMP,
                 started_time DATETIME,
                 finished_time DATETIME,
+                llm_call_id TEXT,
+                assistant_message_id INTEGER,
                 FOREIGN KEY (server_id) REFERENCES mcp_server(id) ON DELETE CASCADE
             );",
             [],
         )?;
 
+        // Migrate existing table to add new columns if they don't exist
+        self.migrate_mcp_tool_call_table()?;
+
+        Ok(())
+    }
+
+    /// Migrate existing mcp_tool_call table to add new columns
+    fn migrate_mcp_tool_call_table(&self) -> rusqlite::Result<()> {
+        // Check if llm_call_id column exists
+        let columns_result = self.conn.prepare("PRAGMA table_info(mcp_tool_call)");
+        
+        match columns_result {
+            Ok(mut stmt) => {
+                let column_info = stmt.query_map([], |row| {
+                    Ok(row.get::<_, String>(1)?) // column name is at index 1
+                })?;
+                
+                let mut has_llm_call_id = false;
+                let mut has_assistant_message_id = false;
+                
+                for column in column_info {
+                    match column {
+                        Ok(name) => {
+                            if name == "llm_call_id" {
+                                has_llm_call_id = true;
+                            } else if name == "assistant_message_id" {
+                                has_assistant_message_id = true;
+                            }
+                        }
+                        Err(_) => continue,
+                    }
+                }
+                
+                // Add missing columns
+                if !has_llm_call_id {
+                    self.conn.execute("ALTER TABLE mcp_tool_call ADD COLUMN llm_call_id TEXT", [])?;
+                }
+                if !has_assistant_message_id {
+                    self.conn.execute("ALTER TABLE mcp_tool_call ADD COLUMN assistant_message_id INTEGER", [])?;
+                }
+            }
+            Err(_) => {
+                // Table might not exist yet, which is fine
+            }
+        }
+        
         Ok(())
     }
 
@@ -576,10 +626,43 @@ impl MCPDatabase {
         self.get_mcp_tool_call(id)
     }
 
+    pub fn create_mcp_tool_call_with_llm_id(
+        &self,
+        conversation_id: i64,
+        message_id: Option<i64>,
+        server_id: i64,
+        server_name: &str,
+        tool_name: &str,
+        parameters: &str,
+        llm_call_id: Option<&str>,
+        assistant_message_id: Option<i64>,
+    ) -> rusqlite::Result<MCPToolCall> {
+        let mut stmt = self.conn.prepare(
+            "INSERT INTO mcp_tool_call (conversation_id, message_id, server_id, server_name, tool_name, parameters, llm_call_id, assistant_message_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        )?;
+
+        stmt.execute(params![
+            conversation_id,
+            message_id,
+            server_id,
+            server_name,
+            tool_name,
+            parameters,
+            llm_call_id,
+            assistant_message_id
+        ])?;
+
+        let id = self.conn.last_insert_rowid();
+        
+        // Return the created tool call
+        self.get_mcp_tool_call(id)
+    }
+
     pub fn get_mcp_tool_call(&self, id: i64) -> rusqlite::Result<MCPToolCall> {
         let mut stmt = self.conn.prepare(
             "SELECT id, conversation_id, message_id, server_id, server_name, tool_name, 
-             parameters, status, result, error, created_time, started_time, finished_time
+             parameters, status, result, error, created_time, started_time, finished_time, llm_call_id, assistant_message_id
              FROM mcp_tool_call WHERE id = ?"
         )?;
 
@@ -598,6 +681,8 @@ impl MCPDatabase {
                 created_time: row.get(10)?,
                 started_time: row.get(11)?,
                 finished_time: row.get(12)?,
+                llm_call_id: row.get(13)?,
+                assistant_message_id: row.get(14)?,
             })
         })
     }
@@ -649,7 +734,7 @@ impl MCPDatabase {
     pub fn get_mcp_tool_calls_by_conversation(&self, conversation_id: i64) -> rusqlite::Result<Vec<MCPToolCall>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, conversation_id, message_id, server_id, server_name, tool_name, 
-             parameters, status, result, error, created_time, started_time, finished_time
+             parameters, status, result, error, created_time, started_time, finished_time, llm_call_id, assistant_message_id
              FROM mcp_tool_call WHERE conversation_id = ? ORDER BY created_time DESC"
         )?;
 
@@ -668,6 +753,72 @@ impl MCPDatabase {
                 created_time: row.get(10)?,
                 started_time: row.get(11)?,
                 finished_time: row.get(12)?,
+                llm_call_id: row.get(13)?,
+                assistant_message_id: row.get(14)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for call in calls {
+            result.push(call?);
+        }
+        Ok(result)
+    }
+
+    // 根据 llm_call_id 查找工具调用
+    pub fn get_mcp_tool_call_by_llm_id(&self, llm_call_id: &str) -> rusqlite::Result<Option<MCPToolCall>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, conversation_id, message_id, server_id, server_name, tool_name, 
+             parameters, status, result, error, created_time, started_time, finished_time, llm_call_id, assistant_message_id
+             FROM mcp_tool_call WHERE llm_call_id = ? LIMIT 1"
+        )?;
+
+        stmt.query_row([llm_call_id], |row| {
+            Ok(MCPToolCall {
+                id: row.get(0)?,
+                conversation_id: row.get(1)?,
+                message_id: row.get(2)?,
+                server_id: row.get(3)?,
+                server_name: row.get(4)?,
+                tool_name: row.get(5)?,
+                parameters: row.get(6)?,
+                status: row.get(7)?,
+                result: row.get(8)?,
+                error: row.get(9)?,
+                created_time: row.get(10)?,
+                started_time: row.get(11)?,
+                finished_time: row.get(12)?,
+                llm_call_id: row.get(13)?,
+                assistant_message_id: row.get(14)?,
+            })
+        }).optional()
+    }
+
+    // 根据 assistant_message_id 查找相关工具调用
+    pub fn get_mcp_tool_calls_by_assistant_message(&self, assistant_message_id: i64) -> rusqlite::Result<Vec<MCPToolCall>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, conversation_id, message_id, server_id, server_name, tool_name, 
+             parameters, status, result, error, created_time, started_time, finished_time, llm_call_id, assistant_message_id
+             FROM mcp_tool_call WHERE assistant_message_id = ? ORDER BY created_time ASC"
+        )?;
+
+        let calls = stmt.query_map([assistant_message_id], |row| {
+            Ok(MCPToolCall {
+                id: row.get(0)?,
+                conversation_id: row.get(1)?,
+                message_id: row.get(2)?,
+                server_id: row.get(3)?,
+                server_name: row.get(4)?,
+                tool_name: row.get(5)?,
+                parameters: row.get(6)?,
+                status: row.get(7)?,
+                result: row.get(8)?,
+                error: row.get(9)?,
+                created_time: row.get(10)?,
+                started_time: row.get(11)?,
+                finished_time: row.get(12)?,
+                llm_call_id: row.get(13)?,
+                assistant_message_id: row.get(14)?,
             })
         })?;
 

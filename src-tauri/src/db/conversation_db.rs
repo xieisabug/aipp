@@ -63,6 +63,7 @@ pub struct Message {
     pub token_count: i32,
     pub generation_group_id: Option<String>,
     pub parent_group_id: Option<String>,
+    pub tool_calls_json: Option<String>, // 保存原始 tool_calls JSON
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -79,6 +80,7 @@ pub struct MessageDetail {
     pub token_count: i32,
     pub generation_group_id: Option<String>,
     pub parent_group_id: Option<String>,
+    pub tool_calls_json: Option<String>,
     pub attachment_list: Vec<MessageAttachment>,
     pub regenerate: Vec<MessageDetail>,
 }
@@ -219,12 +221,12 @@ impl MessageRepository {
         &self,
         conversation_id: i64,
     ) -> Result<Vec<(Message, Option<MessageAttachment>)>> {
-        let mut stmt = self.conn.prepare("SELECT message.id, message.parent_id, message.conversation_id, message.message_type, message.content, message.llm_model_id, message.llm_model_name, message.created_time, message.start_time, message.finish_time, message.token_count, message.generation_group_id, message.parent_group_id, ma.attachment_type, ma.attachment_url, ma.attachment_content, ma.use_vector as attachment_use_vector, ma.token_count as attachment_token_count
+        let mut stmt = self.conn.prepare("SELECT message.id, message.parent_id, message.conversation_id, message.message_type, message.content, message.llm_model_id, message.llm_model_name, message.created_time, message.start_time, message.finish_time, message.token_count, message.generation_group_id, message.parent_group_id, message.tool_calls_json, ma.attachment_type, ma.attachment_url, ma.attachment_content, ma.use_vector as attachment_use_vector, ma.token_count as attachment_token_count
                                           FROM message
                                           LEFT JOIN message_attachment ma on message.id = ma.message_id
                                           WHERE conversation_id = ?1")?;
         let rows = stmt.query_map(&[&conversation_id], |row| {
-            let attachment_type_int: Option<i64> = row.get(13).ok();
+            let attachment_type_int: Option<i64> = row.get(14).ok();
             let attachment_type = attachment_type_int
                 .map(AttachmentType::try_from)
                 .transpose()?;
@@ -242,17 +244,18 @@ impl MessageRepository {
                 token_count: row.get(10)?,
                 generation_group_id: row.get(11)?,
                 parent_group_id: row.get(12)?,
+                tool_calls_json: row.get(13)?,
             };
             let attachment = if attachment_type.is_some() {
                 Some(MessageAttachment {
                     id: 0,
                     message_id: row.get(0)?,
                     attachment_type: attachment_type.unwrap(),
-                    attachment_url: row.get(14)?,
-                    attachment_content: row.get(15)?,
+                    attachment_url: row.get(15)?,
+                    attachment_content: row.get(16)?,
                     attachment_hash: None,
-                    use_vector: row.get(16)?,
-                    token_count: row.get(17)?,
+                    use_vector: row.get(17)?,
+                    token_count: row.get(18)?,
                 })
             } else {
                 None
@@ -303,7 +306,7 @@ impl MessageRepository {
             SELECT message.id, message.parent_id, message.conversation_id, message.message_type, 
                    message.content, message.llm_model_id, message.llm_model_name, message.created_time, 
                    message.start_time, message.finish_time, message.token_count, message.generation_group_id, 
-                   message.parent_group_id, ma.attachment_type, ma.attachment_url, ma.attachment_content, 
+                   message.parent_group_id, message.tool_calls_json, ma.attachment_type, ma.attachment_url, ma.attachment_content, 
                    ma.use_vector as attachment_use_vector, ma.token_count as attachment_token_count
             FROM message
             LEFT JOIN message_attachment ma on message.id = ma.message_id
@@ -316,7 +319,7 @@ impl MessageRepository {
         ")?;
         
         let rows = stmt.query_map(&[&conversation_id], |row| {
-            let attachment_type_int: Option<i64> = row.get(13).ok();
+            let attachment_type_int: Option<i64> = row.get(14).ok();
             let attachment_type = attachment_type_int
                 .map(AttachmentType::try_from)
                 .transpose()?;
@@ -334,17 +337,18 @@ impl MessageRepository {
                 token_count: row.get(10)?,
                 generation_group_id: row.get(11)?,
                 parent_group_id: row.get(12)?,
+                tool_calls_json: row.get(13)?,
             };
             let attachment = if attachment_type.is_some() {
                 Some(MessageAttachment {
                     id: 0,
                     message_id: row.get(0)?,
                     attachment_type: attachment_type.unwrap(),
-                    attachment_url: row.get(14)?,
-                    attachment_content: row.get(15)?,
+                    attachment_url: row.get(15)?,
+                    attachment_content: row.get(16)?,
                     attachment_hash: None,
-                    use_vector: row.get(16)?,
-                    token_count: row.get(17)?,
+                    use_vector: row.get(17)?,
+                    token_count: row.get(18)?,
                 })
             } else {
                 None
@@ -363,7 +367,7 @@ impl MessageRepository {
             SELECT message.id, message.parent_id, message.conversation_id, message.message_type, 
                    message.content, message.llm_model_id, message.llm_model_name, message.created_time, 
                    message.start_time, message.finish_time, message.token_count, message.generation_group_id, 
-                   message.parent_group_id, ma.attachment_type, ma.attachment_url, ma.attachment_content, 
+                   message.parent_group_id, message.tool_calls_json, ma.attachment_type, ma.attachment_url, ma.attachment_content, 
                    ma.use_vector as attachment_use_vector, ma.token_count as attachment_token_count
             FROM message
             LEFT JOIN message_attachment ma on message.id = ma.message_id
@@ -372,7 +376,7 @@ impl MessageRepository {
         ")?;
         
         let rows = stmt.query_map(&[&generation_group_id], |row| {
-            let attachment_type_int: Option<i64> = row.get(13).ok();
+            let attachment_type_int: Option<i64> = row.get(14).ok();
             let attachment_type = attachment_type_int
                 .map(AttachmentType::try_from)
                 .transpose()?;
@@ -390,17 +394,18 @@ impl MessageRepository {
                 token_count: row.get(10)?,
                 generation_group_id: row.get(11)?,
                 parent_group_id: row.get(12)?,
+                tool_calls_json: row.get(13)?,
             };
             let attachment = if attachment_type.is_some() {
                 Some(MessageAttachment {
                     id: 0,
                     message_id: row.get(0)?,
                     attachment_type: attachment_type.unwrap(),
-                    attachment_url: row.get(14)?,
-                    attachment_content: row.get(15)?,
+                    attachment_url: row.get(15)?,
+                    attachment_content: row.get(16)?,
                     attachment_hash: None,
-                    use_vector: row.get(16)?,
-                    token_count: row.get(17)?,
+                    use_vector: row.get(17)?,
+                    token_count: row.get(18)?,
                 })
             } else {
                 None
@@ -414,7 +419,7 @@ impl MessageRepository {
 impl Repository<Message> for MessageRepository {
     fn create(&self, message: &Message) -> Result<Message> {
         self.conn.execute(
-            "INSERT INTO message (parent_id, conversation_id, message_type, content, llm_model_id, llm_model_name, created_time, start_time, finish_time, token_count, generation_group_id, parent_group_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            "INSERT INTO message (parent_id, conversation_id, message_type, content, llm_model_id, llm_model_name, created_time, start_time, finish_time, token_count, generation_group_id, parent_group_id, tool_calls_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             (
                 &message.parent_id,
                 &message.conversation_id,
@@ -428,6 +433,7 @@ impl Repository<Message> for MessageRepository {
                 &message.token_count,
                 &message.generation_group_id,
                 &message.parent_group_id,
+                &message.tool_calls_json,
             ),
         )?;
         let id = self.conn.last_insert_rowid();
@@ -445,12 +451,13 @@ impl Repository<Message> for MessageRepository {
             token_count: message.token_count,
             generation_group_id: message.generation_group_id.clone(),
             parent_group_id: message.parent_group_id.clone(),
+            tool_calls_json: message.tool_calls_json.clone(),
         })
     }
 
     fn read(&self, id: i64) -> Result<Option<Message>> {
         self.conn
-            .query_row("SELECT id, parent_id, conversation_id, message_type, content, llm_model_id, llm_model_name, created_time, start_time, finish_time, token_count, generation_group_id, parent_group_id FROM message WHERE id = ?", &[&id], |row| {
+            .query_row("SELECT id, parent_id, conversation_id, message_type, content, llm_model_id, llm_model_name, created_time, start_time, finish_time, token_count, generation_group_id, parent_group_id, tool_calls_json FROM message WHERE id = ?", &[&id], |row| {
                 Ok(Message {
                     id: row.get(0)?,
                     parent_id: row.get(1)?,
@@ -465,6 +472,7 @@ impl Repository<Message> for MessageRepository {
                     token_count: row.get(10)?,
                     generation_group_id: row.get(11)?,
                     parent_group_id: row.get(12)?,
+                    tool_calls_json: row.get(13)?,
                 })
             })
             .optional()
@@ -472,7 +480,7 @@ impl Repository<Message> for MessageRepository {
 
     fn update(&self, message: &Message) -> Result<()> {
         self.conn.execute(
-            "UPDATE message SET conversation_id = ?1, message_type = ?2, content = ?3, llm_model_id = ?4, llm_model_name = ?5, token_count = ?6 WHERE id = ?7",
+            "UPDATE message SET conversation_id = ?1, message_type = ?2, content = ?3, llm_model_id = ?4, llm_model_name = ?5, token_count = ?6, tool_calls_json = ?7 WHERE id = ?8",
             (
                 &message.conversation_id,
                 &message.message_type,
@@ -480,6 +488,7 @@ impl Repository<Message> for MessageRepository {
                 &message.llm_model_id,
                 &message.llm_model_name,
                 &message.token_count,
+                &message.tool_calls_json,
                 &message.id,
             ),
         )?;
@@ -666,12 +675,13 @@ impl ConversationDatabase {
                 finish_time     DATETIME,
                 llm_model_name  TEXT,
                 generation_group_id TEXT,
-                parent_group_id TEXT
+                parent_group_id TEXT,
+                tool_calls_json TEXT
             )",
             [],
         )?;
         
-        // 添加迁移逻辑：如果parent_group_id列不存在，则添加它
+        // 添加迁移逻辑：如果parent_group_id或tool_calls_json列不存在，则添加它们
         let mut stmt = conn.prepare("PRAGMA table_info(message)")?;
         let column_info: Vec<String> = stmt.query_map([], |row| {
             let column_name: String = row.get(1)?;
@@ -680,6 +690,9 @@ impl ConversationDatabase {
         
         if !column_info.contains(&"parent_group_id".to_string()) {
             conn.execute("ALTER TABLE message ADD COLUMN parent_group_id TEXT", [])?;
+        }
+        if !column_info.contains(&"tool_calls_json".to_string()) {
+            conn.execute("ALTER TABLE message ADD COLUMN tool_calls_json TEXT", [])?;
         }
         
         conn.execute(

@@ -3,49 +3,15 @@ use crate::api::ai_api::tool_result_continue_ask_ai;
 use crate::db::conversation_db::{ConversationDatabase, Repository};
 use crate::db::mcp_db::{MCPDatabase, MCPServer, MCPToolCall};
 use anyhow::Result;
-use lazy_static::lazy_static;
-use std::collections::HashMap;
 use tauri::Emitter;
-use tokio::sync::Mutex;
-
-lazy_static! {
-    // 映射：DB工具调用ID -> LLM返回的原生tool_call_id
-    static ref LLM_CALL_ID_MAP: Mutex<HashMap<i64, String>> = Mutex::new(HashMap::new());
-    // 反向映射：LLM原生tool_call_id -> DB工具调用ID
-    static ref DB_CALL_ID_BY_LLM: Mutex<HashMap<String, i64>> = Mutex::new(HashMap::new());
-}
-
-// 供内部使用：记录/读取 LLM 原生 call_id，用于 native tooluse 的 ToolResponse 匹配
-pub async fn set_llm_call_id_for_db_call(db_call_id: i64, llm_call_id: String) {
-    {
-        let mut map = LLM_CALL_ID_MAP.lock().await;
-        map.insert(db_call_id, llm_call_id.clone());
-    }
-    {
-        let mut rev = DB_CALL_ID_BY_LLM.lock().await;
-        rev.insert(llm_call_id, db_call_id);
-    }
-}
-
-pub async fn get_llm_call_id_for_db_call(db_call_id: i64) -> Option<String> {
-    let map = LLM_CALL_ID_MAP.lock().await;
-    map.get(&db_call_id).cloned()
-}
-
-pub async fn get_db_call_id_by_llm_call_id(llm_call_id: &str) -> Option<i64> {
-    let rev = DB_CALL_ID_BY_LLM.lock().await;
-    rev.get(llm_call_id).cloned()
-}
 
 pub async fn get_mcp_tool_call_by_llm_call_id(
     app_handle: &tauri::AppHandle,
     llm_call_id: &str,
 ) -> Option<MCPToolCall> {
-    if let Some(db_id) = get_db_call_id_by_llm_call_id(llm_call_id).await {
-        if let Ok(db) = MCPDatabase::new(app_handle) {
-            if let Ok(record) = db.get_mcp_tool_call(db_id) {
-                return Some(record);
-            }
+    if let Ok(db) = MCPDatabase::new(app_handle) {
+        if let Ok(Some(record)) = db.get_mcp_tool_call_by_llm_id(llm_call_id) {
+            return Some(record);
         }
     }
     None
@@ -131,6 +97,43 @@ pub async fn create_mcp_tool_call(
             &server_name,
             &tool_name,
             &parameters,
+        )
+        .map_err(|e| e.to_string())?;
+
+    Ok(tool_call)
+}
+
+// 新的带 LLM ID 的创建方法
+pub async fn create_mcp_tool_call_with_llm_id(
+    app_handle: tauri::AppHandle,
+    conversation_id: i64,
+    message_id: Option<i64>,
+    server_name: String,
+    tool_name: String,
+    parameters: String,
+    llm_call_id: Option<&str>,
+    assistant_message_id: Option<i64>,
+) -> Result<MCPToolCall, String> {
+    let db = MCPDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+
+    // Find the server by name
+    let servers = db.get_mcp_servers().map_err(|e| e.to_string())?;
+    let server = servers
+        .iter()
+        .find(|s| s.name == server_name && s.is_enabled)
+        .ok_or_else(|| format!("Server '{}' not found or disabled", server_name))?;
+
+    // Create the tool call record with LLM ID
+    let tool_call = db
+        .create_mcp_tool_call_with_llm_id(
+            conversation_id,
+            message_id,
+            server.id,
+            &server_name,
+            &tool_name,
+            &parameters,
+            llm_call_id,
+            assistant_message_id,
         )
         .map_err(|e| e.to_string())?;
 
@@ -387,9 +390,9 @@ async fn trigger_conversation_continuation(
         .ok_or("No assistant associated with conversation")?;
 
     // Use the new tool_result_continue_ask_ai function instead of creating user message
-    // 优先使用模型原生的 tool_call_id（若存在），否则退回到兼容格式
-    let tool_call_id = get_llm_call_id_for_db_call(tool_call.id)
-        .await
+    // 使用数据库中保存的 llm_call_id（若存在），否则退回到兼容格式
+    let tool_call_id = tool_call.llm_call_id
+        .clone()
         .unwrap_or_else(|| format!("mcp_tool_call_{}", tool_call.id));
 
     // Call tool_result_continue_ask_ai to continue the conversation with tool result
@@ -448,7 +451,7 @@ async fn execute_stdio_tool(
     let client_result = tokio::time::timeout(
         std::time::Duration::from_millis(server.timeout.unwrap_or(30000) as u64),
         async {
-            let client = (())
+            let client = (()) // This is a placeholder for the actual client initialization
                 .serve(
                     TokioChildProcess::new(Command::new(parts[0]).configure(|cmd| {
                         if parts.len() > 1 {

@@ -406,6 +406,43 @@ async fn attempt_stream_chat(
 ) -> Result<(), anyhow::Error> {
     // 尝试建立流式连接
     println!("[[establishing_stream_connection_model]]: {}", model_name);
+    
+    println!("[[DEBUG - STREAM chat_request messages]]:");
+    for (i, msg) in chat_request.messages.iter().enumerate() {
+        println!("  Message [{}]: role={:?}", i, msg.role);
+        match &msg.role {
+            genai::chat::ChatRole::Assistant => {
+                match &msg.content {
+                    genai::chat::MessageContent::Text(text) => {
+                        println!("    Content: {}", text.chars().take(100).collect::<String>());
+                    },
+                    genai::chat::MessageContent::ToolCalls(tool_calls) => {
+                        println!("    Tool calls count: {}", tool_calls.len());
+                        for tc in tool_calls {
+                            println!("      - call_id: {}, fn_name: {}", tc.call_id, tc.fn_name);
+                        }
+                    },
+                    _ => println!("    Content: <other>"),
+                }
+            },
+            genai::chat::ChatRole::Tool => {
+                match &msg.content {
+                    genai::chat::MessageContent::Text(text) => {
+                        println!("    Tool response content: {}", text.chars().take(100).collect::<String>());
+                    },
+                    _ => println!("    Tool response: <other>"),
+                }
+            },
+            _ => {
+                match &msg.content {
+                    genai::chat::MessageContent::Text(text) => {
+                        println!("    Content: {}", text.chars().take(100).collect::<String>());
+                    },
+                    _ => println!("    Content: <other>"),
+                }
+            }
+        }
+    }
 
     let chat_stream_response = match client
         .exec_chat_stream(model_name, chat_request.clone(), Some(&chat_options))
@@ -494,6 +531,7 @@ async fn attempt_stream_chat(
                                             token_count: 0,
                                             generation_group_id: Some(generation_group_id.clone()),
                                             parent_group_id: parent_group_id_override.clone(),
+                                            tool_calls_json: None,
                                         })
                                         .unwrap();
                                     response_message_id = Some(new_message.id);
@@ -588,6 +626,7 @@ async fn attempt_stream_chat(
                                             token_count: 0,
                                             generation_group_id: None,
                                             parent_group_id: None,
+                                            tool_calls_json: None,
                                         })
                                         .unwrap();
                                     reasoning_message_id = Some(new_message.id);
@@ -669,6 +708,7 @@ async fn attempt_stream_chat(
                                                 token_count: 0,
                                                 generation_group_id: Some(generation_group_id.clone()),
                                                 parent_group_id: parent_group_id_override.clone(),
+                                                tool_calls_json: None,
                                             })
                                             .unwrap();
                                         response_message_id = Some(new_message.id);
@@ -702,22 +742,19 @@ async fn attempt_stream_chat(
 
                                         // Create MCP tool call record for later manual execution or auto-run
                                         let params_str = tool_call.fn_arguments.to_string();
-                                        let created_call = crate::api::mcp_execution_api::create_mcp_tool_call(
+                                        let created_call = crate::api::mcp_execution_api::create_mcp_tool_call_with_llm_id(
                                             app_handle.clone(),
                                             conversation_id,
                                             response_message_id, // bind to this response message
                                             server_name.clone(),
                                             tool_name.clone(),
                                             params_str.clone(),
+                                            Some(&tool_call.call_id),
+                                            response_message_id, // assistant_message_id
                                         )
                                         .await;
 
                                         if let Ok(tool_call_record) = created_call {
-                                            // 记录原生 LLM tool_call_id 到 DB 调用映射，用于 ToolResponse 匹配
-                                            crate::api::mcp_execution_api::set_llm_call_id_for_db_call(
-                                                tool_call_record.id,
-                                                tool_call.call_id.clone(),
-                                            ).await;
                                             // Append UI hint comment for frontend renderer, now with DB call_id
                                             let ui_hint = format!(
                                                 "\n\n<!-- MCP_TOOL_CALL:{} -->\n",
@@ -739,6 +776,10 @@ async fn attempt_stream_chat(
                                                     .read(msg_id)
                                                 {
                                                     msg.content = response_content.clone();
+                                                    // 同时保存 tool_calls JSON
+                                                    if msg.tool_calls_json.is_none() {
+                                                        msg.tool_calls_json = serde_json::to_string(&captured_tool_calls).ok();
+                                                    }
                                                     let _ = conversation_db
                                                         .message_repo()
                                                         .unwrap()
@@ -975,6 +1016,7 @@ async fn create_error_message(
         token_count: 0,
         generation_group_id: Some(generation_group_id),
         parent_group_id: parent_group_id_override,
+        tool_calls_json: None,
     }) {
         let error_event = ConversationEvent {
             r#type: "message_add".to_string(),
@@ -1046,6 +1088,7 @@ pub async fn handle_non_stream_chat(
             token_count: 0,
             generation_group_id: Some(generation_group_id),
             parent_group_id: parent_group_id_override.clone(),
+            tool_calls_json: None,
         })
         .unwrap();
     let response_message_id = response_message.id;
@@ -1065,6 +1108,44 @@ pub async fn handle_non_stream_chat(
 
     // 非流式：强制捕获工具调用，便于将工具以 UI 注释形式插入
     let non_stream_options = chat_options.clone().with_capture_tool_calls(true);
+    
+    println!("[[DEBUG - NON_STREAM chat_request messages]]:");
+    for (i, msg) in chat_request.messages.iter().enumerate() {
+        println!("  Message [{}]: role={:?}", i, msg.role);
+        match &msg.role {
+            genai::chat::ChatRole::Assistant => {
+                match &msg.content {
+                    genai::chat::MessageContent::Text(text) => {
+                        println!("    Content: {}", text.chars().take(100).collect::<String>());
+                    },
+                    genai::chat::MessageContent::ToolCalls(tool_calls) => {
+                        println!("    Tool calls count: {}", tool_calls.len());
+                        for tc in tool_calls {
+                            println!("      - call_id: {}, fn_name: {}", tc.call_id, tc.fn_name);
+                        }
+                    },
+                    _ => println!("    Content: <other>"),
+                }
+            },
+            genai::chat::ChatRole::Tool => {
+                match &msg.content {
+                    genai::chat::MessageContent::Text(text) => {
+                        println!("    Tool response content: {}", text.chars().take(100).collect::<String>());
+                    },
+                    _ => println!("    Tool response: <other>"),
+                }
+            },
+            _ => {
+                match &msg.content {
+                    genai::chat::MessageContent::Text(text) => {
+                        println!("    Content: {}", text.chars().take(100).collect::<String>());
+                    },
+                    _ => println!("    Content: <other>"),
+                }
+            }
+        }
+    }
+    
     let chat_result = tokio::select! {
         result = async {
             let mut attempts = 0;
@@ -1123,6 +1204,23 @@ pub async fn handle_non_stream_chat(
                     "[[non_stream_captured_tool_calls_count]]: {}",
                     tool_calls.len()
                 );
+                
+                // 保存原始 tool_calls JSON 到 assistant 消息
+                let tool_calls_json = serde_json::to_string(&tool_calls).ok();
+                
+                // 更新消息以包含 tool_calls_json
+                if let Ok(Some(mut msg)) = conversation_db
+                    .message_repo()
+                    .unwrap()
+                    .read(response_message_id)
+                {
+                    msg.tool_calls_json = tool_calls_json;
+                    let _ = conversation_db
+                        .message_repo()
+                        .unwrap()
+                        .update(&msg);
+                }
+                
                 for tool_call in tool_calls.iter() {
                     let (server_name, tool_name) =
                         if let Some((s, t)) = tool_call.fn_name.split_once("__") {
@@ -1132,23 +1230,19 @@ pub async fn handle_non_stream_chat(
                         };
 
                     let params_str = tool_call.fn_arguments.to_string();
-                    match crate::api::mcp_execution_api::create_mcp_tool_call(
+                    match crate::api::mcp_execution_api::create_mcp_tool_call_with_llm_id(
                         app_handle.clone(),
                         conversation_id,
                         Some(response_message_id),
                         server_name.clone(),
                         tool_name.clone(),
                         params_str.clone(),
+                        Some(&tool_call.call_id),
+                        Some(response_message_id), // assistant_message_id
                     )
                     .await
                     {
                         Ok(tool_call_record) => {
-                            crate::api::mcp_execution_api::set_llm_call_id_for_db_call(
-                                tool_call_record.id,
-                                tool_call.call_id.clone(),
-                            )
-                            .await;
-
                             let ui_hint = format!(
                                 "\n\n<!-- MCP_TOOL_CALL:{} -->\n",
                                 serde_json::json!({
@@ -1319,6 +1413,7 @@ pub async fn handle_non_stream_chat(
                     token_count: 0,
                     generation_group_id: Some(generation_group_id.clone()),
                     parent_group_id: parent_group_id_override.clone(),
+                    tool_calls_json: None,
                 })
                 .unwrap();
 

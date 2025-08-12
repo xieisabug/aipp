@@ -15,12 +15,13 @@ pub fn build_chat_messages(
     build_chat_messages_with_context(init_message_list, None)
 }
 
-pub fn build_chat_messages_with_context(
-    init_message_list: &[(String, String, Vec<MessageAttachment>)],
+// Enhanced version that accepts optional tool_calls_json for each message
+pub fn build_chat_messages_with_enhanced_context(
+    init_message_list: &[(String, String, Vec<MessageAttachment>, Option<String>)], // Added tool_calls_json
     current_tool_call_id: Option<String>,
 ) -> Vec<ChatMessage> {
     let mut chat_messages = Vec::new();
-    for (message_type, content, attachment_list) in init_message_list.iter() {
+    for (message_type, content, attachment_list, tool_calls_json) in init_message_list.iter() {
         match message_type.as_str() {
             "system" => chat_messages.push(ChatMessage::system(content)),
             "user" => {
@@ -106,6 +107,135 @@ pub fn build_chat_messages_with_context(
             other => {
                 // 将 response 统一视为 assistant 历史
                 if other == "response" {
+                    // 优先使用数据库中保存的 tool_calls_json，然后才尝试从内容中解析
+                    if let Some(json_str) = tool_calls_json {
+                        if let Some(assistant_with_calls) = reconstruct_assistant_with_tool_calls_from_json(json_str) {
+                            chat_messages.push(assistant_with_calls);
+                        } else {
+                            // 如果解析JSON失败，回退到内容解析
+                            if let Some(assistant_with_calls) = reconstruct_assistant_with_tool_calls_from_content(content) {
+                                chat_messages.push(assistant_with_calls);
+                            } else {
+                                chat_messages.push(ChatMessage::assistant(content));
+                            }
+                        }
+                    } else if let Some(assistant_with_calls) = reconstruct_assistant_with_tool_calls_from_content(content) {
+                        chat_messages.push(assistant_with_calls);
+                    } else {
+                        chat_messages.push(ChatMessage::assistant(content));
+                    }
+                } else if other == "system" {
+                    chat_messages.push(ChatMessage::system(content));
+                } else {
+                    chat_messages.push(ChatMessage::assistant(content));
+                }
+            }
+        }
+    }
+    chat_messages
+}
+
+pub fn build_chat_messages_with_context(
+    init_message_list: &[(String, String, Vec<MessageAttachment>)],
+    current_tool_call_id: Option<String>,
+) -> Vec<ChatMessage> {
+    println!("[[DEBUG - build_chat_messages_with_context]] current_tool_call_id: {:?}", current_tool_call_id);
+    
+    let mut chat_messages = Vec::new();
+    for (message_type, content, attachment_list) in init_message_list.iter() {
+        println!("[[DEBUG]] Processing message type: {}, content preview: {}", message_type, content.chars().take(50).collect::<String>());
+        
+        match message_type.as_str() {
+            "system" => chat_messages.push(ChatMessage::system(content)),
+            "user" => {
+                if attachment_list.is_empty() {
+                    chat_messages.push(ChatMessage::user(content));
+                } else {
+                    let mut parts = Vec::new();
+                    parts.push(genai::chat::ContentPart::from_text(content));
+                    for attachment in attachment_list {
+                        if let Some(attachment_url) = &attachment.attachment_url {
+                            match attachment.attachment_type {
+                                AttachmentType::Image => {
+                                    let mime = infer_media_type_from_url(attachment_url);
+                                    parts.push(genai::chat::ContentPart::from_binary_url(
+                                        None,
+                                        mime,
+                                        attachment_url.clone(),
+                                    ));
+                                }
+                                AttachmentType::Text => {
+                                    // 文本作为上下文已经合并进 prompt
+                                }
+                                AttachmentType::PDF
+                                | AttachmentType::Word
+                                | AttachmentType::PowerPoint
+                                | AttachmentType::Excel => {
+                                    // 文档类型在下方用内容处理
+                                }
+                            }
+                        }
+                        if let Some(attachment_content) = &attachment.attachment_content {
+                            if attachment.attachment_type == AttachmentType::Image
+                                && attachment_content.starts_with("data:")
+                            {
+                                if let Some((mime, b64)) = parse_data_url(attachment_content) {
+                                    parts.push(genai::chat::ContentPart::from_binary_base64(
+                                        None,
+                                        mime, 
+                                        b64,
+                                    ));
+                                }
+                            } else if matches!(
+                                attachment.attachment_type,
+                                AttachmentType::Text
+                                    | AttachmentType::PDF
+                                    | AttachmentType::Word
+                                    | AttachmentType::PowerPoint
+                                    | AttachmentType::Excel
+                            ) {
+                                let file_name =
+                                    attachment.attachment_url.as_deref().unwrap_or("未知文档");
+                                let file_type = match attachment.attachment_type {
+                                    AttachmentType::PDF => "PDF文档",
+                                    AttachmentType::Word => "Word文档",
+                                    AttachmentType::PowerPoint => "PowerPoint文档",
+                                    AttachmentType::Excel => "Excel文档",
+                                    _ => "文档",
+                                };
+                                parts.push(genai::chat::ContentPart::from_text(format!(
+                                    "\n\n[{}: {}]\n{}",
+                                    file_type, file_name, attachment_content
+                                )));
+                            }
+                        }
+                    }
+                    chat_messages.push(ChatMessage::user(parts));
+                }
+            }
+            "tool_result" => {
+                println!("[[DEBUG]] Processing tool_result message");
+                // Priority: 1. current_tool_call_id, 2. extracted from content, 3. random
+                let tool_call_id = current_tool_call_id.clone()
+                    .or_else(|| extract_tool_call_id(content))
+                    .unwrap_or_else(|| format!("tool_call_{}", Uuid::new_v4().to_string()[..8].to_string()));
+                
+                println!("[[DEBUG]] Using tool_call_id: {}", tool_call_id);
+                
+                // Try to extract clean result, fallback to full content
+                let tool_result = extract_tool_result(content)
+                    .unwrap_or_else(|| content.to_string());
+                
+                println!("[[DEBUG]] Tool result preview: {}", tool_result.chars().take(100).collect::<String>());
+                
+                // Create ToolResponse from genai crate
+                let tool_response = ToolResponse::new(tool_call_id.clone(), tool_result);
+                println!("[[DEBUG]] Created ToolResponse with call_id: {}", tool_call_id);
+                chat_messages.push(ChatMessage::from(tool_response));
+            }
+            other => {
+                // 将 response 统一视为 assistant 历史
+                if other == "response" {
                     // 检查是否包含 MCP_TOOL_CALL 注释，如果有则需要重建包含工具调用的 assistant 消息
                     if let Some(assistant_with_calls) = reconstruct_assistant_with_tool_calls_from_content(content) {
                         chat_messages.push(assistant_with_calls);
@@ -124,7 +254,7 @@ pub fn build_chat_messages_with_context(
 }
 
 // Helper function to extract tool call ID from tool result content
-fn extract_tool_call_id(content: &str) -> Option<String> {
+pub fn extract_tool_call_id(content: &str) -> Option<String> {
     // Expected format: "Tool execution completed:\n\nTool Call ID: {id}\nResult:\n{result}"
     if let Some(start) = content.find("Tool Call ID: ") {
         let start_pos = start + "Tool Call ID: ".len();
@@ -139,7 +269,7 @@ fn extract_tool_call_id(content: &str) -> Option<String> {
 }
 
 // Helper function to extract tool result from tool result content
-fn extract_tool_result(content: &str) -> Option<String> {
+pub fn extract_tool_result(content: &str) -> Option<String> {
     // Expected format: "Tool execution completed:\n\nTool Call ID: {id}\nResult:\n{result}"
     if let Some(start) = content.find("Result:\n") {
         let start_pos = start + "Result:\n".len();
@@ -149,7 +279,7 @@ fn extract_tool_result(content: &str) -> Option<String> {
 }
 
 // Helper function to reconstruct assistant message with tool calls from MCP_TOOL_CALL comments
-fn reconstruct_assistant_with_tool_calls_from_content(content: &str) -> Option<ChatMessage> {
+pub fn reconstruct_assistant_with_tool_calls_from_content(content: &str) -> Option<ChatMessage> {
     // 查找所有 MCP_TOOL_CALL 注释
     if let Ok(mcp_call_regex) = regex::Regex::new(r"<!-- MCP_TOOL_CALL:(.*?) -->") {
         let mut tool_calls = Vec::new();
@@ -162,7 +292,8 @@ fn reconstruct_assistant_with_tool_calls_from_content(content: &str) -> Option<C
                     tool_data["tool_name"].as_str(), 
                     tool_data["parameters"].as_str()
                 ) {
-                    let fn_name = format!("{}_{}", server_name, tool_name);
+                    // 使用正确的格式：server__tool (双下划线)
+                    let fn_name = format!("{}__{}", server_name, tool_name);
                     let fn_arguments = serde_json::from_str(parameters).unwrap_or(serde_json::json!({}));
                     
                     // 优先使用 llm_call_id，如果没有则使用 call_id 转换为字符串
@@ -182,25 +313,21 @@ fn reconstruct_assistant_with_tool_calls_from_content(content: &str) -> Option<C
         }
         
         if !tool_calls.is_empty() {
-            // 移除 MCP_TOOL_CALL 注释，保留纯文本内容
-            let clean_content = mcp_call_regex.replace_all(content, "").trim().to_string();
-            
-            // 创建包含工具调用的 assistant 消息
-            // 先创建一个包含工具调用的消息
-            let tool_call_msg = ChatMessage::from(tool_calls);
-            
-            // 如果有文本内容，需要组合两个部分
-            if !clean_content.is_empty() {
-                // 创建一个助手文本消息，然后添加工具调用
-                // 这里我们需要创建一个正确的assistant消息结构
-                // 暂时返回包含工具调用的消息，忽略文本内容的组合问题
-                return Some(tool_call_msg);
-            } else {
-                return Some(tool_call_msg);
-            }
+            // 创建包含工具调用的 assistant 消息（忽略文本内容以避免混合消息类型的复杂性）
+            return Some(ChatMessage::from(tool_calls));
         }
     }
     
+    None
+}
+
+// Helper function to reconstruct assistant message directly from saved tool_calls_json
+pub fn reconstruct_assistant_with_tool_calls_from_json(tool_calls_json: &str) -> Option<ChatMessage> {
+    if let Ok(saved_tool_calls) = serde_json::from_str::<Vec<ToolCall>>(tool_calls_json) {
+        if !saved_tool_calls.is_empty() {
+            return Some(ChatMessage::from(saved_tool_calls));
+        }
+    }
     None
 }
 
@@ -412,6 +539,7 @@ pub fn init_conversation(
                 token_count: 0,
                 generation_group_id: None,
                 parent_group_id: None,
+                tool_calls_json: None,
             })
             .map_err(AppError::from)?;
         for attachment in attachment_list {
