@@ -1159,6 +1159,35 @@ pub async fn handle_non_stream_chat(
                             );
                             content.push_str(&ui_hint);
 
+                            // 立即更新消息内容并发送事件，让用户看到工具调用界面
+                            if let Ok(Some(mut msg)) = conversation_db
+                                .message_repo()
+                                .unwrap()
+                                .read(response_message_id)
+                            {
+                                msg.content = content.clone();
+                                let _ = conversation_db
+                                    .message_repo()
+                                    .unwrap()
+                                    .update(&msg);
+
+                                // 发送工具调用界面更新事件
+                                let update_event = ConversationEvent {
+                                    r#type: "message_update".to_string(),
+                                    data: serde_json::to_value(MessageUpdateEvent {
+                                        message_id: response_message_id,
+                                        message_type: "response".to_string(),
+                                        content: content.clone(),
+                                        is_done: false, // 还未完成，因为可能有自动执行
+                                    })
+                                    .unwrap(),
+                                };
+                                let _ = window.emit(
+                                    format!("conversation_event_{}", conversation_id).as_str(),
+                                    update_event,
+                                );
+                            }
+
                             // 自动执行（若配置）
                             if let Ok(conv) = conversation_db
                                 .conversation_repo()
@@ -1200,6 +1229,7 @@ pub async fn handle_non_stream_chat(
                     }
                 }
             }
+            
             let mut message = conversation_db
                 .message_repo()
                 .unwrap()

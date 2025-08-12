@@ -1,8 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect } from "react";
-import { Play, Maximize2, Loader2, CheckCircle, XCircle, Blocks, ChevronDown, ChevronUp, RotateCcw } from "lucide-react";
+import { Play, Loader2, CheckCircle, XCircle, Blocks, ChevronDown, ChevronUp, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { invoke } from '@tauri-apps/api/core';
 import { MCPToolCall } from '@/data/MCPToolCall';
@@ -101,7 +100,6 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
     }, [mcpToolCallStates, toolCallId]);
 
     // 检查执行状态
-    const isSuccess = executionState === "success";
     const isFailed = executionState === "failed";
     const isExecuting = executionState === "executing";
     const canExecute = executionState === "idle" || executionState === "failed"; // 失败状态也可以重新执行
