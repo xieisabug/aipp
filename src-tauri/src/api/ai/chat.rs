@@ -1071,41 +1071,6 @@ pub async fn handle_non_stream_chat(
         .clone()
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
-    let response_message = conversation_db
-        .message_repo()
-        .unwrap()
-        .create(&Message {
-            id: 0,
-            parent_id: None,
-            conversation_id,
-            message_type: "response".to_string(),
-            content: String::new(),
-            llm_model_id: Some(llm_model_id),
-            llm_model_name: Some(llm_model_name.clone()),
-            created_time: chrono::Utc::now(),
-            start_time: Some(chrono::Utc::now()),
-            finish_time: None,
-            token_count: 0,
-            generation_group_id: Some(generation_group_id),
-            parent_group_id: parent_group_id_override.clone(),
-            tool_calls_json: None,
-        })
-        .unwrap();
-    let response_message_id = response_message.id;
-
-    let add_event = ConversationEvent {
-        r#type: "message_add".to_string(),
-        data: serde_json::to_value(MessageAddEvent {
-            message_id: response_message_id,
-            message_type: "response".to_string(),
-        })
-        .unwrap(),
-    };
-    let _ = window.emit(
-        format!("conversation_event_{}", conversation_id).as_str(),
-        add_event,
-    );
-
     // 非流式：强制捕获工具调用，便于将工具以 UI 注释形式插入
     let non_stream_options = chat_options.clone().with_capture_tool_calls(true);
     
@@ -1192,6 +1157,44 @@ pub async fn handle_non_stream_chat(
         Ok(chat_response) => {
             let mut content = chat_response.first_text().unwrap_or("").to_string();
 
+            // 现在才创建响应消息（在有实际内容后）
+            let now = chrono::Utc::now();
+            let response_message = conversation_db
+                .message_repo()
+                .unwrap()
+                .create(&Message {
+                    id: 0,
+                    parent_id: None,
+                    conversation_id,
+                    message_type: "response".to_string(),
+                    content: content.clone(),
+                    llm_model_id: Some(llm_model_id),
+                    llm_model_name: Some(llm_model_name.clone()),
+                    created_time: now,
+                    start_time: Some(now),
+                    finish_time: None,
+                    token_count: 0,
+                    generation_group_id: Some(generation_group_id.clone()),
+                    parent_group_id: parent_group_id_override.clone(),
+                    tool_calls_json: None,
+                })
+                .unwrap();
+            let response_message_id = response_message.id;
+
+            // 现在才发送 message_add 事件（消息有内容时）
+            let add_event = ConversationEvent {
+                r#type: "message_add".to_string(),
+                data: serde_json::to_value(MessageAddEvent {
+                    message_id: response_message_id,
+                    message_type: "response".to_string(),
+                })
+                .unwrap(),
+            };
+            let _ = window.emit(
+                format!("conversation_event_{}", conversation_id).as_str(),
+                add_event,
+            );
+
             // 非流式：捕获原生 ToolCall 并处理（创建DB、UI注释、自动执行）
             let tool_calls: Vec<ToolCall> = chat_response
                 .tool_calls()
@@ -1219,6 +1222,28 @@ pub async fn handle_non_stream_chat(
                         .message_repo()
                         .unwrap()
                         .update(&msg);
+                }
+                
+                // 先发送 tool_call 事件给前端，让前端可以显示工具调用状态
+                for tool_call in &tool_calls {
+                    println!("[[tool_call_to_process]]: {} with args: {}", tool_call.fn_name, tool_call.fn_arguments);
+
+                    // Emit tool call event for MCP handling (与流式模式保持一致)
+                    let tool_call_event = serde_json::json!({
+                        "type": "tool_call",
+                        "data": {
+                            "conversation_id": conversation_id,
+                            "call_id": tool_call.call_id,
+                            "function_name": tool_call.fn_name,
+                            "arguments": tool_call.fn_arguments,
+                            "response_message_id": response_message_id
+                        }
+                    });
+
+                    let _ = window.emit(
+                        format!("conversation_event_{}", conversation_id).as_str(),
+                        tool_call_event
+                    );
                 }
                 
                 for tool_call in tool_calls.iter() {
