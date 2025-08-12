@@ -725,7 +725,8 @@ async fn attempt_stream_chat(
                                                     "server_name": server_name,
                                                     "tool_name": tool_name,
                                                     "parameters": params_str,
-                                                    "call_id": tool_call_record.id,
+                                                    "call_id": tool_call_record.id,           // 数据库ID
+                                                    "llm_call_id": tool_call.call_id.clone(), // LLM原生ID
                                                 })
                                             );
                                             response_content.push_str(&ui_hint);
@@ -1154,7 +1155,8 @@ pub async fn handle_non_stream_chat(
                                     "server_name": server_name,
                                     "tool_name": tool_name,
                                     "parameters": params_str,
-                                    "call_id": tool_call_record.id,
+                                    "call_id": tool_call_record.id,           // 数据库ID
+                                    "llm_call_id": tool_call.call_id.clone(), // LLM原生ID
                                 })
                             );
                             content.push_str(&ui_hint);

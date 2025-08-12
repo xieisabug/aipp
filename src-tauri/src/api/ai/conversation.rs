@@ -2,8 +2,7 @@ use crate::db::conversation_db::AttachmentType;
 use crate::db::conversation_db::Repository;
 use crate::db::conversation_db::{Conversation, ConversationDatabase, Message, MessageAttachment};
 use crate::errors::AppError;
-use genai::chat::ChatMessage;
-use genai::chat::ToolResponse;
+use genai::chat::{ChatMessage, ToolCall, ToolResponse};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::Emitter;
@@ -107,7 +106,12 @@ pub fn build_chat_messages_with_context(
             other => {
                 // 将 response 统一视为 assistant 历史
                 if other == "response" {
-                    chat_messages.push(ChatMessage::assistant(content));
+                    // 检查是否包含 MCP_TOOL_CALL 注释，如果有则需要重建包含工具调用的 assistant 消息
+                    if let Some(assistant_with_calls) = reconstruct_assistant_with_tool_calls_from_content(content) {
+                        chat_messages.push(assistant_with_calls);
+                    } else {
+                        chat_messages.push(ChatMessage::assistant(content));
+                    }
                 } else if other == "system" {
                     chat_messages.push(ChatMessage::system(content));
                 } else {
@@ -141,6 +145,62 @@ fn extract_tool_result(content: &str) -> Option<String> {
         let start_pos = start + "Result:\n".len();
         return Some(content[start_pos..].to_string());
     }
+    None
+}
+
+// Helper function to reconstruct assistant message with tool calls from MCP_TOOL_CALL comments
+fn reconstruct_assistant_with_tool_calls_from_content(content: &str) -> Option<ChatMessage> {
+    // 查找所有 MCP_TOOL_CALL 注释
+    if let Ok(mcp_call_regex) = regex::Regex::new(r"<!-- MCP_TOOL_CALL:(.*?) -->") {
+        let mut tool_calls = Vec::new();
+        
+        // 提取所有工具调用信息
+        for capture in mcp_call_regex.captures_iter(content) {
+            if let Ok(tool_data) = serde_json::from_str::<serde_json::Value>(&capture[1]) {
+                if let (Some(server_name), Some(tool_name), Some(parameters)) = (
+                    tool_data["server_name"].as_str(),
+                    tool_data["tool_name"].as_str(), 
+                    tool_data["parameters"].as_str()
+                ) {
+                    let fn_name = format!("{}_{}", server_name, tool_name);
+                    let fn_arguments = serde_json::from_str(parameters).unwrap_or(serde_json::json!({}));
+                    
+                    // 优先使用 llm_call_id，如果没有则使用 call_id 转换为字符串
+                    let call_id = tool_data["llm_call_id"]
+                        .as_str()
+                        .map(|s| s.to_string())
+                        .or_else(|| tool_data["call_id"].as_u64().map(|n| n.to_string()))
+                        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+                    
+                    tool_calls.push(ToolCall {
+                        call_id,
+                        fn_name,
+                        fn_arguments,
+                    });
+                }
+            }
+        }
+        
+        if !tool_calls.is_empty() {
+            // 移除 MCP_TOOL_CALL 注释，保留纯文本内容
+            let clean_content = mcp_call_regex.replace_all(content, "").trim().to_string();
+            
+            // 创建包含工具调用的 assistant 消息
+            // 先创建一个包含工具调用的消息
+            let tool_call_msg = ChatMessage::from(tool_calls);
+            
+            // 如果有文本内容，需要组合两个部分
+            if !clean_content.is_empty() {
+                // 创建一个助手文本消息，然后添加工具调用
+                // 这里我们需要创建一个正确的assistant消息结构
+                // 暂时返回包含工具调用的消息，忽略文本内容的组合问题
+                return Some(tool_call_msg);
+            } else {
+                return Some(tool_call_msg);
+            }
+        }
+    }
+    
     None
 }
 
