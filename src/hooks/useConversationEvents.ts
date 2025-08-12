@@ -45,6 +45,9 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
         new Set(),
     );
 
+    // 等待回复的用户消息 ID（只有一个）
+    const [pendingUserMessageId, setPendingUserMessageId] = useState<number | null>(null);
+
     // 事件监听取消订阅引用
     const unsubscribeRef = useRef<Promise<() => void> | null>(null);
 
@@ -56,38 +59,39 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
         callbacksRef.current = options;
     }, [options]);
 
-    // 智能边框控制辅助函数
+    // 智能边框控制辅助函数 - 优先级：MCP > Assistant > 等待回复的用户消息
     const updateShiningMessages = useCallback(() => {
-        setShiningMessageIds((currentShining) => {
+        setShiningMessageIds(() => {
             const newShining = new Set<number>();
 
-            // 1. 如果有活跃的 MCP 调用，优先级最高，只显示 MCP 边框
+            // 优先级 1: 如果有活跃的 MCP 调用，不显示任何消息边框（MCP 组件自己控制边框）
             if (activeMcpCallIds.size > 0) {
-                // MCP 工具边框由 McpToolCall 组件自己控制，这里不需要处理
                 return newShining; // 清空所有消息边框
             }
 
-            // 2. 如果没有活跃的 MCP，显示正在流式输出的 assistant 消息边框
-            streamingAssistantMessageIds.forEach((messageId) => {
-                newShining.add(messageId);
-            });
-
-            // 3. 保留用户消息的边框（用户消息边框不受 MCP 影响）
-            currentShining.forEach((messageId) => {
-                // 检查是否是用户消息边框，这里我们需要根据消息类型来判断
-                // 由于我们无法直接获取消息类型，我们保持现有逻辑，让用户消息边框继续显示
-                // 在实际使用中，用户消息边框的控制在其他地方处理
-                const streamEvent = streamingMessages.get(messageId);
-                if (!streamEvent || streamEvent.message_type !== 'response') {
+            // 优先级 2: 如果有 Assistant 消息正在输出，只显示 Assistant 边框
+            if (streamingAssistantMessageIds.size > 0) {
+                streamingAssistantMessageIds.forEach((messageId) => {
                     newShining.add(messageId);
-                }
-            });
+                });
+                console.log("✨ [DEBUG] Shining messages:", Array.from(newShining), "- Assistant streaming");
+                return newShining; // 只显示 Assistant 消息边框
+            }
 
-            return newShining;
+            // 优先级 3: 如果有等待回复的用户消息，显示用户消息边框
+            if (pendingUserMessageId !== null) {
+                newShining.add(pendingUserMessageId);
+                console.log("✨ [DEBUG] Shining messages:", Array.from(newShining), "- User pending");
+                return newShining; // 只显示用户消息边框
+            }
+
+            // 优先级 4: 没有任何活跃状态时，清空所有边框
+            console.log("🧹 [DEBUG] Shining messages: [] - No active states, clearing all borders");
+            return newShining; // 清空所有边框
         });
-    }, [activeMcpCallIds, streamingAssistantMessageIds, streamingMessages]);
+    }, [activeMcpCallIds, streamingAssistantMessageIds, pendingUserMessageId]);
 
-    // 当 MCP 状态或流式消息状态变化时，更新边框显示
+    // 当状态变化时，更新边框显示
     useEffect(() => {
         updateShiningMessages();
     }, [updateShiningMessages]);
@@ -102,11 +106,9 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
                 const messageAddData = conversationEvent.data as any;
                 console.log("Received message_add event:", messageAddData);
 
-                // 如果是用户消息，设置shine border
+                // 如果是用户消息，设置为等待回复的消息，而不是直接设置边框
                 if (messageAddData.message_type === "user") {
-                    setShiningMessageIds(
-                        new Set([messageAddData.message_id]),
-                    );
+                    setPendingUserMessageId(messageAddData.message_id);
                 }
 
                 // 调用外部的消息添加处理函数
@@ -127,12 +129,13 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
                     // 对于错误消息，立即触发错误处理和状态清理
                     console.error("Received error message:", messageUpdateData.content);
                     
+                    // 清理所有边框相关状态
+                    setPendingUserMessageId(null);
+                    setStreamingAssistantMessageIds(new Set());
+                    
                     // 调用错误处理回调
                     callbacksRef.current.onError?.(messageUpdateData.content);
                     callbacksRef.current.onAiResponseComplete?.(); // 错误也算作响应完成
-                    
-                    // 清除所有shine-border，因为出现错误
-                    setShiningMessageIds(new Set());
                     
                     // 对于错误消息，处理完成状态并延长显示时间
                     if (messageUpdateData.is_done) {
@@ -160,18 +163,21 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
                     
                     // 处理 assistant 消息的流式输出边框
                     if (messageUpdateData.message_type === "response" || messageUpdateData.message_type === "assistant") {
-                        if (!messageUpdateData.is_done && messageUpdateData.content) {
-                            // Assistant 消息开始输出，添加到流式消息集合
+                        if (messageUpdateData.is_done) {
+                            // Assistant 消息完成，从流式消息集合中移除
+                            console.log("✅ [DEBUG] Assistant message COMPLETED:", messageUpdateData.message_id);
                             setStreamingAssistantMessageIds((prev) => {
                                 const newSet = new Set(prev);
-                                newSet.add(streamEvent.message_id);
+                                newSet.delete(messageUpdateData.message_id);
                                 return newSet;
                             });
-                        } else if (messageUpdateData.is_done) {
-                            // Assistant 消息完成，从流式消息集合中移除
+                        } else if (messageUpdateData.content) {
+                            // Assistant 消息开始输出，清除等待回复的用户消息，添加到流式消息集合
+                            console.log("🚀 [DEBUG] Assistant message STARTING:", messageUpdateData.message_id);
+                            setPendingUserMessageId(null); // 清除等待回复的用户消息
                             setStreamingAssistantMessageIds((prev) => {
                                 const newSet = new Set(prev);
-                                newSet.delete(streamEvent.message_id);
+                                newSet.add(messageUpdateData.message_id);
                                 return newSet;
                             });
                         }
@@ -275,6 +281,9 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
             setStreamingMessages(new Map());
             setShiningMessageIds(new Set());
             setMCPToolCallStates(new Map());
+            setActiveMcpCallIds(new Set());
+            setStreamingAssistantMessageIds(new Set());
+            setPendingUserMessageId(null);
             return;
         }
 
@@ -310,6 +319,7 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
     const clearShiningMessages = useCallback(() => {
         setShiningMessageIds(new Set());
         setStreamingAssistantMessageIds(new Set());
+        setPendingUserMessageId(null);
     }, []);
 
     const handleError = useCallback((errorMessage: string) => {
@@ -321,6 +331,7 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
         setMCPToolCallStates(new Map());
         setActiveMcpCallIds(new Set());
         setStreamingAssistantMessageIds(new Set());
+        setPendingUserMessageId(null); // 清理等待回复的用户消息
         
         // 调用外部错误处理，确保状态重置
         callbacksRef.current.onError?.(errorMessage);
