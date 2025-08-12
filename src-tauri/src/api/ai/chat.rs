@@ -1195,6 +1195,23 @@ pub async fn handle_non_stream_chat(
                 add_event,
             );
 
+            // 立即发送一个 is_done: false 的 message_update 事件，触发前端清理用户消息的 shine-border
+            // 这与流式模式的行为保持一致
+            let initial_update_event = ConversationEvent {
+                r#type: "message_update".to_string(),
+                data: serde_json::to_value(MessageUpdateEvent {
+                    message_id: response_message_id,
+                    message_type: "response".to_string(),
+                    content: content.clone(),
+                    is_done: false, // 关键：设置为 false 以触发前端的 shine-border 清理逻辑
+                })
+                .unwrap(),
+            };
+            let _ = window.emit(
+                format!("conversation_event_{}", conversation_id).as_str(),
+                initial_update_event,
+            );
+
             // 非流式：捕获原生 ToolCall 并处理（创建DB、UI注释、自动执行）
             let tool_calls: Vec<ToolCall> = chat_response
                 .tool_calls()
