@@ -35,7 +35,8 @@ pub fn build_chat_messages_with_context(
                             match attachment.attachment_type {
                                 AttachmentType::Image => {
                                     let mime = infer_media_type_from_url(attachment_url);
-                                    parts.push(genai::chat::ContentPart::from_image_url(
+                                    parts.push(genai::chat::ContentPart::from_binary_url(
+                                        None,
                                         mime,
                                         attachment_url.clone(),
                                     ));
@@ -56,8 +57,10 @@ pub fn build_chat_messages_with_context(
                                 && attachment_content.starts_with("data:")
                             {
                                 if let Some((mime, b64)) = parse_data_url(attachment_content) {
-                                    parts.push(genai::chat::ContentPart::from_image_base64(
-                                        mime, b64,
+                                    parts.push(genai::chat::ContentPart::from_binary_base64(
+                                        None,
+                                        mime, 
+                                        b64,
                                     ));
                                 }
                             } else if matches!(

@@ -924,8 +924,6 @@ async fn attempt_stream_chat(
 
                                 return Ok(());
                             }
-                            // rust-genai 版本无 Error 变体，错误通过 Some(Err(_)) 分支处理
-                            _ => {}
                         }
                     }
                     Some(Err(e)) => {

@@ -44,7 +44,7 @@ tauri-plugin-clipboard-manager = { git = "https://github.com/tauri-apps/plugins-
 tauri-plugin-shell = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v2" }
 tauri-plugin-fs = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v2" }
 tauri-plugin-opener = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v2" }
-genai = { git = "https://github.com/xieisabug/rust-genai.git", rev="02d13b2af9e73919c420cfae166ce600c9c79f72" }
+genai = { git = "https://github.com/xieisabug/rust-genai.git", rev="eb4d013e2ffae80c2a2aa3b0c05943a030b8e62a" }
 rmcp = { version = "0.2.1", features = [
     "client",
     "transport-io",
