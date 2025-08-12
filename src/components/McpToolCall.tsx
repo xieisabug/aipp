@@ -3,6 +3,7 @@ import { Play, Loader2, CheckCircle, XCircle, Blocks, ChevronDown, ChevronUp, Ro
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { ShineBorder } from "@/components/magicui/shine-border";
 import { invoke } from '@tauri-apps/api/core';
 import { MCPToolCall } from '@/data/MCPToolCall';
 import { MCPToolCallUpdateEvent } from '@/data/Conversation';
@@ -103,6 +104,7 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
     const isFailed = executionState === "failed";
     const isExecuting = executionState === "executing";
     const canExecute = executionState === "idle" || executionState === "failed"; // 失败状态也可以重新执行
+    const isRunning = executionState === "executing" || executionState === "pending"; // 运行状态用于显示闪亮边框
 
     // 如果提供了 callId，尝试获取已有的执行结果
     useEffect(() => {
@@ -250,7 +252,14 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
     };
 
     return (
-        <div className="w-full max-w-[600px] my-1 p-2 border border-border rounded-md bg-card overflow-hidden">
+        <div className="w-full max-w-[600px] my-1 p-2 border border-border rounded-md bg-card overflow-hidden relative">
+            {isRunning && (
+                <ShineBorder
+                    shineColor={['#A07CFE', '#FE8FB5', '#FFBE7B']}
+                    borderWidth={2}
+                    duration={8}
+                />
+            )}
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm min-w-0 flex-1">
                     <Blocks className="h-4 w-4 flex-shrink-0" />
