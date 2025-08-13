@@ -13,7 +13,7 @@ mod template_engine;
 mod utils;
 mod window;
 
-use crate::api::ai_api::{ask_ai, cancel_ai, regenerate_ai, regenerate_conversation_title};
+use crate::api::ai_api::{ask_ai, cancel_ai, regenerate_ai, regenerate_conversation_title, tool_result_continue_ask_ai};
 use crate::api::artifacts_api::{
     check_bun_version, check_uv_version, confirm_environment_install, install_bun, install_uv,
     open_react_component_preview, preview_react_component, retry_preview_after_install,
@@ -21,7 +21,8 @@ use crate::api::artifacts_api::{
 };
 use crate::api::assistant_api::{
     add_assistant, copy_assistant, delete_assistant, get_assistant, get_assistant_field_value,
-    get_assistants, save_assistant,
+    get_assistants, save_assistant, get_assistant_mcp_servers_with_tools, update_assistant_mcp_config, 
+    update_assistant_mcp_tool_config, bulk_update_assistant_mcp_tools, update_assistant_model_config_value,
 };
 use crate::api::attachment_api::{add_attachment, open_attachment_with_default_app};
 use crate::api::conversation_api::{
@@ -32,6 +33,14 @@ use crate::api::llm_api::{
     add_llm_model, add_llm_provider, delete_llm_model, delete_llm_provider, fetch_model_list,
     get_llm_models, get_llm_provider_config, get_llm_providers, get_models_for_select,
     preview_model_list, update_llm_provider, update_llm_provider_config, update_selected_models,
+};
+use crate::api::mcp_api::{
+    add_mcp_server, delete_mcp_server, get_mcp_server, get_mcp_server_resources,
+    get_mcp_server_tools, get_mcp_server_prompts, get_mcp_servers, refresh_mcp_server_capabilities, 
+    test_mcp_connection, toggle_mcp_server, update_mcp_server, update_mcp_server_tool, update_mcp_server_prompt,
+};
+use crate::api::mcp_execution_api::{
+    create_mcp_tool_call, execute_mcp_tool_call, get_mcp_tool_call, get_mcp_tool_calls_by_conversation,
 };
 use crate::api::system_api::{
     get_all_feature_config, get_bang_list, get_selected_text_api, open_data_folder,
@@ -45,6 +54,7 @@ use crate::artifacts::vue_preview::{
 };
 use crate::db::assistant_db::AssistantDatabase;
 use crate::db::llm_db::LLMDatabase;
+use crate::db::mcp_db::MCPDatabase;
 use crate::db::system_db::SystemDatabase;
 use crate::window::{
     awaken_aipp, create_ask_window, handle_open_ask_window, open_artifact_preview_window,
@@ -239,11 +249,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let assistant_db = AssistantDatabase::new(&app_handle)?;
             let conversation_db = ConversationDatabase::new(&app_handle)?;
             let plugin_db = PluginDatabase::new(&app_handle)?;
+            let mcp_db = MCPDatabase::new(&app_handle)?;
             system_db.create_tables()?;
             llm_db.create_tables()?;
             assistant_db.create_tables()?;
             conversation_db.create_tables()?;
             plugin_db.create_tables()?;
+            mcp_db.create_tables()?;
 
             let _ = database_upgrade(
                 &app_handle,
@@ -268,6 +280,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .manage(MessageTokenManager::new())
         .invoke_handler(tauri::generate_handler![
             ask_ai,
+            tool_result_continue_ask_ai,
             regenerate_ai,
             regenerate_conversation_title,
             cancel_ai,
@@ -325,18 +338,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             create_vue_preview_for_artifact,
             close_vue_preview,
             confirm_environment_install,
-            retry_preview_after_install
+            retry_preview_after_install,
+            get_mcp_servers,
+            get_mcp_server,
+            add_mcp_server,
+            update_mcp_server,
+            delete_mcp_server,
+            toggle_mcp_server,
+            get_mcp_server_tools,
+            update_mcp_server_tool,
+            get_mcp_server_resources,
+            get_mcp_server_prompts,
+            update_mcp_server_prompt,
+            test_mcp_connection,
+            refresh_mcp_server_capabilities,
+            get_assistant_mcp_servers_with_tools,
+            update_assistant_mcp_config,
+            update_assistant_mcp_tool_config,
+            bulk_update_assistant_mcp_tools,
+            update_assistant_model_config_value,
+            create_mcp_tool_call,
+            execute_mcp_tool_call,
+            get_mcp_tool_call,
+            get_mcp_tool_calls_by_conversation
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application");
 
-    app.run(|app_handle, e| match e {
+    app.run(|_app_handle, e| match e {
         RunEvent::ExitRequested { api, .. } => {
             api.prevent_exit();
         }
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => {
-            awaken_aipp(app_handle);
+            awaken_aipp(_app_handle);
         }
         _ => {}
     });

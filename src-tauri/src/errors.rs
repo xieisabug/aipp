@@ -40,6 +40,9 @@ pub enum AppError {
 
     #[error("消息数量不足以生成标题")]
     InsufficientMessages,
+
+    #[error("内部错误: {0}")]
+    InternalError(String),
 }
 
 impl From<rusqlite::Error> for AppError {

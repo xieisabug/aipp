@@ -15,6 +15,7 @@ import {
     StreamEvent,
     ConversationWithMessages,
     GroupMergeEvent,
+    MCPToolCallUpdateEvent,
 } from "../data/Conversation";
 import "katex/dist/katex.min.css";
 import { listen } from "@tauri-apps/api/event";
@@ -202,13 +203,19 @@ function ConversationUI({
 
     const handleError = useCallback((errorMessage: string) => {
         console.error("Stream error from conversation events:", errorMessage);
-        // 错误处理在useConversationEvents中的错误处理逻辑和直接的error notification listener中都会处理
-        // 这里主要是为了确保响应状态被正确重置
+        // 确保AI响应状态被重置
         setAiIsResponsing(false);
+        // 不再显示toast，错误信息将在对话框中显示
     }, []);
 
     // handleMessageUpdate 将在后面定义，这里先声明一个空的引用
     let handleMessageUpdateRef: ((streamEvent: StreamEvent) => void) | undefined;
+
+    // 添加MCP工具调用状态更新的处理函数
+    const handleMCPToolCallUpdate = useCallback((mcpUpdateData: MCPToolCallUpdateEvent) => {
+        console.log("ConversationUI received MCP update:", mcpUpdateData);
+        // MCP状态更新已经在useConversationEvents中处理，这里可以添加额外的逻辑
+    }, []);
 
     // 使用 useMemo 稳定 options 对象，避免频繁触发 useConversationEvents 内部的 useEffect
     const conversationEventsOptions = useMemo(
@@ -217,10 +224,11 @@ function ConversationUI({
             onMessageAdd: handleMessageAdd,
             onMessageUpdate: (streamEvent: StreamEvent) => handleMessageUpdateRef?.(streamEvent),
             onGroupMerge: handleGroupMerge,
+            onMCPToolCallUpdate: handleMCPToolCallUpdate,
             onAiResponseComplete: handleAiResponseComplete,
             onError: handleError,
         }),
-        [conversationId, handleMessageAdd, handleGroupMerge, handleAiResponseComplete, handleError]
+        [conversationId, handleMessageAdd, handleGroupMerge, handleMCPToolCallUpdate, handleAiResponseComplete, handleError]
     );
 
     // 使用共享的消息事件处理 hook
@@ -228,7 +236,8 @@ function ConversationUI({
         streamingMessages,
         shiningMessageIds,
         setShiningMessageIds,
-        clearShiningMessages,
+        mcpToolCallStates,
+        updateShiningMessages,
     } = useConversationEvents(conversationEventsOptions);
 
     // ============= UI 状态管理和交互相关逻辑 =============
@@ -417,7 +426,10 @@ function ConversationUI({
                 })
                 .catch((e) => {
                     console.error("ask assistant error", e);
-                    toast.error("发送消息失败: " + e);
+                    setAiIsResponsing(false);
+                    // 使用智能边框控制，而不是直接清空
+                    updateShiningMessages();
+                    // 错误信息将在对话框中显示
                     throw e;
                 });
         },
@@ -584,14 +596,11 @@ function ConversationUI({
             const errorMessage = event.payload as string;
             console.error("Received error notification:", errorMessage);
             
-            // 显示错误通知
-            toast.error(`AI请求失败: ${errorMessage}`);
-            
             // 重置AI响应状态
             setAiIsResponsing(false);
             
-            // 清除闪烁状态
-            clearShiningMessages();
+            // 使用智能边框控制，而不是直接清空
+            updateShiningMessages();
         });
 
         return () => {
@@ -599,7 +608,7 @@ function ConversationUI({
                 unsubscribe.then((f) => f());
             }
         };
-    }, [clearShiningMessages]);
+    }, []);
 
     // ============= 数据计算和处理 =============
 
@@ -838,12 +847,12 @@ function ConversationUI({
                 .catch((error) => {
                     console.error("Regenerate error:", error);
                     setAiIsResponsing(false);
-                    // 错误时清除shine-border
-                    clearShiningMessages();
-                    toast.error("重新生成失败: " + error);
+                    // 使用智能边框控制，而不是直接清空
+                    updateShiningMessages();
+                    // 错误信息将在对话框中显示
                 });
         },
-        [],
+        [setShiningMessageIds],
     );
 
     // 消息编辑相关处理函数
@@ -922,8 +931,8 @@ function ConversationUI({
             console.log(conversationId);
             invoke("cancel_ai", { conversationId: +conversationId }).then(() => {
                 setAiIsResponsing(false);
-                // shine-border 状态现在由 useConversationEvents hook 管理
-                clearShiningMessages();
+                // 使用智能边框控制
+                updateShiningMessages();
             });
         } else {
             // 正常发送消息流程
@@ -967,10 +976,11 @@ function ConversationUI({
                         }
                     })
                     .catch((error) => {
+                        console.error("Send message error:", error);
                         setAiIsResponsing(false);
-                        // 发送消息失败时清除shine-border
-                        clearShiningMessages();
-                        toast.error("发送消息失败: " + error);
+                        // 使用智能边框控制，而不是直接清空
+                        updateShiningMessages();
+                        // 错误信息将在对话框中显示
                     });
             }
 
@@ -979,10 +989,10 @@ function ConversationUI({
         }
     }, 200);
 
-    // 过滤系统消息并渲染MessageItem组件
+    // 过滤系统消息和工具结果消息并渲染MessageItem组件
     const filteredMessages = useMemo(() => {
         const result = allDisplayMessages
-            .filter((m) => m.message_type !== "system")
+            .filter((m) => m.message_type !== "system" && m.message_type !== "tool_result")
             .map((message) => {
                 // 查找对应的流式消息信息（如果存在）
                 const streamEvent = streamingMessages.get(message.id);
@@ -1018,6 +1028,10 @@ function ConversationUI({
                             }
                             // ShineBorder 动画状态
                             shouldShowShineBorder={shouldShowShineBorder}
+                            // MCP 工具调用需要的上下文信息
+                            conversationId={message.conversation_id}
+                            // 传递 MCP 工具调用状态
+                            mcpToolCallStates={mcpToolCallStates}
                         />
                         {/* 在 generation group 的最后一个消息下方显示版本控制 */}
                         {groupControl && (

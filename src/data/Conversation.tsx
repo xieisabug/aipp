@@ -73,6 +73,16 @@ export interface GroupMergeEvent {
     conversation_id?: number;
 }
 
+export interface MCPToolCallUpdateEvent {
+    call_id: number;
+    conversation_id: number;
+    status: 'pending' | 'executing' | 'success' | 'failed';
+    result?: string;
+    error?: string;
+    started_time?: Date;
+    finished_time?: Date;
+}
+
 // 消息类型枚举
 export type MessageType = 'system' | 'user' | 'assistant' | 'reasoning' | 'response' | 'error';
 

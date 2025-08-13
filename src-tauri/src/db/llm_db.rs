@@ -436,12 +436,4 @@ impl LLMDatabase {
         Ok(())
     }
 
-    pub fn debug(&self) -> rusqlite::Result<()> {
-        self.conn.execute(
-            "INSERT INTO llm_model (id, name, llm_provider_id, code, description, vision_support, audio_support, video_support) VALUES (9999, 'yi:9b-v1.5', 10, 'yi:9b-v1.5', 'yi:9b-v1.5', 0, 0, 0)",
-            [],
-        )?;
-
-        Ok(())
-    }
 }

@@ -6,6 +6,7 @@ import ConfigForm from "../ConfigForm";
 import ConfirmDialog from "../ConfirmDialog";
 import AddAssistantDialog from "./AddAssistantDialog";
 import EditAssistantDialog from "./EditAssistantDialog";
+import AssistantMCPFieldDisplay from "./AssistantMCPFieldDisplay";
 import { AssistantType } from "../../types/assistant";
 import { validateConfig } from "../../utils/validate";
 import { Bot, Settings, User } from "lucide-react";
@@ -19,7 +20,6 @@ import {
     SelectOption
 } from "../common";
 
-import "../../styles/AssistantConfig.css";
 import { useForm } from "react-hook-form";
 
 interface ModelForSelect {
@@ -31,8 +31,9 @@ interface ModelForSelect {
 
 interface AssistantConfigProps {
     pluginList: any[];
+    navigateTo: (menuKey: string) => void;
 }
-const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
+const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateTo }) => {
     // 插件加载部分
     // 插件实例
     const [assistantTypePluginMap, setAssistantTypePluginMap] = useState<
@@ -144,6 +145,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
         assistantTypeApi.addFieldTips("temperature", "控制生成的随机性，越高越随机");
         assistantTypeApi.addFieldTips("top_p", "控制生成的多样性，越高越多样");
         assistantTypeApi.addFieldTips("stream", "是否流式输出，开启后可能会有延迟");
+        assistantTypeApi.hideField("use_native_toolcall");
     }, [assistantTypeApi]);
 
     // 助手类型
@@ -515,7 +517,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
     const assistantFormConfig = useMemo(() => {
         if (!currentAssistant) return [];
 
-        let configs = [
+        let baseConfigs: Array<{ key: string; config: any }> = [
             {
                 key: "assistantType",
                 config: {
@@ -573,7 +575,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                     },
                 },
             },
-            ...currentAssistant?.model_configs
+            ...(currentAssistant?.model_configs ?? [])
                 .filter(
                     (config) => !assistantTypeHideField.includes(config.name) && !assistantTypeCustomField.find((field) => field.key === config.name),
                 )
@@ -647,7 +649,30 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                             ),
                     },
                 })),
-            {
+        ];
+
+        if (!assistantTypeHideField.includes("mcp_config")) {
+            baseConfigs.push({
+                key: "mcp_config",
+                config: {
+                    type: "custom" as const,
+                    label: "MCP工具",
+                    customRender: () => (
+                        <AssistantMCPFieldDisplay
+                            assistantId={currentAssistant?.assistant.id ?? 0}
+                            onConfigChange={() => {
+                                // MCP配置变更时的回调
+                                console.log('MCP configuration changed');
+                            }}
+                            navigateTo={navigateTo}
+                        />
+                    ),
+                },
+            });
+        }
+
+        if (!assistantTypeHideField.includes("prompt")) {
+            baseConfigs.push({
                 key: "prompt",
                 config: {
                     type: "textarea" as const,
@@ -657,10 +682,10 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
                     onChange: (value: string | boolean) =>
                         handlePromptChange(value as string),
                 },
-            },
-        ];
+            });
+        }
 
-        return configs;
+        return baseConfigs;
     }, [
         currentAssistant,
         assistantTypeNameMap,
@@ -670,6 +695,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList }) => {
         modelOptions,
         handleConfigChange,
         handlePromptChange,
+        navigateTo,
     ]);
 
     // 添加新的处理函数

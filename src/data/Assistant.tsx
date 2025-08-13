@@ -45,10 +45,27 @@ export interface AssistantPromptParam {
     param_value: string | null;
 }
 
+export interface AssistantMCPConfig {
+    id: number;
+    assistant_id: number;
+    mcp_server_id: number;
+    is_enabled: boolean;
+}
+
+export interface AssistantMCPToolConfig {
+    id: number;
+    assistant_id: number;
+    mcp_tool_id: number;
+    is_enabled: boolean;
+    is_auto_run: boolean;
+}
+
 export interface AssistantDetail {
     assistant: Assistant;
     prompts: AssistantPrompt[];
     model: AssistantModel[];
     model_configs: AssistantModelConfig[];
     prompt_params: AssistantPromptParam[];
+    mcp_configs: AssistantMCPConfig[];
+    mcp_tool_configs: AssistantMCPToolConfig[];
 }
