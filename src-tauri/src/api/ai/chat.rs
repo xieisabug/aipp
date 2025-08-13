@@ -1,16 +1,15 @@
 use crate::api::ai::config::{calculate_retry_delay, MAX_RETRY_ATTEMPTS};
-use crate::api::ai::events::{
-    ConversationEvent, MessageAddEvent, MessageUpdateEvent,
-};
+use crate::api::ai::events::{ConversationEvent, MessageAddEvent, MessageUpdateEvent};
+use crate::api::assistant_api::get_assistants;
 use crate::db::conversation_db::{ConversationDatabase, Message, Repository};
 use crate::db::system_db::FeatureConfig;
 use crate::errors::AppError;
 use crate::utils::window_utils::send_error_to_appropriate_window;
-
 use futures::StreamExt;
 use genai::chat::ChatStreamEvent;
 use genai::chat::{ChatOptions, ChatRequest, ToolCall};
 use genai::Client;
+use regex::Regex;
 use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -256,9 +255,12 @@ async fn enhanced_error_logging_v2<E: std::error::Error + 'static>(
 }
 
 // 创建结构化错误消息
-fn create_structured_error_message<E: std::fmt::Display>(error: &E, request_body: Option<String>) -> String {
+fn create_structured_error_message<E: std::fmt::Display>(
+    error: &E,
+    request_body: Option<String>,
+) -> String {
     let user_friendly_message = get_user_friendly_error_message(error);
-    
+
     if let Some(body) = request_body {
         // 使用特殊分隔符将主要信息和详情分开存储在content中
         format!("{}|||ERROR_DETAILS|||{}", user_friendly_message, body)
@@ -300,7 +302,6 @@ fn get_user_friendly_error_message<E: std::fmt::Display>(error: &E) -> String {
     }
 }
 
-
 /// 从消息中提取 @assistant_name 并返回处理后的消息和助手ID
 /// 如果找到 @assistant_name，则返回对应的助手ID和清理后的消息
 /// 如果没有找到或找不到对应助手，则返回原始助手ID和原始消息
@@ -309,15 +310,12 @@ pub async fn extract_assistant_from_message(
     prompt: &str,
     default_assistant_id: i64,
 ) -> Result<(i64, String), AppError> {
-    use crate::api::assistant_api::get_assistants;
-    use regex::Regex;
-
     // 匹配 @assistant_name 的正则表达式
     let re = Regex::new(r"^@(\S+)\s+").unwrap();
-    
+
     if let Some(captures) = re.captures(prompt) {
         let assistant_name = captures.get(1).unwrap().as_str();
-        
+
         // 获取所有助手列表
         if let Ok(assistants) = get_assistants(app_handle.clone()) {
             // 查找匹配的助手
@@ -328,11 +326,10 @@ pub async fn extract_assistant_from_message(
             }
         }
     }
-    
+
     // 如果没有找到 @ 符号或找不到对应助手，返回原始值
     Ok((default_assistant_id, prompt.to_string()))
 }
-
 
 pub async fn handle_stream_chat(
     client: &Client,
@@ -456,41 +453,44 @@ async fn attempt_stream_chat(
 ) -> Result<(), anyhow::Error> {
     // 尝试建立流式连接
     println!("[[establishing_stream_connection_model]]: {}", model_name);
-    
+
     println!("[[DEBUG - STREAM chat_request messages]]:");
     for (i, msg) in chat_request.messages.iter().enumerate() {
         println!("  Message [{}]: role={:?}", i, msg.role);
         match &msg.role {
-            genai::chat::ChatRole::Assistant => {
-                match &msg.content {
-                    genai::chat::MessageContent::Text(text) => {
-                        println!("    Content: {}", text.chars().take(100).collect::<String>());
-                    },
-                    genai::chat::MessageContent::ToolCalls(tool_calls) => {
-                        println!("    Tool calls count: {}", tool_calls.len());
-                        for tc in tool_calls {
-                            println!("      - call_id: {}, fn_name: {}", tc.call_id, tc.fn_name);
-                        }
-                    },
-                    _ => println!("    Content: <other>"),
+            genai::chat::ChatRole::Assistant => match &msg.content {
+                genai::chat::MessageContent::Text(text) => {
+                    println!(
+                        "    Content: {}",
+                        text.chars().take(100).collect::<String>()
+                    );
                 }
+                genai::chat::MessageContent::ToolCalls(tool_calls) => {
+                    println!("    Tool calls count: {}", tool_calls.len());
+                    for tc in tool_calls {
+                        println!("      - call_id: {}, fn_name: {}", tc.call_id, tc.fn_name);
+                    }
+                }
+                _ => println!("    Content: <other>"),
             },
-            genai::chat::ChatRole::Tool => {
-                match &msg.content {
-                    genai::chat::MessageContent::Text(text) => {
-                        println!("    Tool response content: {}", text.chars().take(100).collect::<String>());
-                    },
-                    _ => println!("    Tool response: <other>"),
+            genai::chat::ChatRole::Tool => match &msg.content {
+                genai::chat::MessageContent::Text(text) => {
+                    println!(
+                        "    Tool response content: {}",
+                        text.chars().take(100).collect::<String>()
+                    );
                 }
+                _ => println!("    Tool response: <other>"),
             },
-            _ => {
-                match &msg.content {
-                    genai::chat::MessageContent::Text(text) => {
-                        println!("    Content: {}", text.chars().take(100).collect::<String>());
-                    },
-                    _ => println!("    Content: <other>"),
+            _ => match &msg.content {
+                genai::chat::MessageContent::Text(text) => {
+                    println!(
+                        "    Content: {}",
+                        text.chars().take(100).collect::<String>()
+                    );
                 }
-            }
+                _ => println!("    Content: <other>"),
+            },
         }
     }
 
@@ -1123,44 +1123,47 @@ pub async fn handle_non_stream_chat(
 
     // 非流式：强制捕获工具调用，便于将工具以 UI 注释形式插入
     let non_stream_options = chat_options.clone().with_capture_tool_calls(true);
-    
+
     println!("[[DEBUG - NON_STREAM chat_request messages]]:");
     for (i, msg) in chat_request.messages.iter().enumerate() {
         println!("  Message [{}]: role={:?}", i, msg.role);
         match &msg.role {
-            genai::chat::ChatRole::Assistant => {
-                match &msg.content {
-                    genai::chat::MessageContent::Text(text) => {
-                        println!("    Content: {}", text.chars().take(100).collect::<String>());
-                    },
-                    genai::chat::MessageContent::ToolCalls(tool_calls) => {
-                        println!("    Tool calls count: {}", tool_calls.len());
-                        for tc in tool_calls {
-                            println!("      - call_id: {}, fn_name: {}", tc.call_id, tc.fn_name);
-                        }
-                    },
-                    _ => println!("    Content: <other>"),
+            genai::chat::ChatRole::Assistant => match &msg.content {
+                genai::chat::MessageContent::Text(text) => {
+                    println!(
+                        "    Content: {}",
+                        text.chars().take(100).collect::<String>()
+                    );
                 }
+                genai::chat::MessageContent::ToolCalls(tool_calls) => {
+                    println!("    Tool calls count: {}", tool_calls.len());
+                    for tc in tool_calls {
+                        println!("      - call_id: {}, fn_name: {}", tc.call_id, tc.fn_name);
+                    }
+                }
+                _ => println!("    Content: <other>"),
             },
-            genai::chat::ChatRole::Tool => {
-                match &msg.content {
-                    genai::chat::MessageContent::Text(text) => {
-                        println!("    Tool response content: {}", text.chars().take(100).collect::<String>());
-                    },
-                    _ => println!("    Tool response: <other>"),
+            genai::chat::ChatRole::Tool => match &msg.content {
+                genai::chat::MessageContent::Text(text) => {
+                    println!(
+                        "    Tool response content: {}",
+                        text.chars().take(100).collect::<String>()
+                    );
                 }
+                _ => println!("    Tool response: <other>"),
             },
-            _ => {
-                match &msg.content {
-                    genai::chat::MessageContent::Text(text) => {
-                        println!("    Content: {}", text.chars().take(100).collect::<String>());
-                    },
-                    _ => println!("    Content: <other>"),
+            _ => match &msg.content {
+                genai::chat::MessageContent::Text(text) => {
+                    println!(
+                        "    Content: {}",
+                        text.chars().take(100).collect::<String>()
+                    );
                 }
-            }
+                _ => println!("    Content: <other>"),
+            },
         }
     }
-    
+
     let chat_result = tokio::select! {
         result = async {
             let mut attempts = 0;
@@ -1271,10 +1274,10 @@ pub async fn handle_non_stream_chat(
                     "[[non_stream_captured_tool_calls_count]]: {}",
                     tool_calls.len()
                 );
-                
+
                 // 保存原始 tool_calls JSON 到 assistant 消息
                 let tool_calls_json = serde_json::to_string(&tool_calls).ok();
-                
+
                 // 更新消息以包含 tool_calls_json
                 if let Ok(Some(mut msg)) = conversation_db
                     .message_repo()
@@ -1282,15 +1285,15 @@ pub async fn handle_non_stream_chat(
                     .read(response_message_id)
                 {
                     msg.tool_calls_json = tool_calls_json;
-                    let _ = conversation_db
-                        .message_repo()
-                        .unwrap()
-                        .update(&msg);
+                    let _ = conversation_db.message_repo().unwrap().update(&msg);
                 }
-                
+
                 // 先发送 tool_call 事件给前端，让前端可以显示工具调用状态
                 for tool_call in &tool_calls {
-                    println!("[[tool_call_to_process]]: {} with args: {}", tool_call.fn_name, tool_call.fn_arguments);
+                    println!(
+                        "[[tool_call_to_process]]: {} with args: {}",
+                        tool_call.fn_name, tool_call.fn_arguments
+                    );
 
                     // Emit tool call event for MCP handling (与流式模式保持一致)
                     let tool_call_event = serde_json::json!({
@@ -1306,10 +1309,10 @@ pub async fn handle_non_stream_chat(
 
                     let _ = window.emit(
                         format!("conversation_event_{}", conversation_id).as_str(),
-                        tool_call_event
+                        tool_call_event,
                     );
                 }
-                
+
                 for tool_call in tool_calls.iter() {
                     let (server_name, tool_name) =
                         if let Some((s, t)) = tool_call.fn_name.split_once("__") {
@@ -1351,10 +1354,7 @@ pub async fn handle_non_stream_chat(
                                 .read(response_message_id)
                             {
                                 msg.content = content.clone();
-                                let _ = conversation_db
-                                    .message_repo()
-                                    .unwrap()
-                                    .update(&msg);
+                                let _ = conversation_db.message_repo().unwrap().update(&msg);
 
                                 // 发送工具调用界面更新事件
                                 let update_event = ConversationEvent {
@@ -1414,7 +1414,7 @@ pub async fn handle_non_stream_chat(
                     }
                 }
             }
-            
+
             let mut message = conversation_db
                 .message_repo()
                 .unwrap()
