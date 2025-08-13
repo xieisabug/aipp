@@ -1,6 +1,6 @@
 use crate::api::ai::config::{calculate_retry_delay, MAX_RETRY_ATTEMPTS};
 use crate::api::ai::events::{ConversationEvent, MessageAddEvent, MessageUpdateEvent};
-use crate::api::assistant_api::get_assistants;
+use crate::db::assistant_db::Assistant;
 use crate::db::conversation_db::{ConversationDatabase, Message, Repository};
 use crate::db::system_db::FeatureConfig;
 use crate::errors::AppError;
@@ -306,7 +306,7 @@ fn get_user_friendly_error_message<E: std::fmt::Display>(error: &E) -> String {
 /// 如果找到 @assistant_name，则返回对应的助手ID和清理后的消息
 /// 如果没有找到或找不到对应助手，则返回原始助手ID和原始消息
 pub async fn extract_assistant_from_message(
-    app_handle: &tauri::AppHandle,
+    assistants: &Vec<Assistant>,
     prompt: &str,
     default_assistant_id: i64,
 ) -> Result<(i64, String), AppError> {
@@ -316,14 +316,11 @@ pub async fn extract_assistant_from_message(
     if let Some(captures) = re.captures(prompt) {
         let assistant_name = captures.get(1).unwrap().as_str();
 
-        // 获取所有助手列表
-        if let Ok(assistants) = get_assistants(app_handle.clone()) {
-            // 查找匹配的助手
-            if let Some(assistant) = assistants.iter().find(|a| a.name == assistant_name) {
-                // 移除 @assistant_name 部分
-                let cleaned_prompt = re.replace(prompt, "").to_string();
-                return Ok((assistant.id, cleaned_prompt));
-            }
+        // 查找匹配的助手
+        if let Some(assistant) = assistants.iter().find(|a| a.name == assistant_name) {
+            // 移除 @assistant_name 部分
+            let cleaned_prompt = re.replace(prompt, "").to_string();
+            return Ok((assistant.id, cleaned_prompt));
         }
     }
 

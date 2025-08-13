@@ -12,7 +12,7 @@ use crate::api::ai::events::{ConversationEvent, MessageAddEvent, MessageUpdateEv
 use crate::api::ai::mcp::{collect_mcp_info_for_assistant, format_mcp_prompt};
 use crate::api::ai::title::generate_title;
 use crate::api::ai::types::{AiRequest, AiResponse};
-use crate::api::assistant_api::get_assistant;
+use crate::api::assistant_api::{get_assistant, get_assistants};
 use crate::api::genai_client;
 use crate::db::conversation_db::{AttachmentType, Repository};
 use crate::db::conversation_db::{ConversationDatabase, Message, MessageAttachment};
@@ -46,9 +46,13 @@ pub async fn ask_ai(
         "ask_ai - [[request]]: {:#?}\n[[override_model_config]]: {:#?}\n[[override_prompt]]: {:#?}\n",
         request, override_model_config, override_prompt
     );
+
+    let assistants = get_assistants(app_handle.clone())
+        .map_err(|e| AppError::UnknownError(format!("Failed to get assistants: {}", e)))?;
+
     // 处理 @assistant_name 提取和消息清理
     let (actual_assistant_id, cleaned_prompt) = extract_assistant_from_message(
-        &app_handle,
+        &assistants,
         &request.prompt,
         request.assistant_id,
     ).await?;

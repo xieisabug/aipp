@@ -29,6 +29,7 @@ fn create_message_detail(
         parent_group_id,
         attachment_list: Vec::new(),
         regenerate: Vec::new(),
+        tool_calls_json: None,
     }
 }
 
