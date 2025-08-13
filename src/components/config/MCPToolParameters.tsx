@@ -1,6 +1,6 @@
-import React from 'react';
+import React from "react";
 import { Collapsible, CollapsibleContent } from "../ui/collapsible";
-import MCPToolParameterItem from './MCPToolParameterItem';
+import MCPToolParameterItem from "./MCPToolParameterItem";
 
 interface MCPToolParametersProps {
     isExpanded: boolean;
@@ -11,7 +11,7 @@ interface MCPToolParametersProps {
 const MCPToolParameters: React.FC<MCPToolParametersProps> = ({
     isExpanded,
     parameters,
-    truncateText
+    truncateText,
 }) => {
     if (!parameters || !parameters.properties) {
         return null;
@@ -21,17 +21,25 @@ const MCPToolParameters: React.FC<MCPToolParametersProps> = ({
         <Collapsible open={isExpanded}>
             <CollapsibleContent className="px-4 pb-4">
                 <div className="border-t border-gray-200 pt-3">
-                    <div className="text-sm font-medium text-gray-700 mb-3">参数：</div>
+                    <div className="text-sm font-medium text-gray-700 mb-3">
+                        参数：
+                    </div>
                     <div className="space-y-3">
-                        {Object.entries(parameters.properties).map(([paramName, paramDef]: [string, any]) => (
-                            <MCPToolParameterItem
-                                key={paramName}
-                                paramName={paramName}
-                                paramDef={paramDef}
-                                isRequired={parameters.required?.includes(paramName) || false}
-                                truncateText={truncateText}
-                            />
-                        ))}
+                        {Object.entries(parameters.properties).map(
+                            ([paramName, paramDef]: [string, any]) => (
+                                <MCPToolParameterItem
+                                    key={paramName}
+                                    paramName={paramName}
+                                    paramDef={paramDef}
+                                    isRequired={
+                                        parameters.required?.includes(
+                                            paramName,
+                                        ) || false
+                                    }
+                                    truncateText={truncateText}
+                                />
+                            ),
+                        )}
                     </div>
                 </div>
             </CollapsibleContent>

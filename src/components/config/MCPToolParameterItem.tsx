@@ -1,4 +1,4 @@
-import React from 'react';
+import React from "react";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
@@ -13,24 +13,33 @@ const MCPToolParameterItem: React.FC<MCPToolParameterItemProps> = ({
     paramName,
     paramDef,
     isRequired,
-    truncateText
+    truncateText,
 }) => {
-    const truncatedParamDesc = truncateText(paramDef.description || '', 2);
-    const isParamDescTruncated = paramDef.description && truncatedParamDesc !== paramDef.description;
+    const truncatedParamDesc = truncateText(paramDef.description || "", 2);
+    const isParamDescTruncated =
+        paramDef.description && truncatedParamDesc !== paramDef.description;
 
     return (
         <div className="bg-white rounded p-3 border border-gray-100">
             <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                        <span className="font-medium text-gray-800 text-sm">{paramName}</span>
+                        <span className="font-medium text-gray-800 text-sm">
+                            {paramName}
+                        </span>
                         {paramDef.type && (
-                            <Badge variant="outline" className="text-xs px-2 py-0.5">
+                            <Badge
+                                variant="outline"
+                                className="text-xs px-2 py-0.5"
+                            >
                                 {paramDef.type}
                             </Badge>
                         )}
                         {isRequired && (
-                            <Badge variant="destructive" className="text-xs px-2 py-0.5">
+                            <Badge
+                                variant="destructive"
+                                className="text-xs px-2 py-0.5"
+                            >
                                 必需
                             </Badge>
                         )}
@@ -38,13 +47,20 @@ const MCPToolParameterItem: React.FC<MCPToolParameterItemProps> = ({
                     {paramDef.description && (
                         <Tooltip>
                             <TooltipTrigger asChild>
-                                <div className="text-xs text-gray-600 leading-relaxed cursor-help">
-                                    {isParamDescTruncated ? truncatedParamDesc : paramDef.description}
+                                <div className="text-xs text-gray-600 leading-relaxed">
+                                    {isParamDescTruncated
+                                        ? truncatedParamDesc
+                                        : paramDef.description}
                                 </div>
                             </TooltipTrigger>
                             {isParamDescTruncated && (
-                                <TooltipContent side="bottom" className="max-w-sm">
-                                    <p className="text-xs">{paramDef.description}</p>
+                                <TooltipContent
+                                    side="bottom"
+                                    className="max-w-sm"
+                                >
+                                    <p className="text-xs">
+                                        {paramDef.description}
+                                    </p>
                                 </TooltipContent>
                             )}
                         </Tooltip>
