@@ -1,0 +1,63 @@
+import React from 'react';
+import { Edit2 } from 'lucide-react';
+import IconButton from '../IconButton';
+import Copy from '../../assets/copy.svg?react';
+import Ok from '../../assets/ok.svg?react';
+import Refresh from '../../assets/refresh.svg?react';
+
+interface MessageActionButtonsProps {
+    messageType: string;
+    isUserMessage: boolean;
+    copyIconState: 'copy' | 'ok';
+    onCopy: () => void;
+    onEdit?: () => void;
+    onRegenerate?: () => void;
+}
+
+const MessageActionButtons: React.FC<MessageActionButtonsProps> = ({
+    messageType,
+    isUserMessage,
+    copyIconState,
+    onCopy,
+    onEdit,
+    onRegenerate,
+}) => {
+    const showEditRegenerate = (
+        messageType === 'assistant' ||
+        messageType === 'response' ||
+        messageType === 'user'
+    );
+
+    return (
+        <div
+            className={`hidden z-10 group-hover:flex items-center absolute -bottom-9 py-3 px-4 box-border h-10 rounded-[21px] border border-border bg-background ${
+                isUserMessage ? 'right-0' : 'left-0'
+            }`}
+        >
+            {showEditRegenerate && onEdit && (
+                <IconButton
+                    icon={<Edit2 size={16} color="black" />}
+                    onClick={onEdit}
+                />
+            )}
+            {showEditRegenerate && onRegenerate && (
+                <IconButton
+                    icon={<Refresh fill="black" />}
+                    onClick={onRegenerate}
+                />
+            )}
+            <IconButton
+                icon={
+                    copyIconState === 'copy' ? (
+                        <Copy fill="black" />
+                    ) : (
+                        <Ok fill="black" />
+                    )
+                }
+                onClick={onCopy}
+            />
+        </div>
+    );
+};
+
+export default MessageActionButtons;

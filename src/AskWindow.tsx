@@ -6,7 +6,6 @@ import ReactMarkdown, { Components } from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeRaw from "rehype-raw";
 import rehypeKatex from "rehype-katex";
-import { toast } from "sonner";
 
 import Copy from "./assets/copy.svg?react";
 import Ok from "./assets/ok.svg?react";
@@ -97,9 +96,6 @@ function AskWindow() {
             const errorMsg = event.payload as string;
             console.error("Received error notification in AskWindow:", errorMsg);
             
-            // 显示错误通知
-            toast.error(`AI请求失败: ${errorMsg}`);
-            
             // 重置AI响应状态
             setAiIsResponsing(false);
             
@@ -153,9 +149,6 @@ function AskWindow() {
             // 显示错误信息
             const errorMsg = typeof error === 'string' ? error : 'Unknown error occurred';
             setErrorMessage(errorMsg);
-            
-            // 显示错误通知
-            toast.error(`发送消息失败: ${errorMsg}`);
         });
     };
 
@@ -169,7 +162,6 @@ function AskWindow() {
                 .catch((error) => {
                     console.error("Cancel AI failed:", error);
                     setAiIsResponsing(false);
-                    toast.error("取消请求失败");
                 });
         } else {
             console.log("Sending query to AI");

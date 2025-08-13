@@ -202,6 +202,7 @@ pub async fn get_conversation_with_messages(
             token_count: message.token_count,
             generation_group_id: message.generation_group_id,
             parent_group_id: message.parent_group_id,
+            tool_calls_json: message.tool_calls_json,
             attachment_list,
             regenerate: Vec::new(),
         });

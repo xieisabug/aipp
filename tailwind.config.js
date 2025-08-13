@@ -52,6 +52,11 @@ export default {
   				'3': 'hsl(var(--chart-3))',
   				'4': 'hsl(var(--chart-4))',
   				'5': 'hsl(var(--chart-5))'
+  			},
+  			shine: {
+  				primary: 'hsl(var(--shine-primary))',
+  				secondary: 'hsl(var(--shine-secondary))',
+  				tertiary: 'hsl(var(--shine-tertiary))'
   			}
   		}
   	}
