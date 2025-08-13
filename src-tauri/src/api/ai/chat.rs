@@ -1,11 +1,10 @@
 use crate::api::ai::config::{calculate_retry_delay, MAX_RETRY_ATTEMPTS};
-use crate::api::ai::events::{
-    ConversationEvent, MessageAddEvent, MessageUpdateEvent,
-};
+use crate::api::ai::events::{ConversationEvent, MessageAddEvent, MessageUpdateEvent};
+use crate::db::assistant_db::Assistant;
 use crate::db::conversation_db::{ConversationDatabase, Message, Repository};
 use crate::db::system_db::FeatureConfig;
+use crate::errors::AppError;
 use crate::utils::window_utils::send_error_to_appropriate_window;
-
 use futures::StreamExt;
 use genai::chat::ChatStreamEvent;
 use genai::chat::{ChatOptions, ChatRequest, ToolCall};
@@ -16,6 +15,55 @@ use std::sync::Arc;
 use tauri::{Emitter, Manager};
 use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
+
+/// 助手提及信息
+#[derive(Debug, Clone)]
+pub struct AssistantMention {
+    pub assistant_id: i64,
+    pub name: String,
+    pub start_pos: usize,  // 字符位置（不是字节位置）
+    pub end_pos: usize,    // 结束位置
+    pub raw_match: String, // 原始匹配字符串 "@assistant_name"
+}
+
+/// 消息解析结果
+#[derive(Debug, Clone)]
+pub struct MessageParseResult {
+    pub mentions: Vec<AssistantMention>,
+    pub cleaned_content: String,  // 移除@mentions后的内容
+    pub original_content: String, // 原始内容
+    pub primary_assistant_id: Option<i64>, // 主要助手ID（第一个匹配的）
+}
+
+/// 位置限制选项
+#[derive(Debug, Clone)]
+pub enum PositionRestriction {
+    Anywhere,        // 任何位置
+    StartOnly,       // 仅开头
+    WordBoundary,    // 单词边界（前面是空格或开头）
+}
+
+/// 解析选项
+#[derive(Debug, Clone)]
+pub struct ParseOptions {
+    pub first_only: bool,           // 只匹配第一个
+    pub position_restriction: PositionRestriction,
+    pub remove_mentions: bool,      // 是否从结果中移除@mentions
+    pub case_sensitive: bool,       // 大小写敏感
+    pub require_word_boundary: bool,  // 要求词边界（替代 require_space_after）
+}
+
+impl Default for ParseOptions {
+    fn default() -> Self {
+        Self {
+            first_only: true,
+            position_restriction: PositionRestriction::StartOnly,
+            remove_mentions: true,
+            case_sensitive: true,
+            require_word_boundary: true,
+        }
+    }
+}
 
 // 尝试获取HTTP错误的响应体（改进版，支持POST请求）
 async fn try_fetch_error_body_advanced(
@@ -255,9 +303,12 @@ async fn enhanced_error_logging_v2<E: std::error::Error + 'static>(
 }
 
 // 创建结构化错误消息
-fn create_structured_error_message<E: std::fmt::Display>(error: &E, request_body: Option<String>) -> String {
+fn create_structured_error_message<E: std::fmt::Display>(
+    error: &E,
+    request_body: Option<String>,
+) -> String {
     let user_friendly_message = get_user_friendly_error_message(error);
-    
+
     if let Some(body) = request_body {
         // 使用特殊分隔符将主要信息和详情分开存储在content中
         format!("{}|||ERROR_DETAILS|||{}", user_friendly_message, body)
@@ -297,6 +348,260 @@ fn get_user_friendly_error_message<E: std::fmt::Display>(error: &E) -> String {
     } else {
         "请求失败，请稍后重试".to_string()
     }
+}
+
+/// 检查指定位置是否为词边界结尾
+fn is_word_boundary_end(chars: &[char], pos: usize) -> bool {
+    if pos >= chars.len() {
+        return true; // 字符串结尾是有效边界
+    }
+    
+    let next_char = chars[pos];
+    
+    // 如果下一个字符不是字母、数字或某些连接符，就认为是边界
+    // 这样可以自动处理所有标点符号、空格、中文标点等
+    !next_char.is_alphanumeric() && next_char != '_' && next_char != '-'
+}
+
+/// 检查位置是否满足限制条件
+fn check_position_restriction(chars: &[char], pos: usize, restriction: &PositionRestriction) -> bool {
+    match restriction {
+        PositionRestriction::Anywhere => true,
+        PositionRestriction::StartOnly => pos == 0,
+        PositionRestriction::WordBoundary => {
+            pos == 0 || chars.get(pos.saturating_sub(1)) == Some(&' ')
+        }
+    }
+}
+
+/// 尝试在指定位置匹配特定助手
+fn try_match_specific_assistant(
+    assistant: &Assistant,
+    chars: &[char],
+    start_pos: usize,
+    options: &ParseOptions,
+) -> Option<AssistantMention> {
+    if chars[start_pos] != '@' {
+        return None;
+    }
+
+    let assistant_name = if options.case_sensitive {
+        &assistant.name
+    } else {
+        // 对于不区分大小写，我们需要在比较时转换
+        &assistant.name
+    };
+
+    let pattern_chars: Vec<char> = format!("@{}", assistant_name).chars().collect();
+    
+    // 检查是否有足够的字符来匹配
+    if start_pos + pattern_chars.len() > chars.len() {
+        return None;
+    }
+
+    // 执行字符匹配
+    let match_slice = &chars[start_pos..start_pos + pattern_chars.len()];
+    
+    let matches = if options.case_sensitive {
+        match_slice == &pattern_chars[..]
+    } else {
+        match_slice.iter().collect::<String>().to_lowercase() 
+            == pattern_chars.iter().collect::<String>().to_lowercase()
+    };
+
+    if !matches {
+        return None;
+    }
+
+    let end_pos = start_pos + pattern_chars.len();
+    
+    // 使用改进的边界检测
+    if options.require_word_boundary && !is_word_boundary_end(chars, end_pos) {
+        return None;
+    }
+    
+    // 即使不要求word boundary，我们也需要确保这是一个完整的助手名称匹配
+    // 如果assistant name后面直接跟着字母数字字符，说明这不是一个完整匹配
+    if !options.require_word_boundary && end_pos < chars.len() {
+        let next_char = chars[end_pos];
+        // 如果下一个字符是字母或数字，说明这不是完整匹配 (例如: @gpt4help 不应该匹配 gpt4)
+        if next_char.is_alphanumeric() {
+            return None;
+        }
+    }
+    Some(AssistantMention {
+        assistant_id: assistant.id,
+        name: assistant.name.clone(),
+        start_pos,
+        end_pos,
+        raw_match: pattern_chars.iter().collect(),
+    })
+}
+
+/// 尝试在指定位置匹配任意助手
+fn try_match_assistant_at_position(
+    assistants: &Vec<Assistant>,
+    chars: &[char],
+    start_pos: usize,
+    options: &ParseOptions,
+) -> Option<AssistantMention> {
+    if chars[start_pos] != '@' {
+        return None;
+    }
+
+    // 检查位置限制
+    if !check_position_restriction(chars, start_pos, &options.position_restriction) {
+        return None;
+    }
+
+    // 按名称长度从长到短排序，优先匹配更长的名称（避免部分匹配问题）
+    let mut sorted_assistants = assistants.clone();
+    sorted_assistants.sort_by(|a, b| b.name.len().cmp(&a.name.len()));
+
+    // 尝试匹配每个助手名称
+    for assistant in &sorted_assistants {
+        if let Some(mention) = try_match_specific_assistant(
+            assistant,
+            chars,
+            start_pos,
+            options,
+        ) {
+            return Some(mention);
+        }
+    }
+    None
+}
+
+/// 从内容中移除@mentions
+fn remove_mentions_from_content(content: &str, mentions: &[AssistantMention]) -> String {
+    if mentions.is_empty() {
+        return content.to_string();
+    }
+
+    let chars: Vec<char> = content.chars().collect();
+    let mut result = Vec::new();
+    let mut i = 0;
+
+    // 按开始位置排序
+    let mut sorted_mentions = mentions.to_vec();
+    sorted_mentions.sort_by(|a, b| a.start_pos.cmp(&b.start_pos));
+
+    for mention in &sorted_mentions {
+        // 添加mention之前的内容
+        while i < mention.start_pos {
+            result.push(chars[i]);
+            i += 1;
+        }
+        
+        // 跳过mention内容
+        i = mention.end_pos;
+        
+        // 智能处理mention后的空格和标点符号
+        if i < chars.len() {
+            let next_char = chars[i];
+            
+            // 如果mention后面紧跟着逗号、句号等标点符号，跳过它们前面可能的空格
+            if ",.!?;:，。！？；：".contains(next_char) {
+                // 跳过标点符号
+                i += 1;
+                // 跳过标点符号后的空格
+                while i < chars.len() && chars[i].is_whitespace() {
+                    i += 1;
+                }
+            } else if next_char.is_whitespace() {
+                // 如果mention后面只是空格，跳过空格
+                while i < chars.len() && chars[i].is_whitespace() {
+                    i += 1;
+                }
+            }
+        }
+    }
+
+    // 添加剩余内容
+    while i < chars.len() {
+        result.push(chars[i]);
+        i += 1;
+    }
+
+    let result_str = result.iter().collect::<String>();
+    
+    // 清理多余的空格
+    result_str
+        .split_whitespace()
+        .collect::<Vec<&str>>()
+        .join(" ")
+        .trim()
+        .to_string()
+}
+
+/// 解析消息中的助手提及
+pub fn parse_assistant_mentions(
+    assistants: &Vec<Assistant>,
+    content: &str,
+    options: &ParseOptions,
+) -> Result<MessageParseResult, AppError> {
+    let mut mentions = Vec::new();
+    let chars: Vec<char> = content.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        if chars[i] == '@' {
+            if let Some(mention) = try_match_assistant_at_position(
+                assistants, 
+                &chars, 
+                i, 
+                options
+            ) {
+                mentions.push(mention.clone());
+                i = mention.end_pos;
+                
+                // 如果只需要第一个匹配，直接退出
+                if options.first_only {
+                    break;
+                }
+            } else {
+                i += 1;
+            }
+        } else {
+            i += 1;
+        }
+    }
+
+    // 根据配置处理结果
+    let cleaned_content = if options.remove_mentions {
+        remove_mentions_from_content(content, &mentions)
+    } else {
+        content.to_string()
+    };
+
+
+    Ok(MessageParseResult {
+        primary_assistant_id: mentions.first().map(|m| m.assistant_id),
+        mentions,
+        cleaned_content,
+        original_content: content.to_string(),
+    })
+}
+
+/// 从消息中提取 @assistant_name 并返回处理后的消息和助手ID
+/// 如果找到 @assistant_name，则返回对应的助手ID和清理后的消息
+/// 如果没有找到或找不到对应助手，则返回原始助手ID和原始消息
+/// 
+/// 这个函数保持向后兼容，内部使用新的解析器实现
+pub async fn extract_assistant_from_message(
+    assistants: &Vec<Assistant>,
+    prompt: &str,
+    default_assistant_id: i64,
+) -> Result<(i64, String), AppError> {
+    // 使用默认选项，保持原有行为：只匹配开头的第一个@符号
+    let options = ParseOptions::default();
+    
+    let result = parse_assistant_mentions(assistants, prompt, &options)?;
+    
+    Ok((
+        result.primary_assistant_id.unwrap_or(default_assistant_id),
+        result.cleaned_content,
+    ))
 }
 
 pub async fn handle_stream_chat(
@@ -421,41 +726,44 @@ async fn attempt_stream_chat(
 ) -> Result<(), anyhow::Error> {
     // 尝试建立流式连接
     println!("[[establishing_stream_connection_model]]: {}", model_name);
-    
+
     println!("[[DEBUG - STREAM chat_request messages]]:");
     for (i, msg) in chat_request.messages.iter().enumerate() {
         println!("  Message [{}]: role={:?}", i, msg.role);
         match &msg.role {
-            genai::chat::ChatRole::Assistant => {
-                match &msg.content {
-                    genai::chat::MessageContent::Text(text) => {
-                        println!("    Content: {}", text.chars().take(100).collect::<String>());
-                    },
-                    genai::chat::MessageContent::ToolCalls(tool_calls) => {
-                        println!("    Tool calls count: {}", tool_calls.len());
-                        for tc in tool_calls {
-                            println!("      - call_id: {}, fn_name: {}", tc.call_id, tc.fn_name);
-                        }
-                    },
-                    _ => println!("    Content: <other>"),
+            genai::chat::ChatRole::Assistant => match &msg.content {
+                genai::chat::MessageContent::Text(text) => {
+                    println!(
+                        "    Content: {}",
+                        text.chars().take(100).collect::<String>()
+                    );
                 }
+                genai::chat::MessageContent::ToolCalls(tool_calls) => {
+                    println!("    Tool calls count: {}", tool_calls.len());
+                    for tc in tool_calls {
+                        println!("      - call_id: {}, fn_name: {}", tc.call_id, tc.fn_name);
+                    }
+                }
+                _ => println!("    Content: <other>"),
             },
-            genai::chat::ChatRole::Tool => {
-                match &msg.content {
-                    genai::chat::MessageContent::Text(text) => {
-                        println!("    Tool response content: {}", text.chars().take(100).collect::<String>());
-                    },
-                    _ => println!("    Tool response: <other>"),
+            genai::chat::ChatRole::Tool => match &msg.content {
+                genai::chat::MessageContent::Text(text) => {
+                    println!(
+                        "    Tool response content: {}",
+                        text.chars().take(100).collect::<String>()
+                    );
                 }
+                _ => println!("    Tool response: <other>"),
             },
-            _ => {
-                match &msg.content {
-                    genai::chat::MessageContent::Text(text) => {
-                        println!("    Content: {}", text.chars().take(100).collect::<String>());
-                    },
-                    _ => println!("    Content: <other>"),
+            _ => match &msg.content {
+                genai::chat::MessageContent::Text(text) => {
+                    println!(
+                        "    Content: {}",
+                        text.chars().take(100).collect::<String>()
+                    );
                 }
-            }
+                _ => println!("    Content: <other>"),
+            },
         }
     }
 
@@ -1088,44 +1396,47 @@ pub async fn handle_non_stream_chat(
 
     // 非流式：强制捕获工具调用，便于将工具以 UI 注释形式插入
     let non_stream_options = chat_options.clone().with_capture_tool_calls(true);
-    
+
     println!("[[DEBUG - NON_STREAM chat_request messages]]:");
     for (i, msg) in chat_request.messages.iter().enumerate() {
         println!("  Message [{}]: role={:?}", i, msg.role);
         match &msg.role {
-            genai::chat::ChatRole::Assistant => {
-                match &msg.content {
-                    genai::chat::MessageContent::Text(text) => {
-                        println!("    Content: {}", text.chars().take(100).collect::<String>());
-                    },
-                    genai::chat::MessageContent::ToolCalls(tool_calls) => {
-                        println!("    Tool calls count: {}", tool_calls.len());
-                        for tc in tool_calls {
-                            println!("      - call_id: {}, fn_name: {}", tc.call_id, tc.fn_name);
-                        }
-                    },
-                    _ => println!("    Content: <other>"),
+            genai::chat::ChatRole::Assistant => match &msg.content {
+                genai::chat::MessageContent::Text(text) => {
+                    println!(
+                        "    Content: {}",
+                        text.chars().take(100).collect::<String>()
+                    );
                 }
+                genai::chat::MessageContent::ToolCalls(tool_calls) => {
+                    println!("    Tool calls count: {}", tool_calls.len());
+                    for tc in tool_calls {
+                        println!("      - call_id: {}, fn_name: {}", tc.call_id, tc.fn_name);
+                    }
+                }
+                _ => println!("    Content: <other>"),
             },
-            genai::chat::ChatRole::Tool => {
-                match &msg.content {
-                    genai::chat::MessageContent::Text(text) => {
-                        println!("    Tool response content: {}", text.chars().take(100).collect::<String>());
-                    },
-                    _ => println!("    Tool response: <other>"),
+            genai::chat::ChatRole::Tool => match &msg.content {
+                genai::chat::MessageContent::Text(text) => {
+                    println!(
+                        "    Tool response content: {}",
+                        text.chars().take(100).collect::<String>()
+                    );
                 }
+                _ => println!("    Tool response: <other>"),
             },
-            _ => {
-                match &msg.content {
-                    genai::chat::MessageContent::Text(text) => {
-                        println!("    Content: {}", text.chars().take(100).collect::<String>());
-                    },
-                    _ => println!("    Content: <other>"),
+            _ => match &msg.content {
+                genai::chat::MessageContent::Text(text) => {
+                    println!(
+                        "    Content: {}",
+                        text.chars().take(100).collect::<String>()
+                    );
                 }
-            }
+                _ => println!("    Content: <other>"),
+            },
         }
     }
-    
+
     let chat_result = tokio::select! {
         result = async {
             let mut attempts = 0;
@@ -1236,10 +1547,10 @@ pub async fn handle_non_stream_chat(
                     "[[non_stream_captured_tool_calls_count]]: {}",
                     tool_calls.len()
                 );
-                
+
                 // 保存原始 tool_calls JSON 到 assistant 消息
                 let tool_calls_json = serde_json::to_string(&tool_calls).ok();
-                
+
                 // 更新消息以包含 tool_calls_json
                 if let Ok(Some(mut msg)) = conversation_db
                     .message_repo()
@@ -1247,15 +1558,15 @@ pub async fn handle_non_stream_chat(
                     .read(response_message_id)
                 {
                     msg.tool_calls_json = tool_calls_json;
-                    let _ = conversation_db
-                        .message_repo()
-                        .unwrap()
-                        .update(&msg);
+                    let _ = conversation_db.message_repo().unwrap().update(&msg);
                 }
-                
+
                 // 先发送 tool_call 事件给前端，让前端可以显示工具调用状态
                 for tool_call in &tool_calls {
-                    println!("[[tool_call_to_process]]: {} with args: {}", tool_call.fn_name, tool_call.fn_arguments);
+                    println!(
+                        "[[tool_call_to_process]]: {} with args: {}",
+                        tool_call.fn_name, tool_call.fn_arguments
+                    );
 
                     // Emit tool call event for MCP handling (与流式模式保持一致)
                     let tool_call_event = serde_json::json!({
@@ -1271,10 +1582,10 @@ pub async fn handle_non_stream_chat(
 
                     let _ = window.emit(
                         format!("conversation_event_{}", conversation_id).as_str(),
-                        tool_call_event
+                        tool_call_event,
                     );
                 }
-                
+
                 for tool_call in tool_calls.iter() {
                     let (server_name, tool_name) =
                         if let Some((s, t)) = tool_call.fn_name.split_once("__") {
@@ -1316,10 +1627,7 @@ pub async fn handle_non_stream_chat(
                                 .read(response_message_id)
                             {
                                 msg.content = content.clone();
-                                let _ = conversation_db
-                                    .message_repo()
-                                    .unwrap()
-                                    .update(&msg);
+                                let _ = conversation_db.message_repo().unwrap().update(&msg);
 
                                 // 发送工具调用界面更新事件
                                 let update_event = ConversationEvent {
@@ -1379,7 +1687,7 @@ pub async fn handle_non_stream_chat(
                     }
                 }
             }
-            
+
             let mut message = conversation_db
                 .message_repo()
                 .unwrap()

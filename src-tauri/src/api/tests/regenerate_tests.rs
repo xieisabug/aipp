@@ -32,6 +32,7 @@ fn create_test_message(
         token_count: 100,
         generation_group_id,
         parent_group_id,
+        tool_calls_json: None,
     }
 }
 

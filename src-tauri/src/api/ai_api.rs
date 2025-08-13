@@ -1,17 +1,15 @@
 use super::assistant_api::AssistantDetail;
 use crate::api::ai::chat::{
-    handle_non_stream_chat as ai_handle_non_stream_chat,
+    extract_assistant_from_message, handle_non_stream_chat as ai_handle_non_stream_chat,
     handle_stream_chat as ai_handle_stream_chat,
 };
 use crate::api::ai::config::{ChatConfig, ConfigBuilder};
-use crate::api::ai::conversation::{
-    build_chat_messages, init_conversation,
-};
+use crate::api::ai::conversation::{build_chat_messages, init_conversation};
 use crate::api::ai::events::{ConversationEvent, MessageAddEvent, MessageUpdateEvent};
 use crate::api::ai::mcp::{collect_mcp_info_for_assistant, format_mcp_prompt};
 use crate::api::ai::title::generate_title;
 use crate::api::ai::types::{AiRequest, AiResponse};
-use crate::api::assistant_api::get_assistant;
+use crate::api::assistant_api::{get_assistant, get_assistants};
 use crate::api::genai_client;
 use crate::db::conversation_db::{AttachmentType, Repository};
 use crate::db::conversation_db::{ConversationDatabase, Message, MessageAttachment};
@@ -45,6 +43,22 @@ pub async fn ask_ai(
         "ask_ai - [[request]]: {:#?}\n[[override_model_config]]: {:#?}\n[[override_prompt]]: {:#?}\n",
         request, override_model_config, override_prompt
     );
+
+    let assistants = get_assistants(app_handle.clone())
+        .map_err(|e| AppError::UnknownError(format!("Failed to get assistants: {}", e)))?;
+
+    // 处理 @assistant_name 提取和消息清理
+    let (actual_assistant_id, cleaned_prompt) =
+        extract_assistant_from_message(&assistants, &request.prompt, request.assistant_id).await?;
+
+    println!("actual_assistant_id: {:?}", actual_assistant_id);
+    println!("cleaned_prompt: {:?}", cleaned_prompt);
+
+    // 创建一个新的请求对象，使用处理后的数据
+    let mut processed_request = request.clone();
+    processed_request.assistant_id = actual_assistant_id;
+    processed_request.prompt = cleaned_prompt;
+
     let template_engine = TemplateEngine::new();
     let mut template_context = HashMap::new();
 
@@ -52,7 +66,7 @@ pub async fn ask_ai(
     template_context.insert("selected_text".to_string(), selected_text);
 
     let app_handle_clone = app_handle.clone();
-    let assistant_detail = get_assistant(app_handle_clone, request.assistant_id).unwrap();
+    let assistant_detail = get_assistant(app_handle_clone, processed_request.assistant_id).unwrap();
     let assistant_prompt_origin = &assistant_detail.prompts[0].prompt;
     let assistant_prompt_result = template_engine
         .parse(&assistant_prompt_origin, &template_context)
@@ -64,7 +78,8 @@ pub async fn ask_ai(
     }
 
     // 收集 MCP 信息
-    let mcp_info = collect_mcp_info_for_assistant(&app_handle, request.assistant_id).await?;
+    let mcp_info =
+        collect_mcp_info_for_assistant(&app_handle, processed_request.assistant_id).await?;
     println!(
         "[[MCP enabled_servers]]: {} [[native_toolcall]]: {}\n",
         mcp_info.enabled_servers.len(),
@@ -82,16 +97,16 @@ pub async fn ask_ai(
             assistant_prompt_result
         };
 
-    let _need_generate_title = request.conversation_id.is_empty();
+    let _need_generate_title = processed_request.conversation_id.is_empty();
     let request_prompt_result = template_engine
-        .parse(&request.prompt, &template_context)
+        .parse(&processed_request.prompt, &template_context)
         .await;
 
     let app_handle_clone = app_handle.clone();
     let (conversation_id, _new_message_id, request_prompt_result_with_context, init_message_list) =
         initialize_conversation(
             &app_handle_clone,
-            &request,
+            &processed_request,
             &assistant_detail,
             assistant_prompt_result,
             request_prompt_result.clone(),
@@ -264,7 +279,7 @@ pub async fn ask_ai(
                 &window_clone,
                 &app_handle_clone,
                 _need_generate_title,
-                request.prompt.clone(),
+                processed_request.prompt.clone(),
                 _config_feature_map.clone(),
                 None,               // 普通ask_ai不需要复用generation_group_id
                 None,               // 普通ask_ai不需要parent_group_id
@@ -286,7 +301,7 @@ pub async fn ask_ai(
                 &window_clone,
                 &app_handle_clone,
                 _need_generate_title,
-                request.prompt.clone(),
+                processed_request.prompt.clone(),
                 _config_feature_map.clone(),
                 None,               // 普通ask_ai不需要复用generation_group_id
                 None,               // 普通ask_ai不需要parent_group_id
@@ -516,21 +531,26 @@ pub async fn tool_result_continue_ask_ai(
         // 重新构建消息序列，确保 Assistant-Tool 消息正确配对
         // 而不是让 build_chat_messages_with_context 自动重建，我们手动控制顺序
         let mut chat_messages = Vec::new();
-        let mut tool_call_to_response: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-        
+        let mut tool_call_to_response: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+
         // 收集所有工具调用ID到响应的映射
         for (message_type, content, _) in init_message_list.iter() {
             if message_type == "tool_result" {
                 if let Some(call_id) = crate::api::ai::conversation::extract_tool_call_id(content) {
-                    if let Some(result) = crate::api::ai::conversation::extract_tool_result(content) {
+                    if let Some(result) = crate::api::ai::conversation::extract_tool_result(content)
+                    {
                         tool_call_to_response.insert(call_id, result);
                     }
                 }
             }
         }
-        
-        println!("[[DEBUG - tool_call_to_response]]: {:#?}", tool_call_to_response);
-        
+
+        println!(
+            "[[DEBUG - tool_call_to_response]]: {:#?}",
+            tool_call_to_response
+        );
+
         // 按顺序处理消息，确保 Assistant-Tool 配对
         for (message_type, content, attachment_list) in init_message_list.iter() {
             match message_type.as_str() {
@@ -552,11 +572,11 @@ pub async fn tool_result_continue_ask_ai(
                     // 从数据库重建完整的 Assistant 消息和其对应的 Tool 响应
                     // 查找这个 response 消息对应的数据库记录
                     println!("[[DEBUG - Processing response message]]");
-                    
+
                     // 尝试从内容中提取工具调用信息重建Assistant消息
                     if let Some(assistant_with_calls) = crate::api::ai::conversation::reconstruct_assistant_with_tool_calls_from_content(content) {
                         chat_messages.push(assistant_with_calls.clone());
-                        
+
                         // 立即添加对应的 Tool 响应
                         if let genai::chat::MessageContent::ToolCalls(tool_calls) = &assistant_with_calls.content {
                             for tool_call in tool_calls {
@@ -574,51 +594,56 @@ pub async fn tool_result_continue_ask_ai(
                 }
                 "tool_result" => {
                     // 跳过，因为已经在上面的 response 处理中配对处理了
-                    println!("[[DEBUG - Skipping tool_result as it's handled in response pairing]]");
+                    println!(
+                        "[[DEBUG - Skipping tool_result as it's handled in response pairing]]"
+                    );
                 }
                 _ => {
                     chat_messages.push(genai::chat::ChatMessage::assistant(content));
                 }
             }
         }
-        
+
         println!("[[DEBUG - AFTER manual message reconstruction]]:");
         for (i, msg) in chat_messages.iter().enumerate() {
             println!("  Message [{}]: role={:?}", i, msg.role);
             match &msg.role {
-                genai::chat::ChatRole::Assistant => {
-                    match &msg.content {
-                        genai::chat::MessageContent::Text(text) => {
-                            println!("    Content: {}", text.chars().take(100).collect::<String>());
-                        },
-                        genai::chat::MessageContent::ToolCalls(tool_calls) => {
-                            println!("    Tool calls count: {}", tool_calls.len());
-                            for tc in tool_calls {
-                                println!("      - call_id: {}, fn_name: {}", tc.call_id, tc.fn_name);
-                            }
-                        },
-                        _ => println!("    Content: <other>"),
+                genai::chat::ChatRole::Assistant => match &msg.content {
+                    genai::chat::MessageContent::Text(text) => {
+                        println!(
+                            "    Content: {}",
+                            text.chars().take(100).collect::<String>()
+                        );
                     }
+                    genai::chat::MessageContent::ToolCalls(tool_calls) => {
+                        println!("    Tool calls count: {}", tool_calls.len());
+                        for tc in tool_calls {
+                            println!("      - call_id: {}, fn_name: {}", tc.call_id, tc.fn_name);
+                        }
+                    }
+                    _ => println!("    Content: <other>"),
                 },
-                genai::chat::ChatRole::Tool => {
-                    match &msg.content {
-                        genai::chat::MessageContent::Text(text) => {
-                            println!("    Tool response content: {}", text.chars().take(100).collect::<String>());
-                        },
-                        _ => println!("    Tool response: <other>"),
+                genai::chat::ChatRole::Tool => match &msg.content {
+                    genai::chat::MessageContent::Text(text) => {
+                        println!(
+                            "    Tool response content: {}",
+                            text.chars().take(100).collect::<String>()
+                        );
                     }
+                    _ => println!("    Tool response: <other>"),
                 },
-                _ => {
-                    match &msg.content {
-                        genai::chat::MessageContent::Text(text) => {
-                            println!("    Content: {}", text.chars().take(100).collect::<String>());
-                        },
-                        _ => println!("    Content: <other>"),
+                _ => match &msg.content {
+                    genai::chat::MessageContent::Text(text) => {
+                        println!(
+                            "    Content: {}",
+                            text.chars().take(100).collect::<String>()
+                        );
                     }
-                }
+                    _ => println!("    Content: <other>"),
+                },
             }
         }
-        
+
         // 注入 MCP 工具
         let mut tools: Vec<Tool> = Vec::new();
         if !mcp_info.enabled_servers.is_empty() {
