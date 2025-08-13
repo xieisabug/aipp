@@ -9,6 +9,7 @@ use futures::StreamExt;
 use genai::chat::ChatStreamEvent;
 use genai::chat::{ChatOptions, ChatRequest, ToolCall};
 use genai::Client;
+use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
@@ -241,13 +242,28 @@ async fn enhanced_error_logging_v2<E: std::error::Error + 'static>(
         if let Some(error_body) = try_fetch_error_body_advanced(&url_str, status, is_chat_api).await
         {
             eprintln!("      [[extracted_error_body]]: {}", error_body);
+            // 返回结构化错误信息
+            return create_structured_error_message(error, Some(error_body));
         }
     }
 
     eprintln!("=== End {} Error Details ===", context);
 
-    // 返回用户友好的错误信息
-    get_user_friendly_error_message(error)
+    // 如果没有提取到错误体，返回用户友好的错误信息
+    create_structured_error_message(error, None)
+}
+
+// 创建结构化错误消息
+fn create_structured_error_message<E: std::fmt::Display>(error: &E, request_body: Option<String>) -> String {
+    let user_friendly_message = get_user_friendly_error_message(error);
+    
+    if let Some(body) = request_body {
+        // 使用特殊分隔符将主要信息和详情分开存储在content中
+        format!("{}|||ERROR_DETAILS|||{}", user_friendly_message, body)
+    } else {
+        // 如果没有请求体信息，只返回主要消息
+        user_friendly_message
+    }
 }
 
 // 将错误信息转换为用户友好的中文提示
