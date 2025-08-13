@@ -5,18 +5,6 @@ use crate::db::mcp_db::{MCPDatabase, MCPServer, MCPToolCall};
 use anyhow::Result;
 use tauri::Emitter;
 
-pub async fn get_mcp_tool_call_by_llm_call_id(
-    app_handle: &tauri::AppHandle,
-    llm_call_id: &str,
-) -> Option<MCPToolCall> {
-    if let Ok(db) = MCPDatabase::new(app_handle) {
-        if let Ok(Some(record)) = db.get_mcp_tool_call_by_llm_id(llm_call_id) {
-            return Some(record);
-        }
-    }
-    None
-}
-
 // MCP Tool Execution API
 
 // 发送MCP工具调用状态更新事件

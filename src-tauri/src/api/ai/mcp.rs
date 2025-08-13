@@ -91,25 +91,6 @@ pub async fn format_mcp_prompt(
     )
 }
 
-/// 为原生 ToolCall 模式提供轻量提示，帮助模型更倾向调用工具
-pub fn format_native_mcp_hint(mcp_info: &MCPInfoForAssistant) -> String {
-    let mut s = String::from("\n\n# Tools Available\n\nYou have access to the following tools. When they are helpful, prefer to call them via function calling. Call only one tool at a time and wait for the result before continuing.\n\n");
-    for server in &mcp_info.enabled_servers {
-        s.push_str(&format!("- Server: {}\n", server.name));
-        for tool in &server.tools {
-            s.push_str(&format!(
-                "  - Tool: {} (call name: {}__{})\n    Description: {}\n",
-                tool.name,
-                server.name,
-                tool.name,
-                tool.description
-            ));
-        }
-        s.push('\n');
-    }
-    s
-}
-
 // 对话级别的 MCP 执行状态管理
 type ConversationMcpState = Arc<Mutex<HashMap<i64, u32>>>;
 

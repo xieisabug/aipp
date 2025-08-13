@@ -523,14 +523,6 @@ impl AssistantDatabase {
         Ok(())
     }
 
-    pub fn delete_assistant_mcp_config(&self, assistant_id: i64, mcp_server_id: i64) -> Result<()> {
-        self.conn.execute(
-            "DELETE FROM assistant_mcp_config WHERE assistant_id = ? AND mcp_server_id = ?",
-            params![assistant_id, mcp_server_id],
-        )?;
-        Ok(())
-    }
-
     pub fn get_assistant_mcp_tool_configs(
         &self,
         assistant_id: i64,
@@ -565,18 +557,6 @@ impl AssistantDatabase {
         self.conn.execute(
             "INSERT OR REPLACE INTO assistant_mcp_tool_config (assistant_id, mcp_tool_id, is_enabled, is_auto_run) VALUES (?, ?, ?, ?)",
             params![assistant_id, mcp_tool_id, is_enabled, is_auto_run],
-        )?;
-        Ok(())
-    }
-
-    pub fn delete_assistant_mcp_tool_config(
-        &self,
-        assistant_id: i64,
-        mcp_tool_id: i64,
-    ) -> Result<()> {
-        self.conn.execute(
-            "DELETE FROM assistant_mcp_tool_config WHERE assistant_id = ? AND mcp_tool_id = ?",
-            params![assistant_id, mcp_tool_id],
         )?;
         Ok(())
     }

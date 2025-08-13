@@ -24,7 +24,6 @@ use anyhow::Context;
 use anyhow::Error;
 use genai::chat::ChatRequest;
 use genai::chat::Tool;
-use genai::chat::ToolCall;
 use std::collections::{HashMap, HashSet};
 use tauri::Emitter;
 use tauri::State;
@@ -619,98 +618,6 @@ pub async fn tool_result_continue_ask_ai(
                 }
             }
         }
-        
-        // 旧的重建逻辑注释掉，使用上面的新逻辑
-        /*
-        // 关键修复：根据 tool_call_id 找到原始 assistant 消息并重建完整上下文
-        if let Some(tool_call_record) =
-            crate::api::mcp_execution_api::get_mcp_tool_call_by_llm_call_id(
-                &app_handle,
-                &tool_call_id,
-            )
-            .await
-        {
-            if let Some(assistant_msg_id) = tool_call_record.assistant_message_id {
-                // 从数据库获取包含完整 tool_calls 的 assistant 消息
-                if let Ok(Some(assistant_msg)) = conversation_db.message_repo().unwrap().read(assistant_msg_id) {
-                    if let Some(tool_calls_json) = &assistant_msg.tool_calls_json {
-                        // 解析保存的 tool_calls
-                        if let Ok(saved_tool_calls) = serde_json::from_str::<Vec<ToolCall>>(tool_calls_json) {
-                            println!("[[DEBUG - Found saved tool_calls]]: {:#?}", saved_tool_calls);
-                            
-                            // 检查是否已经存在包含相同tool_call_id的assistant消息，如果有则移除以避免重复
-                            let target_call_id = &tool_call_id;
-                            chat_messages.retain(|msg| {
-                                if let genai::chat::ChatRole::Assistant = msg.role {
-                                    if let genai::chat::MessageContent::ToolCalls(existing_tool_calls) = &msg.content {
-                                        // 如果这个assistant消息包含我们要添加的tool_call_id，则移除它
-                                        let contains_target_call = existing_tool_calls.iter().any(|tc| &tc.call_id == target_call_id);
-                                        if contains_target_call {
-                                            println!("[[DEBUG - Removing duplicate assistant message with call_id]]: {}", target_call_id);
-                                            return false; // 移除这个消息
-                                        }
-                                    }
-                                }
-                                true // 保留其他消息
-                            });
-                            
-                            // 重建包含 tool_calls 的 assistant 消息
-                            let assistant_with_tools = genai::chat::ChatMessage::from(saved_tool_calls);
-                            
-                            // 找到应该插入 assistant 消息的位置（在最后一个 tool_response 之前）
-                            let mut insert_pos = chat_messages.len();
-                            
-                            // 从后往前查找第一个非 tool 消息的位置
-                            for (i, msg) in chat_messages.iter().enumerate().rev() {
-                                if !matches!(msg.role, genai::chat::ChatRole::Tool) {
-                                    insert_pos = i + 1;
-                                    break;
-                                }
-                            }
-                            
-                            // 确保在合适位置插入 assistant 消息
-                            if insert_pos > 0 {
-                                insert_pos = insert_pos.min(chat_messages.len().saturating_sub(1));
-                            }
-                            
-                            println!("[[inserting assistant message at position]]: {}", insert_pos);
-                            chat_messages.insert(insert_pos, assistant_with_tools);
-                        } else {
-                            println!("[[failed to parse saved tool_calls]]: {}", tool_calls_json);
-                        }
-                    } else {
-                        println!("[[no saved tool_calls found in assistant message]]: {}", assistant_msg_id);
-                    }
-                } else {
-                    println!("[[failed to read assistant message]]: {}", assistant_msg_id);
-                }
-            } else {
-                // 备选方案：如果没有 assistant_message_id，回退到原来的逻辑
-                let fn_name = format!(
-                    "{}_{}",
-                    tool_call_record.server_name, tool_call_record.tool_name
-                );
-                let fn_arguments =
-                    serde_json::from_str::<serde_json::Value>(&tool_call_record.parameters)
-                        .unwrap_or_else(|_| serde_json::json!({}));
-                let upstream_tool_call = ToolCall {
-                    call_id: tool_call_id.clone(),
-                    fn_name,
-                    fn_arguments,
-                };
-                let tool_call_msg = genai::chat::ChatMessage::from(vec![upstream_tool_call]);
-                if !chat_messages.is_empty() {
-                    // 确保 tool_call 出现在 tool_response 之前
-                    let insert_pos = chat_messages.len().saturating_sub(1);
-                    chat_messages.insert(insert_pos, tool_call_msg);
-                } else {
-                    chat_messages.push(tool_call_msg);
-                }
-            }
-        } else {
-            println!("[tool_result_continue] No DB record found for LLM call_id={}, skip injecting tool_call message", tool_call_id);
-        }
-        */
         
         // 注入 MCP 工具
         let mut tools: Vec<Tool> = Vec::new();
