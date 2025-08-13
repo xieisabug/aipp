@@ -1,9 +1,10 @@
-use crate::api::ai::events::{ERROR_NOTIFICATION_EVENT, TITLE_CHANGE_EVENT};
+use crate::api::ai::events::TITLE_CHANGE_EVENT;
 use crate::api::genai_client;
 use crate::db::llm_db::LLMDatabase;
 use crate::db::system_db::FeatureConfig;
 use crate::errors::AppError;
 use crate::db::conversation_db::{ConversationDatabase, Conversation};
+use crate::utils::window_utils::send_error_to_appropriate_window;
 use genai::chat::{ChatMessage, ChatRequest};
 use std::collections::HashMap;
 use tokio::time::{sleep, Duration};
@@ -146,7 +147,7 @@ pub async fn generate_title(
         match response {
             Err(e) => {
                 println!("Chat error: {}", e);
-                let _ = window.emit(ERROR_NOTIFICATION_EVENT, "生成对话标题失败，请检查配置");
+                send_error_to_appropriate_window(&window, "生成对话标题失败，请检查配置");
             }
             Ok(response_text) => {
                 let conversation_db = ConversationDatabase::new(app_handle).map_err(AppError::from)?;

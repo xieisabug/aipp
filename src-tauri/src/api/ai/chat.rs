@@ -1,9 +1,10 @@
 use crate::api::ai::config::{calculate_retry_delay, MAX_RETRY_ATTEMPTS};
 use crate::api::ai::events::{
-    ConversationEvent, MessageAddEvent, MessageUpdateEvent, ERROR_NOTIFICATION_EVENT,
+    ConversationEvent, MessageAddEvent, MessageUpdateEvent,
 };
 use crate::db::conversation_db::{ConversationDatabase, Message, Repository};
 use crate::db::system_db::FeatureConfig;
+use crate::utils::window_utils::send_error_to_appropriate_window;
 
 use futures::StreamExt;
 use genai::chat::ChatStreamEvent;
@@ -370,11 +371,9 @@ pub async fn handle_stream_chat(
                         main_attempts, e
                     );
 
-                    // 发送错误通知
-                    let _ = window.emit(
-                        ERROR_NOTIFICATION_EVENT,
-                        get_user_friendly_error_message(&e),
-                    );
+                    // 发送错误通知到合适的窗口
+                    let user_friendly_error = get_user_friendly_error_message(&e);
+                    send_error_to_appropriate_window(&window, &user_friendly_error);
 
                     // 创建错误消息
                     create_error_message(
@@ -1147,11 +1146,8 @@ pub async fn handle_non_stream_chat(
                             let final_error = format!("AI请求失败: {}", user_friendly_error);
                             eprintln!("[[final_non_stream_error]]: Non-stream chat failed after {} attempts: {}", attempts, e);
 
-                            // 发送错误通知给前端
-                            let _ = window.emit(
-                                ERROR_NOTIFICATION_EVENT,
-                                user_friendly_error,
-                            );
+                            // 发送错误通知到合适的窗口
+                            send_error_to_appropriate_window(&window, &user_friendly_error);
 
                             break Err(anyhow::anyhow!("{}", final_error));
                         }
@@ -1448,7 +1444,7 @@ pub async fn handle_non_stream_chat(
             let user_friendly_error = get_user_friendly_error_message(&e);
             let err_msg = format!("AI请求失败: {}", user_friendly_error);
             let now = chrono::Utc::now();
-            let _ = window.emit(ERROR_NOTIFICATION_EVENT, user_friendly_error);
+            send_error_to_appropriate_window(&window, &user_friendly_error);
 
             let generation_group_id = generation_group_id_override
                 .clone()
