@@ -9,7 +9,6 @@ use futures::StreamExt;
 use genai::chat::ChatStreamEvent;
 use genai::chat::{ChatOptions, ChatRequest, ToolCall};
 use genai::Client;
-use regex::Regex;
 use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -310,21 +309,32 @@ pub async fn extract_assistant_from_message(
     prompt: &str,
     default_assistant_id: i64,
 ) -> Result<(i64, String), AppError> {
-    // 匹配 @assistant_name 的正则表达式
-    let re = Regex::new(r"^@(\S+)\s+").unwrap();
+    // 检查消息是否以 @ 开头
+    if !prompt.starts_with('@') {
+        return Ok((default_assistant_id, prompt.to_string()));
+    }
 
-    if let Some(captures) = re.captures(prompt) {
-        let assistant_name = captures.get(1).unwrap().as_str();
-
-        // 查找匹配的助手
-        if let Some(assistant) = assistants.iter().find(|a| a.name == assistant_name) {
-            // 移除 @assistant_name 部分
-            let cleaned_prompt = re.replace(prompt, "").to_string();
-            return Ok((assistant.id, cleaned_prompt));
+    // 尝试匹配每个助手名称
+    for assistant in assistants {
+        let pattern = format!("@{}", assistant.name);
+        if prompt.starts_with(&pattern) {
+            // 检查匹配后的字符是否为空格（确保完整匹配）
+            // 需要用字符索引而不是字节索引来处理Unicode字符
+            let pattern_chars: Vec<char> = pattern.chars().collect();
+            let prompt_chars: Vec<char> = prompt.chars().collect();
+            
+            if prompt_chars.len() > pattern_chars.len() {
+                let next_char = prompt_chars[pattern_chars.len()];
+                if next_char == ' ' {
+                    // 找到匹配的助手，移除 @assistant_name 部分
+                    let cleaned_prompt: String = prompt_chars[pattern_chars.len() + 1..].iter().collect();
+                    return Ok((assistant.id, cleaned_prompt));
+                }
+            }
         }
     }
 
-    // 如果没有找到 @ 符号或找不到对应助手，返回原始值
+    // 如果没有找到匹配的助手，返回原始值
     Ok((default_assistant_id, prompt.to_string()))
 }
 

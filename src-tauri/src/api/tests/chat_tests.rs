@@ -28,6 +28,30 @@ fn create_test_assistants() -> Vec<Assistant> {
             is_addition: false,
             created_time: chrono::Utc::now().to_rfc3339(),
         },
+        Assistant {
+            id: 4,
+            name: "chat gpt".to_string(),
+            description: Some("ChatGPT assistant with space".to_string()),
+            assistant_type: Some(0),
+            is_addition: false,
+            created_time: chrono::Utc::now().to_rfc3339(),
+        },
+        Assistant {
+            id: 5,
+            name: "中文名称".to_string(),
+            description: Some("ChatGPT assistant with space".to_string()),
+            assistant_type: Some(0),
+            is_addition: false,
+            created_time: chrono::Utc::now().to_rfc3339(),
+        },
+        Assistant {
+            id: 6,
+            name: "emoji👿".to_string(),
+            description: Some("ChatGPT assistant with space".to_string()),
+            assistant_type: Some(0),
+            is_addition: false,
+            created_time: chrono::Utc::now().to_rfc3339(),
+        },
     ]
 }
 
@@ -143,4 +167,46 @@ async fn test_extract_assistant_from_message_case_sensitive() {
     // 应该区分大小写，所以找不到 GPT4（只有 gpt4）
     assert_eq!(assistant_id, 999); // 应该返回默认 ID
     assert_eq!(cleaned_prompt, "@GPT4 Hello, how are you?"); // 原始消息不变
+}
+
+#[tokio::test]
+async fn test_extract_assistant_from_message_with_space() {
+    let assistants = create_test_assistants();
+    let prompt = "@chat gpt Hello, how are you?";
+    let default_assistant_id = 999;
+
+    let result = extract_assistant_from_message(&assistants, prompt, default_assistant_id).await;
+
+    assert!(result.is_ok());
+    let (assistant_id, cleaned_prompt) = result.unwrap();
+    assert_eq!(assistant_id, 4);
+    assert_eq!(cleaned_prompt, "Hello, how are you?"); // 原始消息不变
+}
+
+#[tokio::test]
+async fn test_extract_assistant_from_message_with_chinese_name() {
+    let assistants = create_test_assistants();
+    let prompt = "@中文名称 Hello, how are you?";
+    let default_assistant_id = 999;
+
+    let result = extract_assistant_from_message(&assistants, prompt, default_assistant_id).await;
+
+    assert!(result.is_ok());
+    let (assistant_id, cleaned_prompt) = result.unwrap();
+    assert_eq!(assistant_id, 5);
+    assert_eq!(cleaned_prompt, "Hello, how are you?"); // 原始消息不变
+}
+
+#[tokio::test]
+async fn test_extract_assistant_from_message_with_emoji_name() {
+    let assistants = create_test_assistants();
+    let prompt = "@emoji👿 Hello, how are you?";
+    let default_assistant_id = 999;
+
+    let result = extract_assistant_from_message(&assistants, prompt, default_assistant_id).await;
+
+    assert!(result.is_ok());
+    let (assistant_id, cleaned_prompt) = result.unwrap();
+    assert_eq!(assistant_id, 6);
+    assert_eq!(cleaned_prompt, "Hello, how are you?"); // 原始消息不变
 }
