@@ -1,5 +1,6 @@
 use super::assistant_api::AssistantDetail;
 use crate::api::ai::chat::{
+    extract_assistant_from_message,
     handle_non_stream_chat as ai_handle_non_stream_chat,
     handle_stream_chat as ai_handle_stream_chat,
 };

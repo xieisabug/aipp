@@ -4,6 +4,7 @@ use crate::api::ai::events::{
 };
 use crate::db::conversation_db::{ConversationDatabase, Message, Repository};
 use crate::db::system_db::FeatureConfig;
+use crate::errors::AppError;
 use crate::utils::window_utils::send_error_to_appropriate_window;
 
 use futures::StreamExt;
@@ -298,6 +299,40 @@ fn get_user_friendly_error_message<E: std::fmt::Display>(error: &E) -> String {
         "请求失败，请稍后重试".to_string()
     }
 }
+
+
+/// 从消息中提取 @assistant_name 并返回处理后的消息和助手ID
+/// 如果找到 @assistant_name，则返回对应的助手ID和清理后的消息
+/// 如果没有找到或找不到对应助手，则返回原始助手ID和原始消息
+pub async fn extract_assistant_from_message(
+    app_handle: &tauri::AppHandle,
+    prompt: &str,
+    default_assistant_id: i64,
+) -> Result<(i64, String), AppError> {
+    use crate::api::assistant_api::get_assistants;
+    use regex::Regex;
+
+    // 匹配 @assistant_name 的正则表达式
+    let re = Regex::new(r"^@(\S+)\s+").unwrap();
+    
+    if let Some(captures) = re.captures(prompt) {
+        let assistant_name = captures.get(1).unwrap().as_str();
+        
+        // 获取所有助手列表
+        if let Ok(assistants) = get_assistants(app_handle.clone()) {
+            // 查找匹配的助手
+            if let Some(assistant) = assistants.iter().find(|a| a.name == assistant_name) {
+                // 移除 @assistant_name 部分
+                let cleaned_prompt = re.replace(prompt, "").to_string();
+                return Ok((assistant.id, cleaned_prompt));
+            }
+        }
+    }
+    
+    // 如果没有找到 @ 符号或找不到对应助手，返回原始值
+    Ok((default_assistant_id, prompt.to_string()))
+}
+
 
 pub async fn handle_stream_chat(
     client: &Client,
