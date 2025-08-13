@@ -205,8 +205,7 @@ function ConversationUI({
         console.error("Stream error from conversation events:", errorMessage);
         // 确保AI响应状态被重置
         setAiIsResponsing(false);
-        // 显示用户友好的错误信息
-        toast.error(`${errorMessage}`);
+        // 不再显示toast，错误信息将在对话框中显示
     }, []);
 
     // handleMessageUpdate 将在后面定义，这里先声明一个空的引用
@@ -430,9 +429,7 @@ function ConversationUI({
                     setAiIsResponsing(false);
                     // 使用智能边框控制，而不是直接清空
                     updateShiningMessages();
-                    // 显示更友好的错误信息
-                    const errorMessage = typeof e === 'string' ? e : "助手请求失败，请稍后重试";
-                    toast.error(errorMessage);
+                    // 错误信息将在对话框中显示
                     throw e;
                 });
         },
@@ -852,9 +849,7 @@ function ConversationUI({
                     setAiIsResponsing(false);
                     // 使用智能边框控制，而不是直接清空
                     updateShiningMessages();
-                    // 显示更友好的错误信息
-                    const errorMessage = typeof error === 'string' ? error : "重新生成失败，请稍后重试";
-                    toast.error(errorMessage);
+                    // 错误信息将在对话框中显示
                 });
         },
         [setShiningMessageIds],
@@ -985,9 +980,7 @@ function ConversationUI({
                         setAiIsResponsing(false);
                         // 使用智能边框控制，而不是直接清空
                         updateShiningMessages();
-                        // 显示更友好的错误信息
-                        const errorMessage = typeof error === 'string' ? error : "发送消息失败，请检查网络连接或稍后重试";
-                        toast.error(errorMessage);
+                        // 错误信息将在对话框中显示
                     });
             }
 
