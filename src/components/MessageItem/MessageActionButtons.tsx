@@ -30,7 +30,7 @@ const MessageActionButtons: React.FC<MessageActionButtonsProps> = ({
 
     return (
         <div
-            className={`hidden group-hover:flex items-center absolute -bottom-9 py-3 px-4 box-border h-10 rounded-[21px] border border-border bg-background ${
+            className={`hidden z-10 group-hover:flex items-center absolute -bottom-9 py-3 px-4 box-border h-10 rounded-[21px] border border-border bg-background ${
                 isUserMessage ? 'right-0' : 'left-0'
             }`}
         >
