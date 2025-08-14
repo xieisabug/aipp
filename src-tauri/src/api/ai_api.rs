@@ -3,7 +3,9 @@ use crate::api::ai::chat::{
     extract_assistant_from_message, handle_non_stream_chat as ai_handle_non_stream_chat,
     handle_stream_chat as ai_handle_stream_chat,
 };
-use crate::api::ai::config::{ChatConfig, ConfigBuilder, get_network_proxy_from_config, get_request_timeout_from_config};
+use crate::api::ai::config::{
+    get_network_proxy_from_config, get_request_timeout_from_config, ChatConfig, ConfigBuilder,
+};
 use crate::api::ai::conversation::{build_chat_messages, init_conversation};
 use crate::api::ai::events::{ConversationEvent, MessageAddEvent, MessageUpdateEvent};
 use crate::api::ai::mcp::{collect_mcp_info_for_assistant, format_mcp_prompt};
@@ -168,14 +170,14 @@ pub async fn ask_ai(
         // 从配置中获取网络代理和超时设置
         let network_proxy = get_network_proxy_from_config(&_config_feature_map);
         let request_timeout = get_request_timeout_from_config(&_config_feature_map);
-        
+
         // 检查供应商是否启用了代理
         let proxy_enabled = model_configs
             .iter()
             .find(|config| config.name == "proxy_enabled")
             .and_then(|config| config.value.parse::<bool>().ok())
             .unwrap_or(false);
-        
+
         let client = genai_client::create_client_with_config(
             &model_configs,
             &model_code,
@@ -236,13 +238,16 @@ pub async fn ask_ai(
 
         let chat_options = ConfigBuilder::build_chat_options(&config_map);
 
+        // 动态判断是否有可用的工具
+        let has_available_tools = is_native_toolcall && !mcp_info.enabled_servers.is_empty();
+
         let chat_config = ChatConfig {
             model_name,
             stream,
             chat_options: chat_options
                 .with_normalize_reasoning_content(true)
                 .with_capture_usage(true)
-                .with_capture_tool_calls(true),
+                .with_capture_tool_calls(has_available_tools), // 动态设置
             client,
         };
 
@@ -254,7 +259,7 @@ pub async fn ask_ai(
         // 将消息转换为 ChatMessage（已按是否原生 toolcall 处理过 tool_result）
         let chat_messages = build_chat_messages(&final_message_list_for_llm);
         // 原生模式：把 MCP 工具映射为 genai::chat::Tool 并注入到请求，并附加轻量提示
-        let chat_request = if is_native_toolcall && !mcp_info.enabled_servers.is_empty() {
+        let chat_request = if has_available_tools {
             let mut tools: Vec<Tool> = Vec::new();
             for server in &mcp_info.enabled_servers {
                 for tool in &server.tools {
@@ -467,8 +472,14 @@ pub async fn tool_result_continue_ask_ai(
 
     let conversation_db = ConversationDatabase::new(&app_handle).map_err(AppError::from)?;
     // Build chat configuration (same as ask_ai)
-    let client =
-        genai_client::create_client_with_config(&model_configs, &model_code, &provider_api_type, None, false, None)?;
+    let client = genai_client::create_client_with_config(
+        &model_configs,
+        &model_code,
+        &provider_api_type,
+        None,
+        false,
+        None,
+    )?;
 
     let temp_model_detail = crate::db::llm_db::ModelDetail {
         model: crate::db::llm_db::LLMModel {
@@ -517,10 +528,22 @@ pub async fn tool_result_continue_ask_ai(
 
     let chat_options = ConfigBuilder::build_chat_options(&config_map);
 
+    // 先计算强制降级条件
+    let force_non_native_for_toolresult =
+        provider_api_type == "openai" && model_code.to_lowercase().contains("gemini");
+
+    // 动态判断是否有可用的工具（考虑强制降级的情况）
+    let has_available_tools = is_native_toolcall
+        && !mcp_info.enabled_servers.is_empty()
+        && !force_non_native_for_toolresult;
+
     let chat_config = ChatConfig {
         model_name,
         stream,
-        chat_options: chat_options.with_normalize_reasoning_content(true),
+        chat_options: chat_options
+            .with_normalize_reasoning_content(true)
+            .with_capture_usage(true)
+            .with_capture_tool_calls(has_available_tools), // 动态设置
         client,
     };
 
@@ -533,10 +556,8 @@ pub async fn tool_result_continue_ask_ai(
     // - 原生：将 "tool_result" 转为 ToolResponse（含 tool_call_id）
     // - 非原生：把所有 "tool_result" 在内存里映射成 "user" 文本消息，避免向提供商发送 ToolResponse 导致 4xx/5xx
     // 兼容：Gemini 通过 OpenAI 适配时，服务端要求 function_response.name 不为空。通用 ToolResponse 不带 name。
-    // 为避免 400，这里在该场景下对“继续对话”强制降级为非原生。
-    let force_non_native_for_toolresult =
-        provider_api_type == "openai" && model_code.to_lowercase().contains("gemini");
-    let use_native_for_continue = is_native_toolcall && !force_non_native_for_toolresult;
+    // 为避免 400，这里在该场景下对"继续对话"强制降级为非原生。
+    let use_native_for_continue = has_available_tools;
     println!(
         "[[tool_result_continue native?]]: {} (provider_api_type={}, model_code={})",
         use_native_for_continue, provider_api_type, model_code
@@ -928,7 +949,7 @@ pub async fn regenerate_ai(
     let regenerate_model_configs = model_detail.configs.clone(); // 提前获取模型配置
     let regenerate_provider_api_type = model_detail.provider.api_type.clone(); // 提前获取API类型
     let regenerate_assistant_model_configs = assistant_detail.model_configs.clone(); // 提前获取助手模型配置
-    
+
     // 获取网络配置
     let _config_feature_map = feature_config_state.config_feature_map.lock().await.clone();
     let _task_handle = tokio::spawn(async move {
@@ -939,14 +960,14 @@ pub async fn regenerate_ai(
         // 从配置中获取网络代理和超时设置
         let network_proxy = get_network_proxy_from_config(&_config_feature_map);
         let request_timeout = get_request_timeout_from_config(&_config_feature_map);
-        
+
         // 检查供应商是否启用了代理
         let proxy_enabled = regenerate_model_configs
             .iter()
             .find(|config| config.name == "proxy_enabled")
             .and_then(|config| config.value.parse::<bool>().ok())
             .unwrap_or(false);
-        
+
         let client = genai_client::create_client_with_config(
             &regenerate_model_configs,
             &regenerate_model_code,
@@ -1007,10 +1028,16 @@ pub async fn regenerate_ai(
 
         let chat_options = ConfigBuilder::build_chat_options(&config_map);
 
+        // 动态判断是否有可用的工具
+        let has_available_tools = is_native_toolcall && !mcp_info.enabled_servers.is_empty();
+
         let chat_config = ChatConfig {
             model_name,
             stream,
-            chat_options,
+            chat_options: chat_options
+                .with_normalize_reasoning_content(true)
+                .with_capture_usage(true)
+                .with_capture_tool_calls(has_available_tools), // 动态设置
             client,
         };
 
@@ -1018,7 +1045,7 @@ pub async fn regenerate_ai(
         // - 原生 toolcall：按默认逻辑（tool_result -> ToolResponse）
         // - 非原生：把所有 tool_result 映射成 "user" 文本，仅用于请求
         let final_message_list_for_llm: Vec<(String, String, Vec<MessageAttachment>)> =
-            if is_native_toolcall {
+            if has_available_tools {
                 init_message_list.clone()
             } else {
                 init_message_list
@@ -1039,7 +1066,7 @@ pub async fn regenerate_ai(
             chat_messages
         );
         // 原生：注入 MCP 工具
-        let chat_request = if is_native_toolcall {
+        let chat_request = if has_available_tools {
             // 重新拉取一次助手的 MCP 工具，确保一致
             let mut tools: Vec<Tool> = Vec::new();
             if let Ok(mcp_info) =

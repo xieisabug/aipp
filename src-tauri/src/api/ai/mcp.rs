@@ -1,9 +1,9 @@
 use crate::api::assistant_api::{get_assistant_mcp_servers_with_tools, MCPServerWithTools};
 use crate::db::conversation_db::Repository;
-use tauri::Manager;
 use crate::errors::AppError;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
+use tauri::Manager;
 use tokio::sync::Mutex;
 
 #[derive(Debug, Clone)]
@@ -31,9 +31,17 @@ pub async fn collect_mcp_info_for_assistant(
         }
     };
 
-    let enabled_servers = get_assistant_mcp_servers_with_tools(app_handle.clone(), assistant_id)
+    let all_servers = get_assistant_mcp_servers_with_tools(app_handle.clone(), assistant_id)
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to get MCP servers: {}", e)))?;
+
+    let total_servers_count = all_servers.len();
+
+    // 只保留启用的服务器
+    let enabled_servers: Vec<MCPServerWithTools> = all_servers
+        .into_iter()
+        .filter(|server| server.is_enabled)
+        .collect();
 
     Ok(MCPInfoForAssistant {
         enabled_servers,
@@ -109,10 +117,12 @@ pub async fn detect_and_process_mcp_calls(
     let depth_state = CONVERSATION_MCP_DEPTH.get_or_init(|| Arc::new(Mutex::new(HashMap::new())));
     let mut depth_map = depth_state.lock().await;
     let current_depth = *depth_map.get(&conversation_id).unwrap_or(&0);
-    
+
     if current_depth >= MAX_MCP_RECURSION_DEPTH {
-        println!("MCP recursion depth limit reached for conversation {} (depth: {}), skipping detection", 
-                conversation_id, current_depth);
+        println!(
+            "MCP recursion depth limit reached for conversation {} (depth: {}), skipping detection",
+            conversation_id, current_depth
+        );
         return Ok(());
     }
 
@@ -122,16 +132,16 @@ pub async fn detect_and_process_mcp_calls(
 
     let result = async {
     let mcp_regex = regex::Regex::new(r"<mcp_tool_call>\s*<server_name>([^<]*)</server_name>\s*<tool_name>([^<]*)</tool_name>\s*<parameters>([\s\S]*?)</parameters>\s*</mcp_tool_call>").unwrap();
-    
+
     // 只处理第一个匹配的 MCP 调用，避免单次回复中执行多个工具
     if let Some(cap) = mcp_regex.captures_iter(content).next() {
         let server_name = cap[1].trim().to_string();
         let tool_name = cap[2].trim().to_string();
         let parameters = cap[3].trim().to_string();
-        
-        println!("Detected MCP call: server={}, tool={}, conversation_id={}, message_id={}", 
+
+        println!("Detected MCP call: server={}, tool={}, conversation_id={}, message_id={}",
                 server_name, tool_name, conversation_id, message_id);
-        
+
         // 避免重复：若已存在相同 message_id/server/tool/parameters 的 pending/failed/success 记录，则复用
         let existing_call_opt = {
             let db = crate::db::mcp_db::MCPDatabase::new(app_handle).ok();
@@ -252,4 +262,3 @@ pub async fn detect_and_process_mcp_calls(
 
     result
 }
-

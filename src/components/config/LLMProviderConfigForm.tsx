@@ -108,6 +108,9 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
         defaultValues,
     });
 
+    // 监听 proxy_enabled 字段变化
+    const proxyEnabled = form.watch("proxy_enabled");
+
     // 更新字段
     const updateField = useCallback(
         debounce((key: string, value: string) => {
@@ -250,6 +253,15 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
                 },
             },
             {
+                key: "tagInput",
+                config: {
+                    type: "custom" as const,
+                    label: "模型列表",
+                    value: "",
+                    customRender: tagInputRender,
+                },
+            },
+            {
                 key: "advanced_config",
                 config: {
                     type: "custom" as const,
@@ -289,10 +301,7 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
                                             </span>
                                         </div>
                                         <Switch
-                                            checked={
-                                                form.watch("proxy_enabled") ===
-                                                "true"
-                                            }
+                                            checked={proxyEnabled === "true"}
                                             onCheckedChange={(checked) => {
                                                 form.setValue(
                                                     "proxy_enabled",
@@ -311,17 +320,8 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
                     ),
                 },
             },
-            {
-                key: "tagInput",
-                config: {
-                    type: "custom" as const,
-                    label: "模型列表",
-                    value: "",
-                    customRender: tagInputRender,
-                },
-            },
         ],
-        [tagInputRender, isAdvancedConfigExpanded, form, updateField],
+        [tagInputRender, isAdvancedConfigExpanded, form, updateField, proxyEnabled],
     );
 
     const extraButtons = useMemo(
