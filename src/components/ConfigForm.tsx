@@ -146,7 +146,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                                 value={fieldRenderData.value}
                                 onValueChange={fieldRenderData.onChange}
                             >
-                                <SelectTrigger className="focus:ring-gray-500 focus:border-gray-500">
+                                <SelectTrigger className="w-full max-w-full focus:ring-gray-500 focus:border-gray-500 overflow-hidden">
                                     <SelectValue placeholder={field.label} />
                                 </SelectTrigger>
                                 <SelectContent>
