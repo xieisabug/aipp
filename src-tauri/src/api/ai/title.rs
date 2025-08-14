@@ -8,7 +8,7 @@ use crate::utils::window_utils::send_error_to_appropriate_window;
 use genai::chat::{ChatMessage, ChatRequest};
 use std::collections::HashMap;
 use tokio::time::{sleep, Duration};
-use crate::api::ai::config::{MAX_RETRY_ATTEMPTS, calculate_retry_delay};
+use crate::api::ai::config::{get_retry_attempts_from_config, calculate_retry_delay, get_network_proxy_from_config, get_request_timeout_from_config};
 use tauri::Emitter;
 
 pub async fn generate_title(
@@ -110,15 +110,28 @@ pub async fn generate_title(
             .get_llm_model_detail(&provider_id, &model_code)
             .unwrap();
 
+        // 从配置中获取网络代理和超时设置
+        let network_proxy = get_network_proxy_from_config(&config_feature_map);
+        let request_timeout = get_request_timeout_from_config(&config_feature_map);
+        
+        // 检查供应商是否启用了代理（标题生成通常不需要代理，设为false）
+        let proxy_enabled = false;
+        
         let client = genai_client::create_client_with_config(
             &model_detail.configs,
             &model_detail.model.code,
             &model_detail.provider.api_type,
+            network_proxy.as_deref(),
+            proxy_enabled,
+            Some(request_timeout),
         )?;
 
         let chat_messages = vec![ChatMessage::system(&prompt), ChatMessage::user(&context)];
         let chat_request = ChatRequest::new(chat_messages);
         let model_name = &model_detail.model.code;
+
+        // 从配置中获取最大重试次数
+        let max_retry_attempts = get_retry_attempts_from_config(&config_feature_map);
 
         let mut attempts = 0;
         let response = loop {
@@ -131,7 +144,7 @@ pub async fn generate_title(
                 }
                 Err(e) => {
                     attempts += 1;
-                    if attempts > MAX_RETRY_ATTEMPTS {
+                    if attempts >= max_retry_attempts {
                         eprintln!("Title generation failed after {} attempts: {}", attempts, e);
                         break Err(e.to_string());
                     }

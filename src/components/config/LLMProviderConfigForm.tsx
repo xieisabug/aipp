@@ -8,7 +8,12 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { Switch } from "../ui/switch";
 import { Button } from "../ui/button";
-import { Trash2 } from "lucide-react";
+import {
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+} from "../ui/collapsible";
+import { Trash2, ChevronDown } from "lucide-react";
 
 interface LLMProviderConfig {
     name: string;
@@ -80,15 +85,21 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
     ]);
 
     const [tags, setTags] = useState<string[]>([]);
-    const [isModelListExpanded, setIsModelListExpanded] = useState<boolean>(false);
-    const [modelSelectionDialogOpen, setModelSelectionDialogOpen] = useState<boolean>(false);
-    const [modelSelectionData, setModelSelectionData] = useState<ModelSelectionResponse | null>(null);
+    const [isModelListExpanded, setIsModelListExpanded] =
+        useState<boolean>(false);
+    const [isAdvancedConfigExpanded, setIsAdvancedConfigExpanded] =
+        useState<boolean>(false);
+    const [modelSelectionDialogOpen, setModelSelectionDialogOpen] =
+        useState<boolean>(false);
+    const [modelSelectionData, setModelSelectionData] =
+        useState<ModelSelectionResponse | null>(null);
     const [isUpdatingModels, setIsUpdatingModels] = useState<boolean>(false);
 
     const defaultValues = useMemo(
         () => ({
             endpoint: "",
             api_key: "",
+            proxy_enabled: "false",
         }),
         [],
     );
@@ -140,6 +151,7 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
         form.reset({
             endpoint: "",
             api_key: "",
+            proxy_enabled: "false",
         });
         setTags([]);
 
@@ -163,29 +175,31 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
         });
     }, [id]);
 
-
     // 处理模型选择确认
-    const handleModelSelectionConfirm = useCallback(async (selectedModels: ModelForSelection[]) => {
-        setIsUpdatingModels(true);
-        try {
-            await invoke("update_selected_models", {
-                llmProviderId: parseInt(id),
-                selectedModels
-            });
-            
-            // 更新本地标签显示
-            const selectedModelNames = selectedModels
-                .filter(model => model.is_selected)
-                .map(model => model.name);
-            setTags(selectedModelNames);
-            
-            toast.success("模型列表更新成功");
-        } catch (e) {
-            toast.error("更新模型列表失败: " + e);
-        } finally {
-            setIsUpdatingModels(false);
-        }
-    }, [id]);
+    const handleModelSelectionConfirm = useCallback(
+        async (selectedModels: ModelForSelection[]) => {
+            setIsUpdatingModels(true);
+            try {
+                await invoke("update_selected_models", {
+                    llmProviderId: parseInt(id),
+                    selectedModels,
+                });
+
+                // 更新本地标签显示
+                const selectedModelNames = selectedModels
+                    .filter((model) => model.is_selected)
+                    .map((model) => model.name);
+                setTags(selectedModelNames);
+
+                toast.success("模型列表更新成功");
+            } catch (e) {
+                toast.error("更新模型列表失败: " + e);
+            } finally {
+                setIsUpdatingModels(false);
+            }
+        },
+        [id],
+    );
 
     const onTagsChange = useCallback((newTags: string[]) => {
         setTags(newTags);
@@ -236,6 +250,68 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
                 },
             },
             {
+                key: "advanced_config",
+                config: {
+                    type: "custom" as const,
+                    label: "",
+                    value: "",
+                    customRender: () => (
+                        <Collapsible
+                            open={isAdvancedConfigExpanded}
+                            onOpenChange={setIsAdvancedConfigExpanded}
+                        >
+                            <CollapsibleTrigger asChild>
+                                <Button
+                                    variant="ghost"
+                                    className="w-full justify-between p-2 h-auto text-left hover:bg-gray-50"
+                                >
+                                    <span className="text-sm font-medium text-gray-700">
+                                        高级配置
+                                    </span>
+                                    <ChevronDown
+                                        className={`h-4 w-4 transition-transform ${
+                                            isAdvancedConfigExpanded
+                                                ? "rotate-180"
+                                                : ""
+                                        }`}
+                                    />
+                                </Button>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent className="mt-2">
+                                <div className="p-3 border border-gray-200 rounded-lg bg-gray-50">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex flex-col">
+                                            <label className="text-sm font-medium text-gray-700">
+                                                使用网络代理进行请求
+                                            </label>
+                                            <span className="text-xs text-gray-500">
+                                                启用后将使用全局网络代理配置进行模型请求
+                                            </span>
+                                        </div>
+                                        <Switch
+                                            checked={
+                                                form.watch("proxy_enabled") ===
+                                                "true"
+                                            }
+                                            onCheckedChange={(checked) => {
+                                                form.setValue(
+                                                    "proxy_enabled",
+                                                    checked ? "true" : "false",
+                                                );
+                                                updateField(
+                                                    "proxy_enabled",
+                                                    checked ? "true" : "false",
+                                                );
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                            </CollapsibleContent>
+                        </Collapsible>
+                    ),
+                },
+            },
+            {
                 key: "tagInput",
                 config: {
                     type: "custom" as const,
@@ -245,36 +321,38 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
                 },
             },
         ],
-        [tagInputRender],
+        [tagInputRender, isAdvancedConfigExpanded, form, updateField],
     );
 
-    const extraButtons = useMemo(() => (
-        <div className="flex items-center gap-2">
+    const extraButtons = useMemo(
+        () => (
             <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-600">
-                    {enabled ? "已启用" : "已禁用"}
-                </span>
-                <Switch
-                    checked={enabled}
-                    onCheckedChange={() => onToggleEnabled(index)}
-                />
+                <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-600">
+                        {enabled ? "已启用" : "已禁用"}
+                    </span>
+                    <Switch
+                        checked={enabled}
+                        onCheckedChange={() => onToggleEnabled(index)}
+                    />
+                </div>
+                {!isOffical && (
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={onDelete}
+                        className="hover:bg-red-50 hover:border-red-300 hover:text-red-700"
+                    >
+                        <Trash2 className="h-4 w-4 mr-1" />
+                        删除
+                    </Button>
+                )}
             </div>
-            {!isOffical && (
-                <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={onDelete}
-                    className="hover:bg-red-50 hover:border-red-300 hover:text-red-700"
-                >
-                    <Trash2 className="h-4 w-4 mr-1" />
-                    删除
-                </Button>
-            )}
-        </div>
-    ), [enabled, onToggleEnabled, index, isOffical, onDelete]);
+        ),
+        [enabled, onToggleEnabled, index, isOffical, onDelete],
+    );
 
-
-    // 表单部分结束  
+    // 表单部分结束
     return (
         <>
             <ConfigForm

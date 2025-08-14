@@ -1,4 +1,4 @@
-use crate::api::ai::config::{calculate_retry_delay, MAX_RETRY_ATTEMPTS};
+use crate::api::ai::config::{calculate_retry_delay, get_retry_attempts_from_config};
 use crate::api::ai::events::{ConversationEvent, MessageAddEvent, MessageUpdateEvent};
 use crate::db::assistant_db::Assistant;
 use crate::db::conversation_db::{ConversationDatabase, Message, Repository};
@@ -626,12 +626,15 @@ pub async fn handle_stream_chat(
     let mut main_attempts = 0;
     let app_handle_clone = app_handle.clone();
 
+    // 从配置中获取最大重试次数
+    let max_retry_attempts = get_retry_attempts_from_config(&config_feature_map);
+
     // 外层重试循环，处理整个流式会话
     loop {
         main_attempts += 1;
         println!(
             "[[stream_chat_attempt]]: {}/{}",
-            main_attempts, MAX_RETRY_ATTEMPTS
+            main_attempts, max_retry_attempts
         );
 
         let stream_result = attempt_stream_chat(
@@ -666,7 +669,7 @@ pub async fn handle_stream_chat(
                     main_attempts, e
                 );
 
-                if main_attempts >= MAX_RETRY_ATTEMPTS {
+                if main_attempts >= max_retry_attempts {
                     // 最终失败，清理资源并返回错误
                     super::conversation::cleanup_token(tokens, conversation_id).await;
                     let final_error =
@@ -1394,6 +1397,9 @@ pub async fn handle_non_stream_chat(
         .clone()
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
+    // 从配置中获取最大重试次数
+    let max_retry_attempts = get_retry_attempts_from_config(&config_feature_map);
+
     // 非流式：强制捕获工具调用，便于将工具以 UI 注释形式插入
     let non_stream_options = chat_options.clone().with_capture_tool_calls(true);
 
@@ -1443,7 +1449,7 @@ pub async fn handle_non_stream_chat(
             loop {
                 attempts += 1;
 
-                println!("[[non_stream_chat_attempt]]: {}/{}", attempts, MAX_RETRY_ATTEMPTS);
+                println!("[[non_stream_chat_attempt]]: {}/{}", attempts, max_retry_attempts);
 
                 match client.exec_chat(model_name, chat_request.clone(), Some(&non_stream_options)).await {
                     Ok(response) => {
@@ -1451,9 +1457,9 @@ pub async fn handle_non_stream_chat(
                         break Ok(response);
                     },
                     Err(e) => {
-                        let user_friendly_error = enhanced_error_logging_v2(&e, &format!("Non-Stream Chat (attempt {}/{})", attempts, MAX_RETRY_ATTEMPTS)).await;
+                        let user_friendly_error = enhanced_error_logging_v2(&e, &format!("Non-Stream Chat (attempt {}/{})", attempts, max_retry_attempts)).await;
 
-                        if attempts >= MAX_RETRY_ATTEMPTS {
+                        if attempts >= max_retry_attempts {
                             let final_error = format!("AI请求失败: {}", user_friendly_error);
                             eprintln!("[[final_non_stream_error]]: Non-stream chat failed after {} attempts: {}", attempts, e);
 

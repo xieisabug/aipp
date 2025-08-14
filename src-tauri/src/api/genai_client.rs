@@ -1,7 +1,8 @@
 use crate::errors::AppError;
 use genai::resolver::{AuthData, Endpoint, ServiceTargetResolver};
-use genai::Client;
+use genai::{Client, WebConfig};
 use genai::{adapter::AdapterKind, ModelIden, ServiceTarget};
+use std::time::Duration;
 
 // 默认端点映射
 pub const DEFAULT_ENDPOINTS: &[(AdapterKind, &str)] = &[
@@ -79,6 +80,9 @@ pub fn create_client_with_config(
     configs: &[crate::db::llm_db::LLMProviderConfig],
     model_name: &str,
     api_type: &str,
+    network_proxy: Option<&str>,
+    proxy_enabled: bool,
+    request_timeout: Option<u64>, // 超时时间（秒）
 ) -> Result<Client, AppError> {
     let adapter_kind = infer_adapter_kind(model_name, api_type);
 
@@ -97,6 +101,39 @@ pub fn create_client_with_config(
                 }
             }
             _ => {}
+        }
+    }
+
+    // 构建 WebConfig 配置代理和超时
+    let mut web_config = WebConfig::default();
+    
+    // 配置超时
+    if let Some(timeout_secs) = request_timeout {
+        if timeout_secs > 0 {
+            web_config = web_config.with_timeout(Duration::from_secs(timeout_secs));
+            println!("[[request_timeout_configured]]: {}s", timeout_secs);
+        }
+    }
+    
+    // 配置代理
+    if proxy_enabled {
+        if let Some(proxy_url) = network_proxy {
+            if !proxy_url.trim().is_empty() {
+                match reqwest::Proxy::all(proxy_url) {
+                    Ok(proxy) => {
+                        web_config = WebConfig::default().with_proxy(proxy);
+                        if let Some(timeout_secs) = request_timeout {
+                            if timeout_secs > 0 {
+                                web_config = web_config.with_timeout(Duration::from_secs(timeout_secs));
+                            }
+                        }
+                        println!("[[proxy_configured]]: {}", proxy_url);
+                    }
+                    Err(e) => {
+                        eprintln!("[[proxy_configuration_failed]]: {}", e);
+                    }
+                }
+            }
         }
     }
 
@@ -138,6 +175,7 @@ pub fn create_client_with_config(
 
     let client = Client::builder()
         .with_service_target_resolver(target_resolver)
+        .with_web_config(web_config)
         .build();
 
     Ok(client)

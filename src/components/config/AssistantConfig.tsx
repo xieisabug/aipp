@@ -403,7 +403,8 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                     ([key]) =>
                         key !== "assistantType" &&
                         key !== "model" &&
-                        key !== "prompt",
+                        key !== "prompt" &&
+                        key !== "mcp_config", // 排除 MCP 配置
                 )
                 .filter(([key]) => {
                     // 确保 key 是可存储的值，不是static和button

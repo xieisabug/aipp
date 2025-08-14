@@ -3,7 +3,7 @@ use crate::api::ai::chat::{
     extract_assistant_from_message, handle_non_stream_chat as ai_handle_non_stream_chat,
     handle_stream_chat as ai_handle_stream_chat,
 };
-use crate::api::ai::config::{ChatConfig, ConfigBuilder};
+use crate::api::ai::config::{ChatConfig, ConfigBuilder, get_network_proxy_from_config, get_request_timeout_from_config};
 use crate::api::ai::conversation::{build_chat_messages, init_conversation};
 use crate::api::ai::events::{ConversationEvent, MessageAddEvent, MessageUpdateEvent};
 use crate::api::ai::mcp::{collect_mcp_info_for_assistant, format_mcp_prompt};
@@ -165,10 +165,24 @@ pub async fn ask_ai(
         let conversation_db = ConversationDatabase::new(&app_handle_clone).unwrap();
 
         // 构建聊天配置
+        // 从配置中获取网络代理和超时设置
+        let network_proxy = get_network_proxy_from_config(&_config_feature_map);
+        let request_timeout = get_request_timeout_from_config(&_config_feature_map);
+        
+        // 检查供应商是否启用了代理
+        let proxy_enabled = model_configs
+            .iter()
+            .find(|config| config.name == "proxy_enabled")
+            .and_then(|config| config.value.parse::<bool>().ok())
+            .unwrap_or(false);
+        
         let client = genai_client::create_client_with_config(
             &model_configs,
             &model_code,
             &provider_api_type,
+            network_proxy.as_deref(),
+            proxy_enabled,
+            Some(request_timeout),
         )?;
 
         // 创建一个临时的 ModelDetail 用于配置合并
@@ -454,7 +468,7 @@ pub async fn tool_result_continue_ask_ai(
     let conversation_db = ConversationDatabase::new(&app_handle).map_err(AppError::from)?;
     // Build chat configuration (same as ask_ai)
     let client =
-        genai_client::create_client_with_config(&model_configs, &model_code, &provider_api_type)?;
+        genai_client::create_client_with_config(&model_configs, &model_code, &provider_api_type, None, false, None)?;
 
     let temp_model_detail = crate::db::llm_db::ModelDetail {
         model: crate::db::llm_db::LLMModel {
@@ -752,6 +766,7 @@ pub async fn cancel_ai(
 #[tauri::command]
 pub async fn regenerate_ai(
     app_handle: tauri::AppHandle,
+    feature_config_state: State<'_, FeatureConfigState>,
     message_token_manager: State<'_, MessageTokenManager>,
     window: tauri::Window,
     message_id: i64,
@@ -913,15 +928,32 @@ pub async fn regenerate_ai(
     let regenerate_model_configs = model_detail.configs.clone(); // 提前获取模型配置
     let regenerate_provider_api_type = model_detail.provider.api_type.clone(); // 提前获取API类型
     let regenerate_assistant_model_configs = assistant_detail.model_configs.clone(); // 提前获取助手模型配置
+    
+    // 获取网络配置
+    let _config_feature_map = feature_config_state.config_feature_map.lock().await.clone();
     let _task_handle = tokio::spawn(async move {
         // 直接创建数据库连接（避免线程安全问题）
         let conversation_db = ConversationDatabase::new(&app_handle_clone).unwrap();
 
         // 构建聊天配置
+        // 从配置中获取网络代理和超时设置
+        let network_proxy = get_network_proxy_from_config(&_config_feature_map);
+        let request_timeout = get_request_timeout_from_config(&_config_feature_map);
+        
+        // 检查供应商是否启用了代理
+        let proxy_enabled = regenerate_model_configs
+            .iter()
+            .find(|config| config.name == "proxy_enabled")
+            .and_then(|config| config.value.parse::<bool>().ok())
+            .unwrap_or(false);
+        
         let client = genai_client::create_client_with_config(
             &regenerate_model_configs,
             &regenerate_model_code,
             &regenerate_provider_api_type,
+            network_proxy.as_deref(),
+            proxy_enabled,
+            Some(request_timeout),
         )?;
 
         // 创建一个临时的 ModelDetail 用于配置合并
