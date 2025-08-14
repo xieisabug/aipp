@@ -1,14 +1,14 @@
-import remarkMath from 'remark-math';
-import remarkBreaks from 'remark-breaks';
-import remarkGfm from 'remark-gfm';
-import rehypeRaw from 'rehype-raw';
-import rehypeKatex from 'rehype-katex';
-import rehypeHighlight from 'rehype-highlight';
-import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
-import remarkCustomCompenent from '@/react-markdown/remarkCustomComponent';
-import TipsComponent from '@/react-markdown/components/TipsComponent';
-import MessageFileAttachment from '@/components/MessageFileAttachment';
-import MessageWebContent from '@/components/conversation/MessageWebContent';
+import remarkMath from "remark-math";
+import remarkBreaks from "remark-breaks";
+import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
+import rehypeKatex from "rehype-katex";
+import rehypeHighlight from "rehype-highlight";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
+import remarkCustomCompenent from "@/react-markdown/remarkCustomComponent";
+import TipsComponent from "@/react-markdown/components/TipsComponent";
+import MessageFileAttachment from "@/components/MessageFileAttachment";
+import MessageWebContent from "@/components/conversation/MessageWebContent";
 
 // ReactMarkdown 插件配置
 export const REMARK_PLUGINS = [
@@ -23,23 +23,24 @@ export const SANITIZE_SCHEMA = {
     ...defaultSchema,
     tagNames: [
         ...(defaultSchema.tagNames || []),
-        'fileattachment',
-        'bangwebtomarkdown',
-        'bangweb',
+        "fileattachment",
+        "bangwebtomarkdown",
+        "bangweb",
     ],
     attributes: {
         ...(defaultSchema.attributes || {}),
         fileattachment: [
             ...(defaultSchema.attributes?.fileattachment || []),
-            'attachment_id',
-            'attachment_url',
-            'attachment_type',
-            'attachment_content',
+            "attachment_id",
+            "attachment_url",
+            "attachment_type",
+            "attachment_content",
         ],
         bangwebtomarkdown: [
             ...(defaultSchema.attributes?.bangwebtomarkdown || []),
+            "url",
         ],
-        bangweb: [...(defaultSchema.attributes?.bangweb || [])],
+        bangweb: [...(defaultSchema.attributes?.bangweb || []), "url"],
     },
 };
 
