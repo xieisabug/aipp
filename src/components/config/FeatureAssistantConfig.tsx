@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import ConfigForm from "../ConfigForm";
-import { MessageSquare, Eye, FolderOpen, Settings } from "lucide-react";
+import { MessageSquare, Eye, FolderOpen, Settings, Wifi } from "lucide-react";
 import { toast } from 'sonner';
 import { useForm } from "react-hook-form";
 
@@ -61,6 +61,13 @@ const FeatureAssistantConfig: React.FC = () => {
             description: '管理和同步数据文件夹',
             icon: <FolderOpen className="h-5 w-5" />,
             code: 'data_folder'
+        },
+        {
+            id: 'network_config',
+            name: '网络配置',
+            description: '配置请求超时、重试次数和网络代理',
+            icon: <Wifi className="h-5 w-5" />,
+            code: 'network_config'
         }
     ];
 
@@ -357,6 +364,66 @@ const FeatureAssistantConfig: React.FC = () => {
         }
     ], [handleOpenDataFolder, handleSyncData]);
 
+    // 网络配置相关表单
+    const handleSaveNetworkConfig = useCallback(() => {
+        const values = networkConfigFormReturnData.getValues();
+        
+        invoke("save_feature_config", {
+            featureCode: "network_config",
+            config: {
+                request_timeout: values.request_timeout,
+                retry_attempts: values.retry_attempts,
+                network_proxy: values.network_proxy,
+            }
+        }).then(() => {
+            toast.success('网络配置保存成功');
+        }).catch((e) => {
+            toast.error('保存网络配置失败: ' + e);
+        });
+    }, []);
+
+    const NETWORK_FORM_CONFIG = useMemo(() => [
+        {
+            key: "request_timeout",
+            config: {
+                type: "input" as const,
+                label: "请求超时时间（秒）",
+                placeholder: "180",
+                description: "思考模型返回较慢，不建议设置过低"
+            }
+        },
+        {
+            key: "retry_attempts",
+            config: {
+                type: "input" as const,
+                label: "失败重试次数",
+                placeholder: "3",
+                description: "请求失败时的重试次数"
+            }
+        },
+        {
+            key: "network_proxy",
+            config: {
+                type: "input" as const,
+                label: "网络代理",
+                placeholder: "http://127.0.0.1:7890",
+                description: "支持 http、https 和 socks 协议，例如：http://127.0.0.1:7890"
+            }
+        }
+    ], []);
+
+    const networkConfigFormReturnData = useForm<{
+        request_timeout: string;
+        retry_attempts: string;
+        network_proxy: string;
+    }>({
+        defaultValues: {
+            request_timeout: featureConfig.get("network_config")?.get("request_timeout") || "180",
+            retry_attempts: featureConfig.get("network_config")?.get("retry_attempts") || "3", 
+            network_proxy: featureConfig.get("network_config")?.get("network_proxy") || "",
+        },
+    });
+
     const dataFolderFormReturnData = useForm({});
 
     useEffect(() => {
@@ -375,8 +442,15 @@ const FeatureAssistantConfig: React.FC = () => {
                 previewFormReturnData.setValue("nuxtjs_port", previewConfig.get("nuxtjs_port") || "3002");
                 previewFormReturnData.setValue("auth_token", previewConfig.get("auth_token") || "");
             }
+
+            const networkConfig = featureConfig.get("network_config");
+            if (networkConfig) {
+                networkConfigFormReturnData.setValue("request_timeout", networkConfig.get("request_timeout") || "180");
+                networkConfigFormReturnData.setValue("retry_attempts", networkConfig.get("retry_attempts") || "3");
+                networkConfigFormReturnData.setValue("network_proxy", networkConfig.get("network_proxy") || "");
+            }
         }
-    }, [featureConfig, summaryFormReturnData, previewFormReturnData]);
+    }, [featureConfig, summaryFormReturnData, previewFormReturnData, networkConfigFormReturnData]);
 
     // 下拉菜单选项
     const selectOptions: SelectOption[] = useMemo(() =>
@@ -429,6 +503,18 @@ const FeatureAssistantConfig: React.FC = () => {
                         layout="default"
                         classNames="bottom-space"
                         useFormReturn={dataFolderFormReturnData}
+                    />
+                );
+            case 'network_config':
+                return (
+                    <ConfigForm
+                        title={selectedFeature.name}
+                        description={selectedFeature.description}
+                        config={NETWORK_FORM_CONFIG}
+                        layout="default"
+                        classNames="bottom-space"
+                        useFormReturn={networkConfigFormReturnData}
+                        onSave={handleSaveNetworkConfig}
                     />
                 );
             default:

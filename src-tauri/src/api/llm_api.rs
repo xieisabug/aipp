@@ -175,7 +175,7 @@ pub async fn fetch_model_list(
 
     // 使用共用的客户端创建函数
     let client =
-        genai_client::create_client_with_config(&llm_provider_config, "", &llm_provider.api_type)
+        genai_client::create_client_with_config(&llm_provider_config, "", &llm_provider.api_type, None, false, None)
             .map_err(|e| e.to_string())?;
 
     let adapter_kind = genai_client::infer_adapter_kind_simple(&llm_provider.api_type);
@@ -302,7 +302,7 @@ pub async fn preview_model_list(
 
     // 使用共用的客户端创建函数
     let client =
-        genai_client::create_client_with_config(&llm_provider_config, "", &llm_provider.api_type)
+        genai_client::create_client_with_config(&llm_provider_config, "", &llm_provider.api_type, None, false, None)
             .map_err(|e| e.to_string())?;
 
     let adapter_kind = genai_client::infer_adapter_kind_simple(&llm_provider.api_type);
