@@ -61,6 +61,7 @@ import { getCaretCoordinates } from "../../utils/caretCoordinates";
 import BangCompletionList from "./BangCompletionList";
 import AssistantCompletionList from "./AssistantCompletionList";
 import { useFileList } from '../../hooks/useFileList';
+import { useAssistantListListener } from '../../hooks/useAssistantListListener';
 import PinyinFilter, { AssistantItem, FilteredAssistant } from '../../utils/pinyinFilter';
 
 interface InputAreaProps {
@@ -141,6 +142,20 @@ const InputArea: React.FC<InputAreaProps> = React.memo(
                 setFilteredAssistants(initialFiltered);
             });
         }, []);
+
+        // 监听助手列表变化
+        useAssistantListListener({
+            onAssistantListChanged: useCallback((assistantList: AssistantItem[]) => {
+                setAssistants(assistantList);
+                // 重新初始化过滤后的助手列表
+                const initialFiltered: FilteredAssistant[] = assistantList.map(assistant => ({
+                    ...assistant,
+                    matchType: 'exact' as const,
+                    highlightIndices: []
+                }));
+                setFilteredAssistants(initialFiltered);
+            }, [])
+        });
 
         useEffect(() => {
             const handleSelectionChange = () => {

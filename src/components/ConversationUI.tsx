@@ -33,12 +33,8 @@ import useConversationManager from "../hooks/useConversationManager";
 import { useMessageGroups } from "../hooks/useMessageGroups";
 import useFileManagement from "@/hooks/useFileManagement";
 import { useConversationEvents } from "@/hooks/useConversationEvents";
-
-interface AssistantListItem {
-    id: number;
-    name: string;
-    assistant_type: number;
-}
+import { useAssistantListListener } from "@/hooks/useAssistantListListener";
+import { AssistantListItem } from "@/data/Assistant";
 
 interface ConversationUIProps {
     conversationId: string;
@@ -581,6 +577,18 @@ function ConversationUI({
             }
         };
     }, [conversation]);
+
+    // 监听助手列表变化
+    useAssistantListListener({
+        onAssistantListChanged: useCallback((assistantList: AssistantListItem[]) => {
+            setAssistants(assistantList);
+            // 如果当前选中的助手不在新列表中，选择第一个助手
+            if (assistantList.length > 0 && 
+                !assistantList.some(assistant => assistant.id === selectedAssistant)) {
+                setSelectedAssistant(assistantList[0].id);
+            }
+        }, [selectedAssistant])
+    });
 
     // 监听错误通知事件
     useEffect(() => {

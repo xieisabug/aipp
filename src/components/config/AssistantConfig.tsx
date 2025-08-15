@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { toast } from "sonner";
 import { invoke } from "@tauri-apps/api/core";
 import { AssistantDetail, AssistantListItem } from "../../data/Assistant";
+import { useAssistantListListener } from "../../hooks/useAssistantListListener";
 import ConfigForm from "../ConfigForm";
 import ConfirmDialog from "../ConfirmDialog";
 import AddAssistantDialog from "./AddAssistantDialog";
@@ -211,6 +212,25 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                 toast.error("获取助手列表失败: " + error);
             });
     }, []);
+    
+    // 监听助手列表变化
+    useAssistantListListener({
+        onAssistantListChanged: useCallback((assistantList: AssistantListItem[]) => {
+            setAssistants(assistantList);
+            // 如果当前选中的助手不在新列表中，选择第一个助手
+            if (assistantList.length > 0) {
+                const currentAssistantExists = assistantList.some(
+                    assistant => assistant.id === currentAssistant?.assistant.id
+                );
+                if (!currentAssistantExists) {
+                    handleChooseAssistant(assistantList[0]);
+                }
+            } else {
+                setCurrentAssistant(null);
+            }
+        }, [currentAssistant?.assistant.id])
+    });
+
     // 使用 useCallback 缓存回调函数
     const onSave = useCallback((assistant: AssistantDetail) => {
         return invoke<void>("save_assistant", { assistantDetail: assistant });
@@ -226,6 +246,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                     {
                         id: assistantDetail.assistant.id,
                         name: assistantDetail.assistant.name,
+                        assistant_type: assistantDetail.assistant.assistant_type,
                     },
                 ]);
                 setCurrentAssistant(assistantDetail);
@@ -498,6 +519,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                 newAssistants[index] = {
                     id: updatedAssistant.assistant.id,
                     name: updatedAssistant.assistant.name,
+                    assistant_type: updatedAssistant.assistant.assistant_type,
                 };
                 setAssistants(newAssistants);
             }
@@ -706,6 +728,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
             {
                 id: assistantDetail.assistant.id,
                 name: assistantDetail.assistant.name,
+                assistant_type: assistantDetail.assistant.assistant_type,
             },
         ]);
         setCurrentAssistant(assistantDetail);

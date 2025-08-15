@@ -8,6 +8,7 @@ use crate::{
     },
     NameCacheState,
 };
+use tauri::Emitter;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct AssistantDetail {
@@ -253,6 +254,9 @@ pub async fn save_assistant(
         }
     }
 
+    // 广播助手列表更新事件
+    let _ = app_handle.emit("assistant_list_changed", ());
+
     Ok(())
 }
 
@@ -371,6 +375,9 @@ pub fn add_assistant(
         mcp_tool_configs: Vec::new(),
     };
 
+    // 广播助手列表更新事件
+    let _ = app_handle.emit("assistant_list_changed", ());
+
     Ok(assistant_detail)
 }
 
@@ -482,6 +489,10 @@ pub fn copy_assistant(
         "Successfully copied assistant. New assistant ID: {}",
         new_assistant_id
     );
+
+    // 广播助手列表更新事件
+    let _ = app_handle.emit("assistant_list_changed", ());
+
     Ok(assistant_detail)
 }
 
@@ -512,7 +523,12 @@ pub fn delete_assistant(app_handle: tauri::AppHandle, assistant_id: i64) -> Resu
 
     assistant_db
         .delete_assistant(assistant_id)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    // 广播助手列表更新事件
+    let _ = app_handle.emit("assistant_list_changed", ());
+
+    Ok(())
 }
 
 #[tauri::command]
