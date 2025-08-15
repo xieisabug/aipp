@@ -616,6 +616,14 @@ function ConversationUI({
     const combinedMessagesForGrouping = useMemo(() => {
         const combinedMessages = [...messages];
 
+
+        // 找到最后一个用户消息，用于确定当前对话轮次的基准时间
+        const lastUserMessage = [...combinedMessages].reverse().find(msg => msg.message_type === "user");
+        const baseTimestamp = lastUserMessage ? new Date(lastUserMessage.created_time).getTime() : Date.now();
+
+        // 为了确保同一轮对话中的所有流式消息使用相同的时间戳，我们使用统一的时间戳
+        const uniformStreamTimestamp = baseTimestamp + 1000;
+
         // 将流式消息添加到显示列表中
         streamingMessages.forEach((streamEvent) => {
             // 检查是否已经存在同样ID的消息
@@ -623,23 +631,14 @@ function ConversationUI({
                 (msg) => msg.id === streamEvent.message_id,
             );
             if (existingIndex === -1) {
-                // 推断合理的时间戳：基于最后一条消息的时间稍微往后一点
-                const lastMessage =
-                    combinedMessages[combinedMessages.length - 1];
-                const baseTime = lastMessage
-                    ? new Date(lastMessage.created_time)
-                    : new Date();
                 const tempMessage: Message = {
                     id: streamEvent.message_id,
                     conversation_id: conversation?.id || 0,
                     message_type: streamEvent.message_type,
                     content: streamEvent.content,
                     llm_model_id: null,
-                    created_time: new Date(baseTime.getTime() + 1000), // 基于最后消息时间+1秒
-                    start_time:
-                        streamEvent.message_type === "reasoning"
-                            ? baseTime
-                            : null,
+                    created_time: new Date(uniformStreamTimestamp), // 使用统一时间戳
+                    start_time: new Date(uniformStreamTimestamp),
                     finish_time: streamEvent.is_done
                         ? streamEvent.end_time || new Date()
                         : null,
@@ -648,9 +647,11 @@ function ConversationUI({
                     parent_group_id: null, // 流式消息暂时不设置parent_group_id
                     regenerate: null,
                 };
+                
+                
                 combinedMessages.push(tempMessage);
             } else {
-                // 存在则更新消息内容
+                // 存在则更新消息内容，但保持时间戳不变
                 combinedMessages[existingIndex] = {
                     ...combinedMessages[existingIndex],
                     content: streamEvent.content,
@@ -659,8 +660,10 @@ function ConversationUI({
                         ? streamEvent.end_time || new Date()
                         : combinedMessages[existingIndex].finish_time,
                 };
+                
             }
         });
+
 
         return combinedMessages;
     }, [messages, streamingMessages, conversation?.id]);
@@ -676,31 +679,16 @@ function ConversationUI({
     const {
         generationGroups,
         selectedVersions,
-        messageIdToGroupRootTimestamp,
         handleGenerationVersionChange,
         getMessageVersionInfo,
         getGenerationGroupControl,
     } = useMessageGroups({ allDisplayMessages: combinedMessagesForGrouping, groupMergeMap });
 
-    // 最后进行排序，使用从 useMessageGroups 获取的时间戳映射
+    // 简化排序逻辑：直接按ID排序（ID是自增的，自然反映创建顺序）
     const allDisplayMessages = useMemo(() => {
-        // 计算每个消息的排序基准时间：使用 O(1) Map 查找替代 O(N) 遍历
-        const getMessageSortTime = (message: Message): number => {
-            // 尝试从 messageIdToGroupRootTimestamp 中获取根时间戳
-            const rootTimestamp = messageIdToGroupRootTimestamp.get(message.id);
-            if (rootTimestamp !== undefined) {
-                return rootTimestamp;
-            }
-            
-            // 对于没有分组的消息，使用自身创建时间
-            return new Date(message.created_time).getTime();
-        };
-
-        const sorted = [...combinedMessagesForGrouping].sort(
-            (a, b) => getMessageSortTime(a) - getMessageSortTime(b)
-        );
+        const sorted = [...combinedMessagesForGrouping].sort((a, b) => a.id - b.id);
         return sorted;
-    }, [combinedMessagesForGrouping, messageIdToGroupRootTimestamp]);
+    }, [combinedMessagesForGrouping]);
 
     // ============= Reasoning 展开状态管理 =============
 
@@ -991,6 +979,7 @@ function ConversationUI({
 
     // 过滤系统消息和工具结果消息并渲染MessageItem组件
     const filteredMessages = useMemo(() => {
+        
         const result = allDisplayMessages
             .filter((m) => m.message_type !== "system" && m.message_type !== "tool_result")
             .map((message) => {
@@ -1002,6 +991,7 @@ function ConversationUI({
                 if (versionInfo && !versionInfo.shouldShow) {
                     return null; // 不显示非当前版本的消息
                 }
+
 
                 // 检查是否需要显示版本控制
                 const groupControl = getGenerationGroupControl(message);
