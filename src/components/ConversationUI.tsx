@@ -145,10 +145,6 @@ function ConversationUI({
         )
             .then((updatedConversation) => {
                 setMessages(updatedConversation.messages);
-                console.log(
-                    "Updated messages after message_add:",
-                    updatedConversation.messages,
-                );
             })
             .catch((error) => {
                 console.error(
@@ -188,10 +184,6 @@ function ConversationUI({
             newMap.set(
                 groupMergeData.new_group_id,
                 groupMergeData.original_group_id,
-            );
-            console.log(
-                "Updated groupMergeMap:",
-                Array.from(newMap.entries()),
             );
             return newMap;
         });
@@ -595,10 +587,10 @@ function ConversationUI({
         const unsubscribe = listen("conversation-window-error-notification", (event) => {
             const errorMessage = event.payload as string;
             console.error("Received error notification:", errorMessage);
-            
+
             // 重置AI响应状态
             setAiIsResponsing(false);
-            
+
             // 使用智能边框控制，而不是直接清空
             updateShiningMessages();
         });
@@ -647,8 +639,8 @@ function ConversationUI({
                     parent_group_id: null, // 流式消息暂时不设置parent_group_id
                     regenerate: null,
                 };
-                
-                
+
+
                 combinedMessages.push(tempMessage);
             } else {
                 // 存在则更新消息内容，但保持时间戳不变
@@ -660,7 +652,7 @@ function ConversationUI({
                         ? streamEvent.end_time || new Date()
                         : combinedMessages[existingIndex].finish_time,
                 };
-                
+
             }
         });
 
@@ -679,16 +671,77 @@ function ConversationUI({
     const {
         generationGroups,
         selectedVersions,
+        groupRootMessageIds,
         handleGenerationVersionChange,
         getMessageVersionInfo,
         getGenerationGroupControl,
     } = useMessageGroups({ allDisplayMessages: combinedMessagesForGrouping, groupMergeMap });
 
-    // 简化排序逻辑：直接按ID排序（ID是自增的，自然反映创建顺序）
+    // 智能排序逻辑：先过滤可见消息，再基于分组基准时间排序
     const allDisplayMessages = useMemo(() => {
-        const sorted = [...combinedMessagesForGrouping].sort((a, b) => a.id - b.id);
+        // 首先过滤出可见的消息
+        const visibleMessages = combinedMessagesForGrouping.filter((message) => {
+            // 跳过系统消息和工具结果
+            if (message.message_type === "system" || message.message_type === "tool_result") {
+                return false;
+            }
+            
+            // 检查版本可见性
+            const versionInfo = getMessageVersionInfo(message);
+            if (versionInfo && !versionInfo.shouldShow) {
+                return false;
+            }
+            
+            return true;
+        });
+
+        // 创建消息到根组的映射，包括子分组的消息
+        const messageToRootGroupMap = new Map<number, string>();
+        
+        // 首先建立所有 generation_group_id 到根分组的映射
+        const generationIdToRootMap = new Map<string, string>();
+        combinedMessagesForGrouping.forEach(message => {
+            if (message.generation_group_id) {
+                // 查找这个 generation_group_id 在哪个根分组中
+                generationGroups.forEach((group, rootGroupId) => {
+                    group.versions.forEach(version => {
+                        if (version.versionId === message.generation_group_id) {
+                            generationIdToRootMap.set(message.generation_group_id, rootGroupId);
+                        }
+                    });
+                });
+            }
+        });
+        
+        // 然后为每个消息建立到根分组的映射
+        combinedMessagesForGrouping.forEach(message => {
+            if (message.generation_group_id) {
+                const rootGroupId = generationIdToRootMap.get(message.generation_group_id);
+                if (rootGroupId) {
+                    messageToRootGroupMap.set(message.id, rootGroupId);
+                }
+            }
+        });
+
+        // 然后对可见消息进行排序
+        const sorted = visibleMessages.sort((a, b) => {
+            const aGroupId = messageToRootGroupMap.get(a.id);
+            const bGroupId = messageToRootGroupMap.get(b.id);
+
+            // 获取排序基准值：分组消息使用分组基准消息ID，非分组消息使用自身ID
+            const aBaseValue = aGroupId ? (groupRootMessageIds.get(aGroupId) || a.id) : a.id;
+            const bBaseValue = bGroupId ? (groupRootMessageIds.get(bGroupId) || b.id) : b.id;
+
+            if (aBaseValue !== bBaseValue) {
+                return aBaseValue - bBaseValue;
+            }
+            
+            // 基准值相同时，按ID排序（同一分组内的消息或ID相同的情况）
+            return a.id - b.id;
+        });
+        
         return sorted;
-    }, [combinedMessagesForGrouping]);
+    }, [combinedMessagesForGrouping, generationGroups, groupRootMessageIds, getMessageVersionInfo]);
 
     // ============= Reasoning 展开状态管理 =============
 
@@ -977,21 +1030,11 @@ function ConversationUI({
         }
     }, 200);
 
-    // 过滤系统消息和工具结果消息并渲染MessageItem组件
+    // 渲染已经过滤和排序的消息
     const filteredMessages = useMemo(() => {
-        
-        const result = allDisplayMessages
-            .filter((m) => m.message_type !== "system" && m.message_type !== "tool_result")
-            .map((message) => {
+        const result = allDisplayMessages.map((message) => {
                 // 查找对应的流式消息信息（如果存在）
                 const streamEvent = streamingMessages.get(message.id);
-
-                // 检查是否需要根据版本管理隐藏消息
-                const versionInfo = getMessageVersionInfo(message);
-                if (versionInfo && !versionInfo.shouldShow) {
-                    return null; // 不显示非当前版本的消息
-                }
-
 
                 // 检查是否需要显示版本控制
                 const groupControl = getGenerationGroupControl(message);
@@ -1106,7 +1149,6 @@ function ConversationUI({
     }, [
         allDisplayMessages,
         streamingMessages,
-        getMessageVersionInfo,
         getGenerationGroupControl,
         handleGenerationVersionChange,
         reasoningExpandStates,

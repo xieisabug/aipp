@@ -950,8 +950,8 @@ async fn attempt_stream_chat(
                                             start_time: Some(now),
                                             finish_time: None,
                                             token_count: 0,
-                                            generation_group_id: None,
-                                            parent_group_id: None,
+                                            generation_group_id: Some(generation_group_id.clone()), // 添加generation_group_id
+                                            parent_group_id: parent_group_id_override.clone(), // 添加parent_group_id
                                             tool_calls_json: None,
                                         })
                                         .unwrap();

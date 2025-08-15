@@ -27,6 +27,7 @@ interface GenerationGroup {
 interface UseMessageGroupsReturn {
     generationGroups: Map<string, GenerationGroup>;
     selectedVersions: Map<string, number>;
+    groupRootMessageIds: Map<string, number>; // 更改：分组基准消息ID
     handleGenerationVersionChange: (
         groupId: string,
         versionIndex: number,
@@ -98,20 +99,48 @@ export function useMessageGroups({
             return root;
         };
 
-        // 先记录每个分组的根消息时间
-        const groupRootTimestamps = new Map<string, number>();
-        versionDataMap.forEach((data, versionId) => {
+        // 先记录每个分组的基准消息ID（使用最顶层父分组的最小消息 ID）
+        const groupRootMessageIds = new Map<string, number>();
+        versionDataMap.forEach((_, versionId) => {
             const rootId = findRoot(versionId);
             
-            // 如果这是根版本（没有 parentGroupId），记录其时间作为分组的基准时间
-            if (!data.parentGroupId && !groupRootTimestamps.has(rootId)) {
-                const rootTimestamp = Math.min(
-                    ...data.messages
-                        .map((m) => new Date(m.created_time || 0).getTime())
-                        .filter((t) => t > 0),
-                ) || 0;
-                groupRootTimestamps.set(rootId, rootTimestamp);
+            // 如果已经计算过这个根分组，跳过
+            if (groupRootMessageIds.has(rootId)) {
+                return;
             }
+            
+            // 找到这个根分组树中所有的版本数据
+            const allVersionsInGroup: Array<Pick<Version, "messages" | "parentGroupId">> = [];
+            versionDataMap.forEach((versionData, vId) => {
+                if (findRoot(vId) === rootId) {
+                    allVersionsInGroup.push(versionData);
+                }
+            });
+            
+            // 找到最顶层的父分组（没有 parentGroupId 的那个）
+            const topLevelVersions = allVersionsInGroup.filter(v => !v.parentGroupId);
+            
+            let groupBaseId = Infinity;
+            if (topLevelVersions.length > 0) {
+                // 使用顶层父分组的最小消息 ID
+                for (const version of topLevelVersions) {
+                    const minId = Math.min(...version.messages.map(m => m.id));
+                    if (minId > 0 && minId < groupBaseId) {
+                        groupBaseId = minId;
+                    }
+                }
+            } else {
+                // 如果没有顶层版本（理论上不应该发生），使用所有版本的最小 ID
+                for (const version of allVersionsInGroup) {
+                    const minId = Math.min(...version.messages.map(m => m.id));
+                    if (minId > 0 && minId < groupBaseId) {
+                        groupBaseId = minId;
+                    }
+                }
+            }
+            
+            const finalBaseId = groupBaseId === Infinity ? 0 : groupBaseId;
+            groupRootMessageIds.set(rootId, finalBaseId);
         });
 
         const groups = new Map<string, GenerationGroup>();
@@ -119,13 +148,13 @@ export function useMessageGroups({
             const rootId = findRoot(versionId);
             const group = groups.get(rootId) ?? { versions: [] };
             
-            // 使用分组的根时间作为所有版本的基准时间，确保分组排序稳定
-            const groupBaseTimestamp = groupRootTimestamps.get(rootId) || 0;
+            // 使用分组的根消息ID作为所有版本的基准，确保分组排序稳定
+            const groupBaseMessageId = groupRootMessageIds.get(rootId) || 0;
             
             group.versions.push({
                 ...data,
                 versionId,
-                timestamp: new Date(groupBaseTimestamp),
+                timestamp: new Date(groupBaseMessageId),
             });
             groups.set(rootId, group);
         });
@@ -137,8 +166,11 @@ export function useMessageGroups({
                 if (!a.parentGroupId && b.parentGroupId) return -1;
                 if (a.parentGroupId && !b.parentGroupId) return 1;
                 
-                // 按时间排序
-                return a.timestamp.getTime() - b.timestamp.getTime();
+                // 都是根版本或都是子版本时，按消息的最小 ID 排序（ID 是自增的，更可靠）
+                const aMinId = Math.min(...a.messages.map((m) => m.id));
+                const bMinId = Math.min(...b.messages.map((m) => m.id));
+                
+                return aMinId - bMinId;
             });
             
             group.versions.forEach(version => {
@@ -146,10 +178,11 @@ export function useMessageGroups({
             });
         });
 
-        return { groups, groupRootTimestamps };
+        return { groups, groupRootMessageIds };
     }, [allDisplayMessages, groupMergeMap]);
 
     const pureGenerationGroups = pureGenerationGroupsAndTimestamps.groups;
+    const groupRootMessageIds = pureGenerationGroupsAndTimestamps.groupRootMessageIds;
 
     // =================================================================================
     // 优化点 2: 逻辑分离
@@ -328,6 +361,7 @@ export function useMessageGroups({
     return {
         generationGroups,
         selectedVersions,
+        groupRootMessageIds: groupRootMessageIds,
         handleGenerationVersionChange,
         getMessageVersionInfo,
         getGenerationGroupControl,

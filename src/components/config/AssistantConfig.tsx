@@ -709,6 +709,26 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
             },
         ]);
         setCurrentAssistant(assistantDetail);
+        
+        // 重置表单状态为新助手的配置
+        form.reset({
+            assistantType: assistantDetail.assistant.assistant_type,
+            model:
+                assistantDetail.model.length > 0
+                    ? `${assistantDetail.model[0].model_code}%%${assistantDetail.model[0].provider_id}`
+                    : "-1",
+            prompt: assistantDetail.prompts[0]?.prompt || "",
+            ...assistantDetail.model_configs.reduce(
+                (acc, config) => {
+                    acc[config.name] =
+                        config.value_type === "boolean"
+                            ? config.value == "true"
+                            : config.value;
+                    return acc;
+                },
+                {} as Record<string, any>,
+            ),
+        });
     };
 
     // 下拉菜单选项
