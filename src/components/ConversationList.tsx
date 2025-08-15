@@ -23,13 +23,65 @@ function ConversationList({
     conversationId,
 }: ConversationListProps) {
     const [conversations, setConversations] = useState<Array<Conversation>>([]);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [isLoading, setIsLoading] = useState(false);
+    const [hasMoreData, setHasMoreData] = useState(true);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
     const { deleteConversation, listConversations } = useConversationManager();
 
     useEffect(() => {
-        listConversations().then((c) => {
+        setIsLoading(true);
+        listConversations(1, 100).then((c) => {
             setConversations(c);
+            setHasMoreData(c.length === 100); // 如果返回的数据等于页面大小，可能还有更多数据
+            setIsLoading(false);
+        }).catch(() => {
+            setIsLoading(false);
         });
     }, []);
+
+    // 加载下一页数据
+    const loadNextPage = useCallback(async () => {
+        if (isLoadingMore || !hasMoreData) return;
+        
+        setIsLoadingMore(true);
+        try {
+            const nextPage = currentPage + 1;
+            const newConversations = await listConversations(nextPage, 100);
+            
+            if (newConversations.length > 0) {
+                setConversations(prev => [...prev, ...newConversations]);
+                setCurrentPage(nextPage);
+                setHasMoreData(newConversations.length === 100);
+            } else {
+                setHasMoreData(false);
+            }
+        } catch (error) {
+            console.error('Failed to load more conversations:', error);
+        } finally {
+            setIsLoadingMore(false);
+        }
+    }, [currentPage, hasMoreData, isLoadingMore, listConversations]);
+
+    // 滚动监听，检测是否滚动到最后10%
+    useEffect(() => {
+        const container = scrollContainerRef.current;
+        if (!container) return;
+
+        const handleScroll = () => {
+            const { scrollTop, scrollHeight, clientHeight } = container;
+            const scrollPercentage = (scrollTop + clientHeight) / scrollHeight;
+            
+            // 当滚动到最后10%时加载下一页
+            if (scrollPercentage >= 0.9 && hasMoreData && !isLoadingMore) {
+                loadNextPage();
+            }
+        };
+
+        container.addEventListener('scroll', handleScroll);
+        return () => container.removeEventListener('scroll', handleScroll);
+    }, [hasMoreData, isLoadingMore, loadNextPage]);
 
     // 当 conversationId 不在当前列表中时，自动重新拉取列表。
     const fetchRetryingRef = useRef(false);
@@ -48,8 +100,10 @@ function ConversationList({
                 conversationId,
             );
             fetchRetryingRef.current = true;
-            listConversations().then((c) => {
+            listConversations(1, 100).then((c) => {
                 setConversations(c);
+                setCurrentPage(1);
+                setHasMoreData(c.length === 100);
                 // 获取完毕后重置标记，防止死循环
                 fetchRetryingRef.current = false;
             });
@@ -143,7 +197,7 @@ function ConversationList({
 
 
     return (
-        <div className="flex-1 overflow-y-auto overflow-x-hidden px-3">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-3" ref={scrollContainerRef}>
             <ul className="list-none p-0 m-0">
                 {conversations.map((conversation) => (
                     <li
@@ -195,6 +249,25 @@ function ConversationList({
                 ))}
             </ul>
 
+            {/* 加载指示器 */}
+            {isLoading && conversations.length === 0 && (
+                <div className="flex justify-center items-center py-8">
+                    <div className="text-sm text-gray-500">加载中...</div>
+                </div>
+            )}
+            
+            {isLoadingMore && (
+                <div className="flex justify-center items-center py-4">
+                    <div className="text-sm text-gray-500">加载更多...</div>
+                </div>
+            )}
+            
+            {!hasMoreData && conversations.length > 0 && (
+                <div className="flex justify-center items-center py-4">
+                    <div className="text-xs text-gray-400">已加载全部对话</div>
+                </div>
+            )}
+
             <ConversationTitleEditDialog
                 isOpen={titleEditDialogIsOpen}
                 conversationId={editingConversationId}
@@ -208,8 +281,18 @@ function ConversationList({
                 onConfirm={() => {
                     deleteConversation(deleteConversationId, {
                         onSuccess: async () => {
-                            const conversations = await listConversations();
-                            setConversations(conversations);
+                            // 删除后重新加载第一页数据
+                            setIsLoading(true);
+                            try {
+                                const conversations = await listConversations(1, 100);
+                                setConversations(conversations);
+                                setCurrentPage(1);
+                                setHasMoreData(conversations.length === 100);
+                            } catch (error) {
+                                console.error('Failed to reload conversations after delete:', error);
+                            } finally {
+                                setIsLoading(false);
+                            }
                             closeDeleteDialog();
                         },
                     });
