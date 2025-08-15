@@ -427,18 +427,8 @@ pub async fn tool_result_continue_ask_ai(
     // 使用统一的排序函数进行排序
     let init_message_list = sort_messages_by_group_and_id(init_message_list, &all_messages);
 
-    println!(
-        "[[init_message_list (tool_result_continue)]]: {:#?}\n",
-        init_message_list
-    );
-
     // 收集 MCP 信息
     let mcp_info = collect_mcp_info_for_assistant(&app_handle, assistant_id).await?;
-    println!(
-        "[[MCP enabled_servers]]: {} [[native_toolcall]]: {}\n",
-        mcp_info.enabled_servers.len(),
-        mcp_info.use_native_toolcall
-    );
     let is_native_toolcall = mcp_info.use_native_toolcall;
 
     let cancel_token = CancellationToken::new();
@@ -471,7 +461,10 @@ pub async fn tool_result_continue_ask_ai(
         None,
         false,
         None,
-    )?;
+    ).map_err(|e| {
+        println!("[[Failed to create client in tool_result_continue_ask_ai]]: {}", e);
+        e
+    })?;
 
     let temp_model_detail = crate::db::llm_db::ModelDetail {
         model: crate::db::llm_db::LLMModel {
@@ -550,10 +543,6 @@ pub async fn tool_result_continue_ask_ai(
     // 兼容：Gemini 通过 OpenAI 适配时，服务端要求 function_response.name 不为空。通用 ToolResponse 不带 name。
     // 为避免 400，这里在该场景下对"继续对话"强制降级为非原生。
     let use_native_for_continue = has_available_tools;
-    println!(
-        "[[tool_result_continue native?]]: {} (provider_api_type={}, model_code={})",
-        use_native_for_continue, provider_api_type, model_code
-    );
     let chat_request = if use_native_for_continue {
         // 重新构建消息序列，确保 Assistant-Tool 消息正确配对
         // 而不是让 build_chat_messages_with_context 自动重建，我们手动控制顺序
@@ -572,11 +561,6 @@ pub async fn tool_result_continue_ask_ai(
                 }
             }
         }
-
-        println!(
-            "[[DEBUG - tool_call_to_response]]: {:#?}",
-            tool_call_to_response
-        );
 
         // 按顺序处理消息，确保 Assistant-Tool 配对
         for (message_type, content, attachment_list) in init_message_list.iter() {
@@ -597,8 +581,6 @@ pub async fn tool_result_continue_ask_ai(
                 }
                 "response" => {
                     // 从数据库重建完整的 Assistant 消息和其对应的 Tool 响应
-                    // 查找这个 response 消息对应的数据库记录
-                    println!("[[DEBUG - Processing response message]]");
 
                     // 尝试从内容中提取工具调用信息重建Assistant消息
                     if let Some(assistant_with_calls) = crate::api::ai::conversation::reconstruct_assistant_with_tool_calls_from_content(content) {
@@ -610,7 +592,6 @@ pub async fn tool_result_continue_ask_ai(
                                 if let Some(response_content) = tool_call_to_response.get(&tool_call.call_id) {
                                     let tool_response = genai::chat::ToolResponse::new(tool_call.call_id.clone(), response_content.clone());
                                     chat_messages.push(genai::chat::ChatMessage::from(tool_response));
-                                    println!("[[DEBUG - Added Tool response for call_id]]: {}", tool_call.call_id);
                                 }
                             }
                         }
@@ -621,53 +602,10 @@ pub async fn tool_result_continue_ask_ai(
                 }
                 "tool_result" => {
                     // 跳过，因为已经在上面的 response 处理中配对处理了
-                    println!(
-                        "[[DEBUG - Skipping tool_result as it's handled in response pairing]]"
-                    );
                 }
                 _ => {
                     chat_messages.push(genai::chat::ChatMessage::assistant(content));
                 }
-            }
-        }
-
-        println!("[[DEBUG - AFTER manual message reconstruction]]:");
-        for (i, msg) in chat_messages.iter().enumerate() {
-            println!("  Message [{}]: role={:?}", i, msg.role);
-            match &msg.role {
-                genai::chat::ChatRole::Assistant => match &msg.content {
-                    genai::chat::MessageContent::Text(text) => {
-                        println!(
-                            "    Content: {}",
-                            text.chars().take(100).collect::<String>()
-                        );
-                    }
-                    genai::chat::MessageContent::ToolCalls(tool_calls) => {
-                        println!("    Tool calls count: {}", tool_calls.len());
-                        for tc in tool_calls {
-                            println!("      - call_id: {}, fn_name: {}", tc.call_id, tc.fn_name);
-                        }
-                    }
-                    _ => println!("    Content: <other>"),
-                },
-                genai::chat::ChatRole::Tool => match &msg.content {
-                    genai::chat::MessageContent::Text(text) => {
-                        println!(
-                            "    Tool response content: {}",
-                            text.chars().take(100).collect::<String>()
-                        );
-                    }
-                    _ => println!("    Tool response: <other>"),
-                },
-                _ => match &msg.content {
-                    genai::chat::MessageContent::Text(text) => {
-                        println!(
-                            "    Content: {}",
-                            text.chars().take(100).collect::<String>()
-                        );
-                    }
-                    _ => println!("    Content: <other>"),
-                },
             }
         }
 
@@ -708,10 +646,6 @@ pub async fn tool_result_continue_ask_ai(
             .collect();
 
         let chat_messages = build_chat_messages(&transformed_list);
-        println!(
-            "[[chat_messages (tool_result_continue non_native)]]: {:#?}\n",
-            chat_messages
-        );
         ChatRequest::new(chat_messages)
     };
 
@@ -1214,10 +1148,10 @@ fn sort_messages_by_group_and_id(
                             min_a.cmp(min_b)
                         }
                     }
-                    // 只有A有group_id，B排前面
-                    (Some(_), None) => std::cmp::Ordering::Greater,
-                    // 只有B有group_id，A排前面
-                    (None, Some(_)) => std::cmp::Ordering::Less,
+                    // 只有A有group_id，按消息ID排序（而不是固定让B排前面）
+                    (Some(_), None) => ma.id.cmp(&mb.id),
+                    // 只有B有group_id，按消息ID排序（而不是固定让A排前面）
+                    (None, Some(_)) => ma.id.cmp(&mb.id),
                     // 两个都没有group_id，按消息ID排序
                     (None, None) => ma.id.cmp(&mb.id),
                 }
@@ -1469,7 +1403,10 @@ pub async fn regenerate_conversation_title(
     feature_config_state: State<'_, FeatureConfigState>,
     conversation_id: i64,
 ) -> Result<(), AppError> {
-    let conversation_db = ConversationDatabase::new(&app_handle).map_err(AppError::from)?;
+    let conversation_db = ConversationDatabase::new(&app_handle).map_err(|e| {
+        println!("[[Failed to create conversation_db in tool_result_continue_ask_ai]]: {}", e);
+        AppError::from(e)
+    })?;
 
     // 获取对话的消息
     let messages = conversation_db
