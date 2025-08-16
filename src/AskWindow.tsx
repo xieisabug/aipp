@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen, once, emitTo } from "@tauri-apps/api/event";
@@ -22,6 +28,8 @@ import useFileManagement from "./hooks/useFileManagement";
 import InputArea from "./components/conversation/InputArea";
 import { useConversationEvents } from "./hooks/useConversationEvents";
 import { StreamEvent } from "./data/Conversation";
+import { ShineBorder } from "./components/magicui/shine-border";
+import { DEFAULT_SHINE_BORDER_CONFIG } from "@/lib/shine-config";
 const appWindow = getCurrentWebviewWindow();
 
 interface AiResponse {
@@ -43,6 +51,9 @@ function AskWindow() {
     const [conversationId, setConversationId] = useState<string>("");
     // 独立的错误状态管理
     const [errorMessage, setErrorMessage] = useState<string>("");
+    // 闪亮边框状态管理
+    const [shouldShowShineBorder, setShouldShowShineBorder] =
+        useState<boolean>(false);
 
     // 清除错误信息
     const clearError = useCallback(() => {
@@ -53,6 +64,7 @@ function AskWindow() {
     const handleError = useCallback((errorMessage: string) => {
         console.error("Stream error in AskWindow:", errorMessage);
         setAiIsResponsing(false);
+        setShouldShowShineBorder(false); // 错误时关闭边框
         // 设置错误信息，而不是替换响应内容
         setErrorMessage(errorMessage);
     }, []);
@@ -65,9 +77,10 @@ function AskWindow() {
             if (streamEvent.message_type === "error") {
                 setErrorMessage(streamEvent.content);
                 setAiIsResponsing(false);
+                setShouldShowShineBorder(false); // AI 响应完成时关闭边框
                 return;
             }
-            
+
             // 更新正常响应内容
             if (!streamEvent.is_done) {
                 setResponse(streamEvent.content);
@@ -76,6 +89,7 @@ function AskWindow() {
         },
         onAiResponseComplete: () => {
             setAiIsResponsing(false);
+            setShouldShowShineBorder(false); // AI 响应完成时关闭边框
         },
         onError: handleError,
     });
@@ -92,16 +106,23 @@ function AskWindow() {
         });
 
         // 监听错误通知事件
-        const unsubscribe = listen("conversation-window-error-notification", (event) => {
-            const errorMsg = event.payload as string;
-            console.error("Received error notification in AskWindow:", errorMsg);
-            
-            // 重置AI响应状态
-            setAiIsResponsing(false);
-            
-            // 设置错误信息，而不是替换响应内容
-            setErrorMessage(errorMsg);
-        });
+        const unsubscribe = listen(
+            "conversation-window-error-notification",
+            (event) => {
+                const errorMsg = event.payload as string;
+                console.error(
+                    "Received error notification in AskWindow:",
+                    errorMsg,
+                );
+
+                // 重置AI响应状态
+                setAiIsResponsing(false);
+                setShouldShowShineBorder(false); // 错误时关闭边框
+
+                // 设置错误信息，而不是替换响应内容
+                setErrorMessage(errorMsg);
+            },
+        );
 
         return () => {
             if (unsubscribe) {
@@ -115,9 +136,10 @@ function AskWindow() {
             return;
         }
         setAiIsResponsing(true);
+        setShouldShowShineBorder(true); // 开始发送消息时显示边框
         setResponse("");
         setErrorMessage(""); // 清除之前的错误信息
-        
+
         invoke<AiResponse>("ask_ai", {
             request: {
                 prompt: query,
@@ -126,30 +148,34 @@ function AskWindow() {
                 attachment_list: fileInfoList?.map((i) => i.id),
             },
         })
-        .then((res) => {
-            // 记录新的 conversationId，便于后续在 ChatUIWindow 中定位
-            if (
-                res.conversation_id !== undefined &&
-                res.conversation_id !== null
-            ) {
-                setConversationId(res.conversation_id.toString());
-                console.log(
-                    "AskWindow 获取到 conversation_id",
-                    res.conversation_id,
-                );
-            }
+            .then((res) => {
+                // 记录新的 conversationId，便于后续在 ChatUIWindow 中定位
+                if (
+                    res.conversation_id !== undefined &&
+                    res.conversation_id !== null
+                ) {
+                    setConversationId(res.conversation_id.toString());
+                    console.log(
+                        "AskWindow 获取到 conversation_id",
+                        res.conversation_id,
+                    );
+                }
 
-            console.log("ask ai response", res);
-            // 事件处理现在由共享的 useConversationEvents hook 管理
-        })
-        .catch((error) => {
-            console.error("Ask AI request failed:", error);
-            setAiIsResponsing(false);
-            
-            // 显示错误信息
-            const errorMsg = typeof error === 'string' ? error : 'Unknown error occurred';
-            setErrorMessage(errorMsg);
-        });
+                console.log("ask ai response", res);
+                // 事件处理现在由共享的 useConversationEvents hook 管理
+            })
+            .catch((error) => {
+                console.error("Ask AI request failed:", error);
+                setAiIsResponsing(false);
+                setShouldShowShineBorder(false); // 请求失败时关闭边框
+
+                // 显示错误信息
+                const errorMsg =
+                    typeof error === "string"
+                        ? error
+                        : "Unknown error occurred";
+                setErrorMessage(errorMsg);
+            });
     };
 
     const onSend = throttle(() => {
@@ -158,10 +184,12 @@ function AskWindow() {
             invoke("cancel_ai", { conversationId: +conversationId })
                 .then(() => {
                     setAiIsResponsing(false);
+                    setShouldShowShineBorder(false); // 取消AI请求时关闭边框
                 })
                 .catch((error) => {
                     console.error("Cancel AI failed:", error);
                     setAiIsResponsing(false);
+                    setShouldShowShineBorder(false); // 取消失败时也关闭边框
                 });
         } else {
             console.log("Sending query to AI");
@@ -232,6 +260,7 @@ function AskWindow() {
         setAiIsResponsing(false);
         setConversationId("");
         setErrorMessage(""); // 清除错误信息
+        setShouldShowShineBorder(false); // 开始新对话时关闭边框
     };
 
     const { fileInfoList, handleChooseFile, handleDeleteFile, handlePaste } =
@@ -248,9 +277,16 @@ function AskWindow() {
     return (
         <div className="flex justify-center items-center h-screen">
             <div
-                className="bg-white shadow-lg w-full h-screen"
+                className="bg-white shadow-lg w-full h-screen flex flex-col"
                 data-tauri-drag-region
             >
+                {shouldShowShineBorder && (
+                    <ShineBorder
+                        shineColor={DEFAULT_SHINE_BORDER_CONFIG.shineColor}
+                        borderWidth={DEFAULT_SHINE_BORDER_CONFIG.borderWidth}
+                        duration={DEFAULT_SHINE_BORDER_CONFIG.duration}
+                    />
+                )}
                 <InputArea
                     inputText={query}
                     setInputText={setQuery}
@@ -262,14 +298,22 @@ function AskWindow() {
                     aiIsResponsing={aiIsResponsing}
                     placement="top"
                 />
-                <div className="prose prose-sm p-5 pb-16 max-w-none bg-white">
+                <div className="prose prose-sm p-5 pb-16 max-w-none bg-white flex-1 overflow-scroll">
                     {/* 错误信息显示区域 */}
                     {errorMessage && (
                         <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-4">
                             <div className="flex items-start space-x-3">
                                 <div className="flex-shrink-0 w-5 h-5 mt-0.5">
-                                    <svg className="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                    <svg
+                                        className="w-5 h-5 text-red-500"
+                                        fill="currentColor"
+                                        viewBox="0 0 20 20"
+                                    >
+                                        <path
+                                            fillRule="evenodd"
+                                            d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                                            clipRule="evenodd"
+                                        />
                                     </svg>
                                 </div>
                                 <div className="flex-1">
@@ -285,14 +329,21 @@ function AskWindow() {
                                     className="flex-shrink-0 text-red-400 hover:text-red-600 transition-colors"
                                     title="清除错误信息"
                                 >
-                                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                    <svg
+                                        className="w-4 h-4"
+                                        fill="currentColor"
+                                        viewBox="0 0 20 20"
+                                    >
+                                        <path
+                                            fillRule="evenodd"
+                                            d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                                            clipRule="evenodd"
+                                        />
                                     </svg>
                                 </button>
                             </div>
                         </div>
                     )}
-
                     {/* 正常内容显示区域 */}
                     {messageId !== -1 ? (
                         response == "" ? (

@@ -4,10 +4,8 @@
 }
 
 .input-area.top {
-    top: 0;
-    left: 0;
-    right: 0;
     z-index: 0;
+    flex: 0 0 54px;
 }
 
 .input-area.bottom {
@@ -70,8 +68,8 @@
     display: none;
 }
 
-.input-area-img-wrapper:hover>.input-area-img-delete-button,
-.input-area-text-wrapper:hover>.input-area-img-delete-button {
+.input-area-img-wrapper:hover > .input-area-img-delete-button,
+.input-area-text-wrapper:hover > .input-area-img-delete-button {
     display: flex;
 }
 
