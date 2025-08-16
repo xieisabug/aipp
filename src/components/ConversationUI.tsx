@@ -29,7 +29,6 @@ import useFileDropHandler from "../hooks/useFileDropHandler";
 import InputArea from "./conversation/InputArea";
 import MessageEditDialog from "./MessageEditDialog";
 import ConversationTitleEditDialog from "./ConversationTitleEditDialog";
-import useConversationManager from "../hooks/useConversationManager";
 import { useMessageGroups } from "../hooks/useMessageGroups";
 import useFileManagement from "@/hooks/useFileManagement";
 import { useConversationEvents } from "@/hooks/useConversationEvents";
@@ -821,14 +820,10 @@ function ConversationUI({
     // ============= 业务逻辑处理函数 =============
 
     // 对话管理相关操作
-    const { deleteConversation } = useConversationManager();
-    const handleDeleteConversation = useCallback(() => {
-        deleteConversation(conversationId, {
-            onSuccess: () => {
-                onChangeConversationId("");
-            },
-        });
-    }, [conversationId, deleteConversation, onChangeConversationId]);
+    const handleDeleteConversationSuccess = useCallback(() => {
+        // 删除成功后清空会话ID，返回新建对话界面
+        onChangeConversationId("");
+    }, [onChangeConversationId]);
 
     // 消息更新处理回调函数
     const handleMessageUpdate = useCallback((streamEvent: StreamEvent) => {
@@ -1176,7 +1171,7 @@ function ConversationUI({
             {conversationId ? (
                 <ConversationTitle
                     onEdit={openTitleEditDialog}
-                    onDelete={handleDeleteConversation}
+                    onDelete={handleDeleteConversationSuccess}
                     conversation={conversation}
                 />
             ) : null}

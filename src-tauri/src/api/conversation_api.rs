@@ -238,7 +238,12 @@ pub fn delete_conversation(
     db.conversation_repo()
         .unwrap()
         .delete(conversation_id)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    // 发送删除事件通知前端更新列表
+    let _ = app_handle.emit("conversation_deleted", conversation_id);
+    
+    Ok(())
 }
 
 #[tauri::command]

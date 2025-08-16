@@ -192,6 +192,26 @@ function ConversationList({
         };
     }, [conversations, editingConversationId, titleEditDialogIsOpen]);
 
+    // 监听对话删除事件
+    useEffect(() => {
+        const unsubscribe = listen("conversation_deleted", (event) => {
+            const deletedConversationId = event.payload as number;
+
+            // 从列表中移除被删除的对话
+            setConversations((prevConversations) =>
+                prevConversations.filter(
+                    (conversation) => conversation.id !== deletedConversationId
+                )
+            );
+        });
+
+        return () => {
+            if (unsubscribe) {
+                unsubscribe.then((f) => f());
+            }
+        };
+    }, []);
+
     const [deleteDialogIsOpen, setDeleteDialogIsOpen] =
         useState<boolean>(false);
     const [deleteConversationId, setDeleteConversationId] =
