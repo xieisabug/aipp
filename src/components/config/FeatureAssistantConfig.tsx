@@ -251,7 +251,7 @@ const FeatureAssistantConfig: React.FC = () => {
         defaultValues: {
             theme: featureConfig.get("display")?.get("theme") || "default",
             color_mode: featureConfig.get("display")?.get("color_mode") || "system",
-            user_message_markdown_render: featureConfig.get("display")?.get("user_message_markdown_render") || "enabled",
+            user_message_markdown_render: featureConfig.get("display")?.get("user_message_markdown_render") || "disabled",
         },
     });
 
@@ -511,7 +511,7 @@ const FeatureAssistantConfig: React.FC = () => {
             if (displayConfig) {
                 displayFormReturnData.setValue("theme", displayConfig.get("theme") || "default");
                 displayFormReturnData.setValue("color_mode", displayConfig.get("color_mode") || "system");
-                displayFormReturnData.setValue("user_message_markdown_render", displayConfig.get("user_message_markdown_render") || "enabled");
+                displayFormReturnData.setValue("user_message_markdown_render", displayConfig.get("user_message_markdown_render") || "disabled");
             }
 
             const summaryConfig = featureConfig.get("conversation_summary");

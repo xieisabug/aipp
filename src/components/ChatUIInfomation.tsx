@@ -40,7 +40,7 @@ function ChatUIInfomation() {
             <div className="flex items-center gap-2">
                 <AnimatedLogo
                     state={logoState}
-                    size={48}
+                    size={32}
                     onClick={showNormal}
                 />
             </div>

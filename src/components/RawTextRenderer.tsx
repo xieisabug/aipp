@@ -25,33 +25,42 @@ const RawTextRenderer: React.FC<RawTextRendererProps> = ({ content }) => {
             );
         }
 
-        // 如果有自定义标签，需要分离处理
+        // 重新设计分割逻辑：使用 split 来更精确地分割内容
         const parts: React.ReactNode[] = [];
-        let lastIndex = 0;
         
-        // 重置正则表达式的 lastIndex
+        // 先找到所有标签的位置和内容
         customTagPattern.lastIndex = 0;
+        const matches: Array<{ index: number; length: number; content: string }> = [];
         let match;
-
+        
         while ((match = customTagPattern.exec(content)) !== null) {
-            // 添加标签前的纯文本
-            if (match.index > lastIndex) {
-                const textBefore = content.slice(lastIndex, match.index);
+            matches.push({
+                index: match.index,
+                length: match[0].length,
+                content: match[0]
+            });
+        }
+
+        let currentIndex = 0;
+        
+        matches.forEach((tagMatch) => {
+            // 处理标签前的文本
+            if (tagMatch.index > currentIndex) {
+                const textBefore = content.slice(currentIndex, tagMatch.index);
                 if (textBefore) {
                     parts.push(
-                        <span key={`text-${lastIndex}`} style={{ whiteSpace: 'pre-wrap' }}>
+                        <span key={`text-${currentIndex}`} style={{ whiteSpace: 'pre-wrap' }}>
                             {textBefore}
                         </span>
                     );
                 }
             }
 
-            // 添加自定义标签（通过 ReactMarkdown 处理）
-            const tagContent = match[0];
+            // 处理自定义标签
             parts.push(
                 <ReactMarkdown
-                    key={`tag-${match.index}`}
-                    children={tagContent}
+                    key={`tag-${tagMatch.index}`}
+                    children={tagMatch.content}
                     remarkPlugins={[
                         REMARK_PLUGINS.find(plugin => plugin.name === 'remarkCustomCompenent') || REMARK_PLUGINS[3]
                     ].filter(Boolean) as any}
@@ -63,15 +72,30 @@ const RawTextRenderer: React.FC<RawTextRendererProps> = ({ content }) => {
                 />
             );
 
-            lastIndex = match.index + match[0].length;
-        }
+            currentIndex = tagMatch.index + tagMatch.length;
+        });
 
-        // 添加最后剩余的纯文本
-        if (lastIndex < content.length) {
-            const textAfter = content.slice(lastIndex);
-            if (textAfter) {
+        // 处理最后剩余的文本
+        if (currentIndex < content.length) {
+            const textAfter = content.slice(currentIndex);
+            
+            // 关键改进：检查是否为紧跟标签的单个换行符
+            const isSingleNewlineAfterTag = matches.length > 0 && /^\n/.test(textAfter);
+            
+            if (isSingleNewlineAfterTag) {
+                // 如果是标签后的单个换行符，移除它，但保留后续内容
+                const contentAfterNewline = textAfter.slice(1);
+                if (contentAfterNewline) {
+                    parts.push(
+                        <span key={`text-${currentIndex}`} style={{ whiteSpace: 'pre-wrap' }}>
+                            {contentAfterNewline}
+                        </span>
+                    );
+                }
+            } else if (textAfter) {
+                // 其他情况正常渲染
                 parts.push(
-                    <span key={`text-${lastIndex}`} style={{ whiteSpace: 'pre-wrap' }}>
+                    <span key={`text-${currentIndex}`} style={{ whiteSpace: 'pre-wrap' }}>
                         {textAfter}
                     </span>
                 );
