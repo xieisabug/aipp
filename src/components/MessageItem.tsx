@@ -12,6 +12,7 @@ import { useCopyHandler } from '../hooks/useCopyHandler';
 import { useCustomTagParser } from '../hooks/useCustomTagParser';
 import { useMarkdownConfig } from '../hooks/useMarkdownConfig';
 import { useMcpToolCallProcessor } from '../hooks/useMcpToolCallProcessor';
+import { useDisplayConfig } from '../hooks/useDisplayConfig';
 
 interface MessageItemProps {
     message: Message;
@@ -51,10 +52,17 @@ const MessageItem = React.memo<MessageItemProps>(({
         false,
     );
 
-    // Hooks
     const { copyIconState, handleCopy } = useCopyHandler(message.content);
     const { parseCustomTags } = useCustomTagParser();
-    const markdownConfig = useMarkdownConfig({ onCodeRun });
+    const { isUserMessageMarkdownEnabled } = useDisplayConfig();
+    
+    // 统一的 Markdown 配置，根据用户消息类型和配置决定是否禁用 Markdown 语法
+    const isUserMessage = message.message_type === 'user';
+    const markdownConfig = useMarkdownConfig({ 
+        onCodeRun,
+        disableMarkdownSyntax: isUserMessage && !isUserMessageMarkdownEnabled
+    });
+    
     const mcpProcessor = useMcpToolCallProcessor(markdownConfig, { 
         conversationId, 
         messageId: message.id,
@@ -71,10 +79,10 @@ const MessageItem = React.memo<MessageItemProps>(({
         [message.content, parseCustomTags, message.id],
     );
 
-    // 渲染 Markdown 内容
-    const markdownElement = useMemo(
+    // 渲染内容 - 统一使用 ReactMarkdown，通过配置控制渲染方式
+    const contentElement = useMemo(
         () => measureSync(
-            `markdown-render-${message.id}`,
+            `content-render-${message.id}`,
             () => {
                 const element = (
                     <ReactMarkdown
@@ -112,8 +120,6 @@ const MessageItem = React.memo<MessageItemProps>(({
     }
 
     // 常规消息渲染
-    const isUserMessage = message.message_type === 'user';
-
     return (
         <div
             className={`group relative py-4 px-5 rounded-2xl inline-block max-w-[65%] transition-all duration-200 ${isUserMessage
@@ -130,7 +136,7 @@ const MessageItem = React.memo<MessageItemProps>(({
             )}
 
             <div className="prose prose-sm max-w-none">
-                {markdownElement}
+                {contentElement}
             </div>
 
             <ImageAttachments attachments={message.attachment_list} />
