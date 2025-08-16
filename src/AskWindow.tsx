@@ -1,4 +1,4 @@
-import React, {
+import {
     useCallback,
     useEffect,
     useMemo,
@@ -8,10 +8,8 @@ import React, {
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen, once, emitTo } from "@tauri-apps/api/event";
-import ReactMarkdown, { Components } from "react-markdown";
-import remarkMath from "remark-math";
-import rehypeRaw from "rehype-raw";
-import rehypeKatex from "rehype-katex";
+import UnifiedMarkdown from "./components/UnifiedMarkdown";
+import { useTheme } from "./hooks/useTheme";
 
 import Copy from "./assets/copy.svg?react";
 import Ok from "./assets/ok.svg?react";
@@ -23,7 +21,6 @@ import AskAIHint from "./components/AskAIHint";
 import IconButton from "./components/IconButton";
 import { throttle } from "lodash";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import CodeBlock from "./components/CodeBlock";
 import useFileManagement from "./hooks/useFileManagement";
 import InputArea from "./components/conversation/InputArea";
 import { useConversationEvents } from "./hooks/useConversationEvents";
@@ -35,11 +32,11 @@ const appWindow = getCurrentWebviewWindow();
 interface AiResponse {
     conversation_id: number;
 }
-interface CustomComponents extends Components {
-    antthinking: React.ElementType;
-}
 
 function AskWindow() {
+    // 集成主题系统
+    useTheme();
+
     const [query, setQuery] = useState<string>("");
     const [response, setResponse] = useState<string>("");
     const [messageId, setMessageId] = useState<number>(-1);
@@ -277,7 +274,7 @@ function AskWindow() {
     return (
         <div className="flex justify-center items-center h-screen">
             <div
-                className="bg-white shadow-lg w-full h-screen flex flex-col"
+                className="bg-background shadow-lg w-full h-screen flex flex-col"
                 data-tauri-drag-region
             >
                 {shouldShowShineBorder && (
@@ -298,10 +295,10 @@ function AskWindow() {
                     aiIsResponsing={aiIsResponsing}
                     placement="top"
                 />
-                <div className="prose prose-sm p-5 pb-16 max-w-none bg-white flex-1 overflow-scroll">
+                <div className="p-5 pb-16 bg-background flex-1 overflow-auto">
                     {/* 错误信息显示区域 */}
                     {errorMessage && (
-                        <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-4">
+                        <div className="mb-4 bg-destructive/10 border border-destructive/20 rounded-lg p-4">
                             <div className="flex items-start space-x-3">
                                 <div className="flex-shrink-0 w-5 h-5 mt-0.5">
                                     <svg
@@ -317,16 +314,16 @@ function AskWindow() {
                                     </svg>
                                 </div>
                                 <div className="flex-1">
-                                    <div className="text-sm font-medium text-red-800 mb-1">
+                                    <div className="text-sm font-medium text-destructive mb-1">
                                         AI Request Failed
                                     </div>
-                                    <div className="text-sm text-red-700">
+                                    <div className="text-sm text-destructive/80">
                                         {errorMessage}
                                     </div>
                                 </div>
                                 <button
                                     onClick={clearError}
-                                    className="flex-shrink-0 text-red-400 hover:text-red-600 transition-colors"
+                                    className="flex-shrink-0 text-destructive/60 hover:text-destructive transition-colors"
                                     title="清除错误信息"
                                 >
                                     <svg
@@ -349,70 +346,21 @@ function AskWindow() {
                         response == "" ? (
                             <AskAIHint />
                         ) : (
-                            <ReactMarkdown
-                                children={displayResponse}
-                                remarkPlugins={[remarkMath]}
-                                rehypePlugins={[rehypeRaw, rehypeKatex]}
-                                components={
-                                    {
-                                        code({
-                                            node,
-                                            className,
-                                            children,
-                                            ref,
-                                            ...props
-                                        }) {
-                                            const match = /language-(\w+)/.exec(
-                                                className || "",
-                                            );
-                                            return match ? (
-                                                <CodeBlock
-                                                    language={match[1]}
-                                                    onCodeRun={handleArtifact}
-                                                >
-                                                    {String(children).replace(
-                                                        /\n$/,
-                                                        "",
-                                                    )}
-                                                </CodeBlock>
-                                            ) : (
-                                                <code
-                                                    {...props}
-                                                    ref={ref}
-                                                    className={className}
-                                                >
-                                                    {children}
-                                                </code>
-                                            );
-                                        },
-                                        antthinking({ children }) {
-                                            return (
-                                                <div>
-                                                    <div
-                                                        className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm font-medium inline-block"
-                                                        title={children}
-                                                        data-thinking={children}
-                                                    >
-                                                        思考...
-                                                    </div>
-                                                </div>
-                                            );
-                                        },
-                                    } as CustomComponents
-                                }
-                            />
+                            <UnifiedMarkdown onCodeRun={handleArtifact}>
+                                {displayResponse}
+                            </UnifiedMarkdown>
                         )
                     ) : (
                         <AskWindowPrepare selectedText={selectedText} />
                     )}
                 </div>
                 <div
-                    className="w-full h-8 fixed bottom-0 left-0 flex items-center justify-end pr-2.5 bg-gray-100"
+                    className="w-full h-8 fixed bottom-0 left-0 flex items-center justify-end pr-2.5 bg-muted"
                     data-tauri-drag-region
                 >
                     {messageId !== -1 && !aiIsResponsing && (
                         <IconButton
-                            icon={<Add fill="black" />}
+                            icon={<Add className="fill-foreground" />}
                             onClick={startNewConversation}
                         />
                     )}
@@ -420,9 +368,9 @@ function AskWindow() {
                         <IconButton
                             icon={
                                 copySuccess ? (
-                                    <Ok fill="black" />
+                                    <Ok className="fill-foreground" />
                                 ) : (
-                                    <Copy fill="black" />
+                                    <Copy className="fill-foreground" />
                                 )
                             }
                             onClick={() => {
@@ -436,11 +384,11 @@ function AskWindow() {
                     ) : null}
 
                     <IconButton
-                        icon={<OpenFullUI fill="black" />}
+                        icon={<OpenFullUI className="fill-foreground" />}
                         onClick={openChatUI}
                     />
                     <IconButton
-                        icon={<Setting fill="black" />}
+                        icon={<Setting className="fill-foreground" />}
                         onClick={openConfig}
                     />
                 </div>

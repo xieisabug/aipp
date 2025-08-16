@@ -4,12 +4,16 @@ import ChatUIToolbar from "./components/ChatUIToolbar";
 import ConversationList from "./components/ConversationList";
 import ChatUIInfomation from "./components/ChatUIInfomation";
 import ConversationUI from "./components/ConversationUI";
+import { useTheme } from "./hooks/useTheme";
 
 import { appDataDir } from "@tauri-apps/api/path";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 function ChatUIWindow() {
+    // 集成主题系统
+    useTheme();
+
     const [pluginList, setPluginList] = useState<any[]>([]);
 
     const [selectedConversation, setSelectedConversation] = useState<string>("");

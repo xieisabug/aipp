@@ -14,6 +14,10 @@ interface UseMarkdownConfigOptions {
     disableMarkdownSyntax?: boolean;
 }
 
+interface CustomComponents extends Components {
+    antthinking: React.ElementType;
+}
+
 export const useMarkdownConfig = ({ onCodeRun, disableMarkdownSyntax = false }: UseMarkdownConfigOptions = {}) => {
     // 换行处理函数 - 完全按原样展示文本，保留所有换行和空行
     const renderTextWithBreaks = useCallback((children: React.ReactNode): React.ReactNode => {
@@ -25,7 +29,7 @@ export const useMarkdownConfig = ({ onCodeRun, disableMarkdownSyntax = false }: 
     }, []);
     // 使用 useMemo 缓存 markdown 组件配置
     const markdownComponents = useMemo(
-        (): Components => ({
+        (): CustomComponents => ({
             ...MARKDOWN_COMPONENTS_BASE,
             // 根据 disableMarkdownSyntax 决定如何渲染标准 Markdown 元素
             ...(disableMarkdownSyntax ? {
@@ -45,6 +49,18 @@ export const useMarkdownConfig = ({ onCodeRun, disableMarkdownSyntax = false }: 
                 p: ({ children }) => <div>{renderTextWithBreaks(children)}</div>,
                 br: () => <br />,
             } : {}),
+            // antthinking自定义组件
+            antthinking: ({ children }: { children: any }) => (
+                <div>
+                    <div
+                        className="bg-primary/10 text-primary px-2 py-1 rounded text-sm font-medium inline-block"
+                        title={children}
+                        data-thinking={children}
+                    >
+                        思考...
+                    </div>
+                </div>
+            ),
             code: ({ className, children }) => {
                 const match = /language-(\w+)/.exec(className || '');
                 

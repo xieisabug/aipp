@@ -6,6 +6,7 @@ import MCPConfig from "./components/config/MCPConfig";
 import { appDataDir } from "@tauri-apps/api/path";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { Blocks, Bot, ServerCrash, Settings } from "lucide-react";
+import { useTheme } from "./hooks/useTheme";
 
 interface MenuItem {
     id: string;
@@ -23,6 +24,9 @@ const contentMap: Record<string, React.ComponentType<any>> = {
 };
 
 function ConfigWindow() {
+    // 集成主题系统
+    useTheme();
+
     const menuList: Array<MenuItem> = [
         {
             id: "llm-provider-config",

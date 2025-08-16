@@ -142,7 +142,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                 />
             )}
 
-            <div className="prose prose-sm max-w-none">
+            <div className="prose prose-sm max-w-none text-foreground">
                 {/* RawTextRenderer 已包含 prose 样式，条件渲染避免重复包装 */}
                 {isUserMessage && !isUserMessageMarkdownEnabled ? contentElement : <div>{contentElement}</div>}
             </div>

@@ -24,7 +24,7 @@
     position: relative;
     margin-left: 10px;
     margin-top: 10px;
-    border: 1px solid #ccc;
+    border: 1px solid hsl(var(--border));
     border-radius: 10px;
     overflow: hidden;
     cursor: pointer;
@@ -42,8 +42,8 @@
     width: 120px;
     height: 30px;
     font-size: 12px;
-    background-color: white;
-    border: 1px solid var(--main-color);
+    background-color: hsl(var(--background));
+    border: 1px solid hsl(var(--primary));
     border-radius: 10px;
     display: flex;
     align-items: center;
@@ -97,7 +97,7 @@
     padding: 0 50px 0 20px;
     bottom: 30px;
     opacity: 0.4;
-    background-color: white;
+    background-color: hsl(var(--background));
     transition: height 0.2s;
 }
 
@@ -115,7 +115,7 @@
 
 .top .input-area-textarea {
     padding: 15px 100px 10px 20px;
-    border-bottom: 1px solid #000;
+    border-bottom: 1px solid hsl(var(--border));
 }
 
 .input-area-textarea-container:focus-within {
@@ -152,8 +152,8 @@
 
 .completion-bang-list {
     position: absolute;
-    background-color: white;
-    border: 1px solid #ccc;
+    background-color: hsl(var(--background));
+    border: 1px solid hsl(var(--border));
     border-radius: 4px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     max-height: 200px;
@@ -167,7 +167,7 @@
 }
 
 .completion-bang-container.selected {
-    background-color: #f0f0f0;
+    background-color: hsl(var(--muted));
 }
 
 .completion-bang-tag {
@@ -178,8 +178,8 @@
 
 .assistant-completion-list {
     position: absolute;
-    background-color: white;
-    border: 1px solid #ccc;
+    background-color: hsl(var(--background));
+    border: 1px solid hsl(var(--border));
     border-radius: 4px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     max-height: 200px;

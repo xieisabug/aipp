@@ -688,7 +688,7 @@ const InputArea: React.FC<InputAreaProps> = React.memo(
 
                 <CircleButton
                     onClick={handleChooseFile}
-                    icon={<Add fill="black" />}
+                    icon={<Add className="fill-foreground" />}
                     className={`input-area-add-button ${placement}`}
                 />
                 <CircleButton
@@ -696,9 +696,9 @@ const InputArea: React.FC<InputAreaProps> = React.memo(
                     onClick={handleSend}
                     icon={
                         aiIsResponsing ? (
-                            <Stop width={20} height={20} fill="white" />
+                            <Stop width={20} height={20} className="fill-primary-foreground" />
                         ) : (
-                            <UpArrow width={20} height={20} fill="white" />
+                            <UpArrow width={20} height={20} className="fill-primary-foreground" />
                         )
                     }
                     primary

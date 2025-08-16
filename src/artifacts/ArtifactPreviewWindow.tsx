@@ -14,6 +14,7 @@ import rehypeRaw from 'rehype-raw';
 import '../styles/ArtifactPreviewWIndow.css';
 import 'katex/dist/katex.min.css';
 import EnvironmentInstallDialog from '../components/EnvironmentInstallDialog';
+import { useTheme } from '../hooks/useTheme';
 
 interface LogLine {
     type: 'log' | 'error' | 'success';
@@ -27,6 +28,9 @@ interface LogLine {
  * - 显示模式：先显示日志，预览准备好后切换到全屏预览
  */
 export default function ArtifactPreviewWindow() {
+    // 集成主题系统
+    useTheme();
+
     const [logs, setLogs] = useState<LogLine[]>([]);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [isPreviewReady, setIsPreviewReady] = useState(false);
