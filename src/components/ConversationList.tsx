@@ -197,7 +197,7 @@ function ConversationList({
 
 
     return (
-        <div className="flex-1 overflow-y-auto overflow-x-hidden px-3" ref={scrollContainerRef}>
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 bg-white" ref={scrollContainerRef}>
             <ul className="list-none p-0 m-0">
                 {conversations.map((conversation) => (
                     <li
