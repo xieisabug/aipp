@@ -23,15 +23,15 @@ const FormDialog: React.FC<FormDialogProps> = ({ title, onSubmit, onClose, isOpe
             />
 
             {/* 模态框内容 */}
-            <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-md transform transition-all duration-200 scale-100">
+            <div className="relative bg-background rounded-xl shadow-2xl w-full max-w-md transform transition-all duration-200 scale-100">
                 {/* 标题栏 */}
-                <div className="flex items-center justify-between p-6 border-b border-gray-200">
-                    <h2 className="text-xl font-semibold text-gray-900 truncate pr-4">{title}</h2>
+                <div className="flex items-center justify-between p-6 border-b border-border">
+                    <h2 className="text-xl font-semibold text-foreground truncate pr-4">{title}</h2>
                     <button
                         onClick={onClose}
-                        className="p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200 flex-shrink-0"
+                        className="p-2 hover:bg-muted rounded-lg transition-colors duration-200 flex-shrink-0"
                     >
-                        <X className="h-5 w-5 text-gray-500" />
+                        <X className="h-5 w-5 text-muted-foreground" />
                     </button>
                 </div>
 
@@ -51,7 +51,7 @@ const FormDialog: React.FC<FormDialogProps> = ({ title, onSubmit, onClose, isOpe
                     </Button>
                     <Button
                         onClick={onSubmit}
-                        className="px-6 bg-gray-800 hover:bg-gray-900 text-white shadow-md hover:shadow-lg transition-all"
+                        className="px-6 bg-primary hover:bg-primary/90 text-primary-foreground shadow-md hover:shadow-lg transition-all"
                     >
                         确认
                     </Button>

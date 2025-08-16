@@ -1118,10 +1118,10 @@ function ConversationUI({
                         const placeholderElement = (
                             <React.Fragment key={`placeholder_${groupId}`}>
                                 <div className="flex justify-start mb-4">
-                                    <div className="bg-gray-100 rounded-lg p-4 max-w-3xl">
+                                    <div className="bg-muted rounded-lg p-4 max-w-3xl">
                                         <div className="flex items-center space-x-2">
-                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900"></div>
-                                            <span className="text-sm text-gray-600">
+                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-foreground"></div>
+                                            <span className="text-sm text-muted-foreground">
                                                 正在重新生成...
                                             </span>
                                         </div>
@@ -1171,7 +1171,7 @@ function ConversationUI({
     return (
         <div
             ref={dropRef}
-            className="h-full relative flex flex-col bg-white rounded-xl"
+            className="h-full relative flex flex-col bg-background rounded-xl"
         >
             {conversationId ? (
                 <ConversationTitle
@@ -1235,9 +1235,9 @@ function ConversationUI({
             />
 
             {isLoadingShow ? (
-                <div className="bg-white/95 w-full h-full absolute flex items-center justify-center backdrop-blur rounded-xl">
+                <div className="bg-background/95 w-full h-full absolute flex items-center justify-center backdrop-blur rounded-xl">
                     <div className="loading-icon"></div>
-                    <div className="text-indigo-500 text-base font-medium">
+                    <div className="text-primary text-base font-medium">
                         加载中...
                     </div>
                 </div>

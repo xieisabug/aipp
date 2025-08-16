@@ -275,9 +275,9 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
                             <CollapsibleTrigger asChild>
                                 <Button
                                     variant="ghost"
-                                    className="w-full justify-between p-2 h-auto text-left hover:bg-gray-50"
+                                    className="w-full justify-between p-2 h-auto text-left hover:bg-muted"
                                 >
-                                    <span className="text-sm font-medium text-gray-700">
+                                    <span className="text-sm font-medium text-foreground">
                                         高级配置
                                     </span>
                                     <ChevronDown
@@ -290,13 +290,13 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
                                 </Button>
                             </CollapsibleTrigger>
                             <CollapsibleContent className="mt-2">
-                                <div className="p-3 border border-gray-200 rounded-lg bg-gray-50">
+                                <div className="p-3 border border-border rounded-lg bg-muted">
                                     <div className="flex items-center justify-between">
                                         <div className="flex flex-col">
-                                            <label className="text-sm font-medium text-gray-700">
+                                            <label className="text-sm font-medium text-foreground">
                                                 使用网络代理进行请求
                                             </label>
-                                            <span className="text-xs text-gray-500">
+                                            <span className="text-xs text-muted-foreground">
                                                 启用后将使用全局网络代理配置进行模型请求
                                             </span>
                                         </div>
@@ -328,7 +328,7 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
         () => (
             <div className="flex items-center gap-2">
                 <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-600">
+                    <span className="text-sm text-muted-foreground">
                         {enabled ? "已启用" : "已禁用"}
                     </span>
                     <Switch

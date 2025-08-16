@@ -77,14 +77,14 @@ function ChatUIWindow() {
     }, []);
 
     return (
-        <div className="flex h-screen bg-gray-100">
+        <div className="flex h-screen bg-background">
             <div className="flex-none w-[280px] flex flex-col shadow-lg box-border rounded-r-xl my-2 mr-2">
                 <ChatUIInfomation />
                 <ChatUIToolbar onNewConversation={() => setSelectedConversation("")} />
                 <ConversationList conversationId={selectedConversation} onSelectConversation={setSelectedConversation} />
             </div>
 
-            <div className="flex-1 bg-white overflow-auto rounded-xl m-2 ml-0 shadow-lg">
+            <div className="flex-1 bg-background overflow-auto rounded-xl m-2 ml-0 shadow-lg">
                 <ConversationUI pluginList={pluginList} conversationId={selectedConversation} onChangeConversationId={setSelectedConversation} />
             </div>
         </div>

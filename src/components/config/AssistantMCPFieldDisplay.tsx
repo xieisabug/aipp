@@ -130,7 +130,7 @@ const AssistantMCPFieldDisplay: React.FC<AssistantMCPFieldDisplayProps> = ({
 
     const getStatusIcon = () => {
         if (loading) {
-            return <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400" />;
+            return <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-muted-foreground" />;
         }
 
         if (error) {
@@ -138,10 +138,10 @@ const AssistantMCPFieldDisplay: React.FC<AssistantMCPFieldDisplayProps> = ({
         }
 
         if (mcpSummary.totalServers === 0) {
-            return <Server className="h-4 w-4 text-gray-400" />;
+            return <Server className="h-4 w-4 text-muted-foreground" />;
         }
 
-        return <Wrench className="h-4 w-4 text-gray-600" />;
+        return <Wrench className="h-4 w-4 text-foreground" />;
     };
 
     return (
@@ -150,7 +150,7 @@ const AssistantMCPFieldDisplay: React.FC<AssistantMCPFieldDisplayProps> = ({
                 <div className="flex items-center gap-3">
                     {getStatusIcon()}
                     <div>
-                        <div className="text-sm font-medium text-gray-900">{getSummaryText()}</div>
+                        <div className="text-sm font-medium text-foreground">{getSummaryText()}</div>
                     </div>
                 </div>
 

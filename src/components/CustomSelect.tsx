@@ -58,11 +58,11 @@ const CustomSelect: React.FC<CustomSelectProps> = ({
         type="button"
         className={`
           w-full flex items-center justify-between px-3 py-2 
-          bg-white border border-gray-300 rounded-lg shadow-sm
-          text-left text-sm text-gray-900
-          hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500
+          bg-background border border-border rounded-lg shadow-sm
+          text-left text-sm text-foreground
+          hover:border-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary
           transition-colors duration-200
-          ${isOpen ? 'border-gray-500 ring-2 ring-gray-500' : ''}
+          ${isOpen ? 'border-primary ring-2 ring-primary' : ''}
         `}
         onClick={handleSelectClick}
         title={selectedOption?.label || placeholder}
@@ -72,28 +72,28 @@ const CustomSelect: React.FC<CustomSelectProps> = ({
         </span>
         <ChevronDown
           className={`
-            h-4 w-4 text-gray-400 transition-transform duration-200
+            h-4 w-4 text-muted-foreground transition-transform duration-200
             ${isOpen ? 'rotate-180' : ''}
           `}
         />
       </button>
 
       {isOpen && (
-        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+        <div className="absolute z-50 w-full mt-1 bg-background border border-border rounded-lg shadow-lg max-h-60 overflow-auto">
           {options.map(option => (
             <div
               key={option.value}
               className={`
                 flex items-center justify-between px-3 py-2 cursor-pointer text-sm
-                hover:bg-gray-50 hover:text-gray-700
-                ${option.value === value ? 'bg-gray-50 text-gray-700' : 'text-gray-900'}
+                hover:bg-muted hover:text-foreground
+                ${option.value === value ? 'bg-muted text-foreground' : 'text-foreground'}
               `}
               onClick={() => handleOptionClick(option.value)}
               title={option.label}
             >
               <span className="block truncate">{option.label}</span>
               {option.value === value && (
-                <Check className="h-4 w-4 text-gray-600 flex-shrink-0" />
+                <Check className="h-4 w-4 text-muted-foreground flex-shrink-0" />
               )}
             </div>
           ))}

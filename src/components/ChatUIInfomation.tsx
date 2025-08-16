@@ -36,7 +36,7 @@ function ChatUIInfomation() {
     };
 
     return (
-        <div className="flex justify-between py-4 px-5 border-gray-200">
+        <div className="flex justify-between py-4 px-5 border-border">
             <div className="flex items-center gap-2">
                 <AnimatedLogo
                     state={logoState}
@@ -46,11 +46,11 @@ function ChatUIInfomation() {
             </div>
             <div className="flex items-center gap-2">
                 <IconButton
-                    icon={<Setting fill="black" />}
+                    icon={<Setting className="fill-foreground" />}
                     onClick={openConfig}
                 />
                 <IconButton
-                    icon={<Experiment fill="black" />}
+                    icon={<Experiment className="fill-foreground" />}
                     onClick={openPlugin}
                 />
             </div>

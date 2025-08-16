@@ -36,22 +36,22 @@ const MessageActionButtons: React.FC<MessageActionButtonsProps> = ({
         >
             {showEditRegenerate && onEdit && (
                 <IconButton
-                    icon={<Edit2 size={16} color="black" />}
+                    icon={<Edit2 size={16} className="stroke-foreground" />}
                     onClick={onEdit}
                 />
             )}
             {showEditRegenerate && onRegenerate && (
                 <IconButton
-                    icon={<Refresh fill="black" />}
+                    icon={<Refresh className="fill-foreground" />}
                     onClick={onRegenerate}
                 />
             )}
             <IconButton
                 icon={
                     copyIconState === 'copy' ? (
-                        <Copy fill="black" />
+                        <Copy className="fill-foreground" />
                     ) : (
-                        <Ok fill="black" />
+                        <Ok className="fill-foreground" />
                     )
                 }
                 onClick={onCopy}

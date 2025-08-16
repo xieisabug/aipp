@@ -130,7 +130,7 @@ const MessageItem = React.memo<MessageItemProps>(({
     return (
         <div
             className={`group relative py-4 px-5 rounded-2xl inline-block max-w-[65%] transition-all duration-200 ${isUserMessage
-                    ? 'self-end bg-secondary text-primary'
+                    ? 'self-end bg-user-message text-user-message-foreground'
                     : 'self-start bg-background text-foreground border border-border'
                 }`}
         >
@@ -142,7 +142,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                 />
             )}
 
-            <div className="prose prose-sm max-w-none text-foreground">
+            <div className={`prose prose-sm max-w-none ${isUserMessage ? 'prose-invert text-user-message-foreground' : 'text-foreground'}`}>
                 {/* RawTextRenderer 已包含 prose 样式，条件渲染避免重复包装 */}
                 {isUserMessage && !isUserMessageMarkdownEnabled ? contentElement : <div>{contentElement}</div>}
             </div>

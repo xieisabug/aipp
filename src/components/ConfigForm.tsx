@@ -146,7 +146,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                                 value={fieldRenderData.value}
                                 onValueChange={fieldRenderData.onChange}
                             >
-                                <SelectTrigger className="w-full max-w-full focus:ring-gray-500 focus:border-gray-500 overflow-hidden">
+                                <SelectTrigger className="w-full max-w-full focus:ring-ring/20 focus:border-ring overflow-hidden">
                                     <SelectValue placeholder={field.label} />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -164,7 +164,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                     case "textarea":
                         return (
                             <Textarea
-                                className={`focus:ring-gray-500 focus:border-gray-500 ${field.className || ''}`}
+                                className={`focus:ring-ring/20 focus:border-ring ${field.className || ''}`}
                                 disabled={field.disabled}
                                 {...fieldRenderData}
                             />
@@ -173,7 +173,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                     case "password":
                         return (
                             <Input
-                                className={`focus:ring-gray-500 focus:border-gray-500 ${field.className || ''}`}
+                                className={`focus:ring-ring/20 focus:border-ring ${field.className || ''}`}
                                 type={
                                     field.type === "password"
                                         ? "password"
@@ -186,7 +186,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                     case "checkbox":
                         return (
                             <Checkbox
-                                className={`focus:ring-gray-500 ${field.className || ''}`}
+                                className={`focus:ring-ring/20 ${field.className || ''}`}
                                 disabled={field.disabled}
                                 checked={fieldRenderData.value}
                                 onCheckedChange={fieldRenderData.onChange}
@@ -208,11 +208,11 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                                         <RadioGroupItem
                                             value={option.value}
                                             id={option.value}
-                                            className="focus:ring-gray-500"
+                                            className="focus:ring-ring/20"
                                         />
                                         <label
                                             htmlFor={option.value}
-                                            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                                            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-foreground"
                                         >
                                             {option.label}
                                         </label>
@@ -222,7 +222,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                                                     <TooltipTrigger>
                                                         <CircleHelp
                                                             size={16}
-                                                            color="gray"
+                                                            className="text-muted-foreground"
                                                         />
                                                     </TooltipTrigger>
                                                     <TooltipContent>
@@ -237,7 +237,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                         );
                     case "static":
                         return (
-                            <div className={`text-sm text-gray-600 px-3 py-2 bg-gray-50 rounded-md break-words whitespace-pre-wrap ${field.className || ''}`}>
+                            <div className={`text-sm text-muted-foreground px-3 py-2 bg-muted rounded-md break-words whitespace-pre-wrap ${field.className || ''}`}>
                                 {field.value}
                             </div>
                         );
@@ -253,7 +253,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                             <Button
                                 type="button"
                                 variant="outline"
-                                className={`hover:bg-gray-50 hover:border-gray-400 ${field.className || ''}`}
+                                className={`hover:bg-muted hover:border-border ${field.className || ''}`}
                                 disabled={field.disabled}
                                 onClick={() => {
                                     field.onClick &&
@@ -274,7 +274,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                     name={name}
                     render={({ field: fieldRenderData }: { field: any }) => (
                         <FormItem className={`space-y-3 mb-6 ${field.hidden ? 'hidden' : ''}`}>
-                            <FormLabel className="flex items-center font-semibold text-sm text-gray-700">
+                            <FormLabel className="flex items-center font-semibold text-sm text-foreground">
                                 {field.label}
                                 {field.tooltip && (
                                     <TooltipProvider>
@@ -282,7 +282,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                                             <TooltipTrigger className="ml-2">
                                                 <CircleHelp
                                                     size={16}
-                                                    className="text-gray-400 hover:text-gray-600 transition-colors"
+                                                    className="text-muted-foreground hover:text-foreground transition-colors"
                                                 />
                                             </TooltipTrigger>
                                             <TooltipContent>
@@ -375,14 +375,14 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
     };
 
     return (
-        <Card className={`shadow-md hover:shadow-lg transition-shadow border-l-4 border-l-gray-600 ${classNames || ''}`}>
+        <Card className={`shadow-md hover:shadow-lg transition-shadow border-l-4 border-l-primary ${classNames || ''}`}>
             <CardHeader
                 onClick={toggleExpand}
-                className={`flex flex-row items-center ${enableExpand ? 'cursor-pointer hover:bg-gray-50' : ''} transition-colors rounded-t-lg`}
+                className={`flex flex-row items-center ${enableExpand ? 'cursor-pointer hover:bg-muted' : ''} transition-colors rounded-t-lg`}
             >
                 <div className="flex items-center flex-1 min-w-0">
                     {enableExpand && (
-                        <div className="mr-3 text-gray-400">
+                        <div className="mr-3 text-muted-foreground">
                             {isExpanded ? (
                                 <ChevronDown className="h-5 w-5" />
                             ) : (
@@ -391,11 +391,11 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                         </div>
                     )}
                     <div className="flex-1 min-w-0">
-                        <CardTitle className="text-lg font-semibold text-gray-900 truncate">
+                        <CardTitle className="text-lg font-semibold text-foreground truncate">
                             {title}
                         </CardTitle>
                         {description && (
-                            <CardDescription className="text-sm text-gray-600 mt-1 truncate">
+                            <CardDescription className="text-sm text-muted-foreground mt-1 truncate">
                                 {description}
                             </CardDescription>
                         )}
@@ -407,7 +407,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                             variant="outline"
                             size="sm"
                             onClick={onCopy}
-                            className="hover:bg-gray-50 hover:border-gray-400 hover:text-gray-700"
+                            className="hover:bg-muted hover:border-border hover:text-foreground"
                         >
                             <Copy className="h-4 w-4 mr-1" />
                             复制
@@ -418,7 +418,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                             variant="outline"
                             size="sm"
                             onClick={onEdit}
-                            className="hover:bg-gray-50 hover:border-gray-400 hover:text-gray-700"
+                            className="hover:bg-muted hover:border-border hover:text-foreground"
                         >
                             <Edit3 className="h-4 w-4 mr-1" />
                             编辑
@@ -429,7 +429,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                             variant="outline"
                             size="sm"
                             onClick={onDelete}
-                            className="hover:bg-red-50 hover:border-red-300 hover:text-red-700"
+                            className="hover:bg-destructive/10 hover:border-destructive/30 hover:text-destructive"
                         >
                             <Trash2 className="h-4 w-4 mr-1" />
                             删除
@@ -447,10 +447,10 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                 <Form {...useFormReturn}>
                     {renderContent()}
                     {onSave && (
-                        <div className="mt-8 pt-4 border-t border-gray-200">
+                        <div className="mt-8 pt-4 border-t border-border">
                             <Button
                                 onClick={onSave}
-                                className="bg-gray-800 hover:bg-gray-900 text-white"
+                                className="bg-primary hover:bg-primary/90 text-primary-foreground"
                             >
                                 保存配置
                             </Button>

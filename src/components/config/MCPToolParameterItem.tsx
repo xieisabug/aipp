@@ -20,11 +20,11 @@ const MCPToolParameterItem: React.FC<MCPToolParameterItemProps> = ({
         paramDef.description && truncatedParamDesc !== paramDef.description;
 
     return (
-        <div className="bg-white rounded p-3 border border-gray-100">
+        <div className="bg-background rounded p-3 border border-border">
             <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                        <span className="font-medium text-gray-800 text-sm">
+                        <span className="font-medium text-foreground text-sm">
                             {paramName}
                         </span>
                         {paramDef.type && (
@@ -47,7 +47,7 @@ const MCPToolParameterItem: React.FC<MCPToolParameterItemProps> = ({
                     {paramDef.description && (
                         <Tooltip>
                             <TooltipTrigger asChild>
-                                <div className="text-xs text-gray-600 leading-relaxed">
+                                <div className="text-xs text-muted-foreground leading-relaxed">
                                     {isParamDescTruncated
                                         ? truncatedParamDesc
                                         : paramDef.description}

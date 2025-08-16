@@ -50,15 +50,15 @@ const EnvironmentInstallDialog: React.FC<EnvironmentInstallDialogProps> = ({
                         需要安装 {getToolDisplayName(tool)}
                     </AlertDialogTitle>
                     <AlertDialogDescription className="space-y-3">
-                        <p className="text-sm text-gray-600">
+                        <p className="text-sm text-muted-foreground">
                             {message}
                         </p>
-                        <div className="bg-gray-50 p-3 rounded-md">
-                            <p className="text-xs text-gray-700">
+                        <div className="bg-muted p-3 rounded-md">
+                            <p className="text-xs text-foreground">
                                 {getToolDescription(tool)}
                             </p>
                         </div>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-muted-foreground">
                             安装过程可能需要几分钟时间，请耐心等待。
                         </p>
                     </AlertDialogDescription>
@@ -73,7 +73,7 @@ const EnvironmentInstallDialog: React.FC<EnvironmentInstallDialogProps> = ({
                     </Button>
                     <Button 
                         onClick={onConfirm} 
-                        className="flex-1 bg-gray-800 hover:bg-gray-900"
+                        className="flex-1 bg-primary hover:bg-primary/90"
                     >
                         自动安装
                     </Button>

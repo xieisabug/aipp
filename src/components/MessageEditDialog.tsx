@@ -49,15 +49,15 @@ const MessageEditDialog: React.FC<MessageEditDialogProps> = ({
             />
 
             {/* 模态框内容 */}
-            <div className="relative bg-white rounded-xl shadow-2xl w-[50%] min-w-[32rem] h-[70%] min-h-[28rem] max-w-[90%] max-h-[90%] transform transition-all duration-200 scale-100 flex flex-col">
+            <div className="relative bg-background rounded-xl shadow-2xl w-[50%] min-w-[32rem] h-[70%] min-h-[28rem] max-w-[90%] max-h-[90%] transform transition-all duration-200 scale-100 flex flex-col">
                 {/* 标题栏 */}
-                <div className="flex items-center justify-between p-6 border-b border-gray-200">
-                    <h2 className="text-xl font-semibold text-gray-900">编辑消息</h2>
+                <div className="flex items-center justify-between p-6 border-b border-border">
+                    <h2 className="text-xl font-semibold text-foreground">编辑消息</h2>
                     <button
                         onClick={onClose}
-                        className="p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200 flex-shrink-0"
+                        className="p-2 hover:bg-muted rounded-lg transition-colors duration-200 flex-shrink-0"
                     >
-                        <X className="h-5 w-5 text-gray-500" />
+                        <X className="h-5 w-5 text-muted-foreground" />
                     </button>
                 </div>
 
@@ -83,14 +83,14 @@ const MessageEditDialog: React.FC<MessageEditDialogProps> = ({
                     </Button>
                     <Button
                         onClick={handleSave}
-                        className="px-6 bg-gray-800 hover:bg-gray-900 text-white shadow-md hover:shadow-lg transition-all"
+                        className="px-6 bg-primary hover:bg-primary/90 text-primary-foreground shadow-md hover:shadow-lg transition-all"
                     >
                         修改
                     </Button>
                     {messageType === "user" && (
                         <Button
                             onClick={handleSaveAndRegenerate}
-                            className="px-6 bg-gray-800 hover:bg-gray-900 text-white shadow-md hover:shadow-lg transition-all"
+                            className="px-6 bg-primary hover:bg-primary/90 text-primary-foreground shadow-md hover:shadow-lg transition-all"
                         >
                             修改并重新生成
                         </Button>

@@ -83,7 +83,7 @@ const UnifiedMarkdown: React.FC<UnifiedMarkdownProps> = ({
     }), [markdownConfig.markdownComponents, onCodeRun, disableMarkdownSyntax]);
 
     return (
-        <div className={`prose prose-sm max-w-none text-foreground ${className}`}>
+        <div className={`prose prose-sm max-w-none prose-neutral dark:prose-invert text-foreground ${className}`}>
             <ReactMarkdown
                 children={children}
                 remarkPlugins={[remarkMath, ...markdownConfig.remarkPlugins] as any}

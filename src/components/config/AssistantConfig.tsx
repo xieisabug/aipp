@@ -776,7 +776,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
             assistantTypes={assistantTypes}
             onAssistantAdded={handleAssistantAdded}
             triggerButtonProps={{
-                className: "gap-2 bg-gray-800 hover:bg-gray-900 text-white shadow-sm hover:shadow-md transition-all"
+                className: "gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm hover:shadow-md transition-all"
             }}
         />
     ), [assistantTypes, handleAssistantAdded]);
@@ -788,7 +788,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                 sidebar={null}
                 content={
                     <EmptyState
-                        icon={<Bot className="h-8 w-8 text-gray-500" />}
+                        icon={<Bot className="h-8 w-8 text-muted-foreground" />}
                         title="还没有配置助手"
                         description="创建你的第一个AI助手，开始享受个性化的智能对话体验"
                         action={
@@ -840,7 +840,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
         />
     ) : (
         <EmptyState
-            icon={<Settings className="h-8 w-8 text-gray-500" />}
+            icon={<Settings className="h-8 w-8 text-muted-foreground" />}
             title="选择一个助手"
             description="从左侧列表中选择一个助手开始配置"
         />

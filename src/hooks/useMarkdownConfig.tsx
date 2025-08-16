@@ -105,7 +105,7 @@ export const useMarkdownConfig = ({ onCodeRun, disableMarkdownSyntax = false }: 
                     <a
                         href={href}
                         onClick={handleClick}
-                        className="text-blue-600 hover:text-blue-800 underline cursor-pointer"
+                        className="text-primary hover:text-primary/80 underline cursor-pointer"
                         {...props}
                     >
                         {children}

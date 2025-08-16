@@ -105,7 +105,7 @@ const RawTextRenderer: React.FC<RawTextRendererProps> = ({ content }) => {
         return <>{parts}</>;
     }, [content]);
 
-    return <div className="prose prose-sm max-w-none">{processedContent}</div>;
+    return <div className="prose prose-sm max-w-none prose-neutral dark:prose-invert text-foreground">{processedContent}</div>;
 };
 
 export default RawTextRenderer;

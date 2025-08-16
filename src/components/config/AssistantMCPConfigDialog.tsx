@@ -261,11 +261,11 @@ const AssistantMCPConfigDialog: React.FC<AssistantMCPConfigDialogProps> = ({
                 <div className="border-b pb-4 mb-4">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-gray-900">使用原生ToolCall</span>
+                            <span className="text-sm font-medium text-foreground">使用原生ToolCall</span>
                             <TooltipProvider>
                                 <Tooltip>
                                     <TooltipTrigger asChild>
-                                        <Info className="h-4 w-4 text-gray-400 cursor-help" />
+                                        <Info className="h-4 w-4 text-muted-foreground cursor-help" />
                                     </TooltipTrigger>
                                     <TooltipContent>
                                         <p className="max-w-xs text-xs">
@@ -280,7 +280,7 @@ const AssistantMCPConfigDialog: React.FC<AssistantMCPConfigDialogProps> = ({
                             onCheckedChange={handleNativeToolCallToggle}
                         />
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                         {useNativeToolCall ? '已启用原生ToolCall调用' : '使用传统prompt方式调用工具'}
                     </p>
                 </div>
@@ -288,9 +288,9 @@ const AssistantMCPConfigDialog: React.FC<AssistantMCPConfigDialogProps> = ({
                 <div className="flex-1 overflow-auto">
                     {availableServers.length === 0 ? (
                         <div className="text-center py-8">
-                            <Server className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                            <p className="text-sm text-gray-500 mb-2">暂无可用的MCP服务器</p>
-                            <p className="text-xs text-gray-400">请先在MCP配置中添加服务器</p>
+                            <Server className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                            <p className="text-sm text-muted-foreground mb-2">暂无可用的MCP服务器</p>
+                            <p className="text-xs text-muted-foreground">请先在MCP配置中添加服务器</p>
                         </div>
                     ) : (
                         <div className="space-y-4">
@@ -303,27 +303,27 @@ const AssistantMCPConfigDialog: React.FC<AssistantMCPConfigDialogProps> = ({
                                 return (
                                     <Collapsible key={server.id} open={isExpanded} onOpenChange={() => handleServerExpand(server.id)}>
                                         <div className={`border rounded-lg transition-colors ${server.is_enabled
-                                            ? 'border-gray-300 bg-white'
-                                            : 'border-gray-200 bg-gray-50'
+                                            ? 'border-border bg-background'
+                                            : 'border-border bg-muted'
                                             }`}>
                                             <CollapsibleTrigger asChild>
-                                                <div className="flex items-center justify-between p-4 cursor-pointer hover:bg-opacity-80">
+                                                <div className="flex items-center justify-between p-4 cursor-pointer hover:bg-muted/50">
                                                     <div className="flex items-center gap-3">
                                                         <div className="flex items-center gap-2">
                                                             {isExpanded ? (
-                                                                <ChevronDown className="h-4 w-4 text-gray-500" />
+                                                                <ChevronDown className="h-4 w-4 text-muted-foreground" />
                                                             ) : (
-                                                                <ChevronRight className="h-4 w-4 text-gray-500" />
+                                                                <ChevronRight className="h-4 w-4 text-muted-foreground" />
                                                             )}
                                                             {server.is_enabled ? (
-                                                                <Play className="h-5 w-5 text-gray-700" />
+                                                                <Play className="h-5 w-5 text-foreground" />
                                                             ) : (
-                                                                <Pause className="h-5 w-5 text-gray-400" />
+                                                                <Pause className="h-5 w-5 text-muted-foreground" />
                                                             )}
                                                         </div>
                                                         <div>
-                                                            <div className="font-medium text-gray-900">{server.name}</div>
-                                                            <div className="text-sm text-gray-500">
+                                                            <div className="font-medium text-foreground">{server.name}</div>
+                                                            <div className="text-sm text-muted-foreground">
                                                                 {server.is_enabled ? '已启用' : '已禁用'}
                                                                 {serverToolsList.length > 0 && ` • ${enabledToolsCount}/${serverToolsList.length} 工具已启用`}
                                                             </div>
@@ -365,30 +365,30 @@ const AssistantMCPConfigDialog: React.FC<AssistantMCPConfigDialogProps> = ({
                                             </CollapsibleTrigger>
 
                                             <CollapsibleContent>
-                                                <div className="px-4 pb-4 border-t border-gray-200">
+                                                <div className="px-4 pb-4 border-t border-border">
                                                     {isLoadingTools ? (
                                                         <div className="text-center py-6">
-                                                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900 mx-auto"></div>
-                                                            <p className="text-sm text-gray-500 mt-2">加载工具列表...</p>
+                                                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-foreground mx-auto"></div>
+                                                            <p className="text-sm text-muted-foreground mt-2">加载工具列表...</p>
                                                         </div>
                                                     ) : serverToolsList.length === 0 ? (
                                                         <div className="text-center py-6">
-                                                            <Wrench className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                                                            <p className="text-sm text-gray-500">该服务器暂无可用工具</p>
+                                                            <Wrench className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                                                            <p className="text-sm text-muted-foreground">该服务器暂无可用工具</p>
                                                         </div>
                                                     ) : (
                                                         <div className="space-y-3 mt-3">
                                                             {serverToolsList.map(tool => (
-                                                                <div key={tool.id} className="flex items-center justify-between p-3 bg-white rounded border">
+                                                                <div key={tool.id} className="flex items-center justify-between p-3 bg-background rounded border border-border">
                                                                     <div className="flex items-center gap-3">
-                                                                        <Wrench className="h-4 w-4 text-gray-500" />
+                                                                        <Wrench className="h-4 w-4 text-muted-foreground" />
                                                                         <div>
-                                                                            <div className="font-medium text-gray-900">{tool.name}</div>
-                                                                            <div className="text-sm text-gray-500">
+                                                                            <div className="font-medium text-foreground">{tool.name}</div>
+                                                                            <div className="text-sm text-muted-foreground">
                                                                                 {tool.is_enabled ? (
-                                                                                    <span className="text-gray-700">已启用</span>
+                                                                                    <span className="text-foreground">已启用</span>
                                                                                 ) : (
-                                                                                    <span className="text-gray-500">已禁用</span>
+                                                                                    <span className="text-muted-foreground">已禁用</span>
                                                                                 )}
                                                                                 {tool.is_enabled && (
                                                                                     <span> • 自动运行: {tool.is_auto_run ? '是' : '否'}</span>
@@ -398,7 +398,7 @@ const AssistantMCPConfigDialog: React.FC<AssistantMCPConfigDialogProps> = ({
                                                                     </div>
                                                                     <div className="flex items-center gap-4">
                                                                         <div className="flex items-center gap-2">
-                                                                            <span className="text-sm text-gray-700">启用</span>
+                                                                            <span className="text-sm text-foreground">启用</span>
                                                                             <Switch
                                                                                 checked={tool.is_enabled}
                                                                                 onCheckedChange={(checked) =>
@@ -407,7 +407,7 @@ const AssistantMCPConfigDialog: React.FC<AssistantMCPConfigDialogProps> = ({
                                                                             />
                                                                         </div>
                                                                         <div className="flex items-center gap-2">
-                                                                            <span className="text-sm text-gray-700">自动运行</span>
+                                                                            <span className="text-sm text-foreground">自动运行</span>
                                                                             <Switch
                                                                                 checked={tool.is_auto_run}
                                                                                 disabled={!tool.is_enabled}
