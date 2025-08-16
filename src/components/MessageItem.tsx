@@ -4,6 +4,7 @@ import ReasoningMessage from './ReasoningMessage';
 import ErrorMessage from './MessageItem/ErrorMessage';
 import MessageActionButtons from './MessageItem/MessageActionButtons';
 import ImageAttachments from './MessageItem/ImageAttachments';
+import RawTextRenderer from './RawTextRenderer';
 import { ShineBorder } from './magicui/shine-border';
 import { DEFAULT_SHINE_BORDER_CONFIG } from '@/lib/shine-config';
 import { Message, StreamEvent, MCPToolCallUpdateEvent } from '../data/Conversation';
@@ -79,11 +80,17 @@ const MessageItem = React.memo<MessageItemProps>(({
         [message.content, parseCustomTags, message.id],
     );
 
-    // 渲染内容 - 统一使用 ReactMarkdown，通过配置控制渲染方式
+    // 渲染内容 - 根据用户消息类型和配置选择渲染方式
     const contentElement = useMemo(
         () => measureSync(
             `content-render-${message.id}`,
             () => {
+                // 如果是用户消息且禁用了 Markdown 渲染，使用 RawTextRenderer
+                if (isUserMessage && !isUserMessageMarkdownEnabled) {
+                    return <RawTextRenderer content={markdownContent} />;
+                }
+
+                // 否则使用统一的 ReactMarkdown 渲染
                 const element = (
                     <ReactMarkdown
                         children={markdownContent}
@@ -98,7 +105,7 @@ const MessageItem = React.memo<MessageItemProps>(({
             },
             false,
         ),
-        [markdownContent, markdownConfig, mcpProcessor, message.id],
+        [markdownContent, markdownConfig, mcpProcessor, message.id, isUserMessage, isUserMessageMarkdownEnabled],
     );
 
     // 早期返回：reasoning 类型消息
@@ -136,7 +143,8 @@ const MessageItem = React.memo<MessageItemProps>(({
             )}
 
             <div className="prose prose-sm max-w-none">
-                {contentElement}
+                {/* RawTextRenderer 已包含 prose 样式，条件渲染避免重复包装 */}
+                {isUserMessage && !isUserMessageMarkdownEnabled ? contentElement : <div>{contentElement}</div>}
             </div>
 
             <ImageAttachments attachments={message.attachment_list} />

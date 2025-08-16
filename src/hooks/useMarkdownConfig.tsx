@@ -1,4 +1,5 @@
 import { useMemo, useCallback } from 'react';
+import React from 'react';
 import { Components } from 'react-markdown';
 import { open } from '@tauri-apps/plugin-shell';
 import CodeBlock from '@/components/CodeBlock';
@@ -14,26 +15,34 @@ interface UseMarkdownConfigOptions {
 }
 
 export const useMarkdownConfig = ({ onCodeRun, disableMarkdownSyntax = false }: UseMarkdownConfigOptions = {}) => {
+    // 换行处理函数 - 完全按原样展示文本，保留所有换行和空行
+    const renderTextWithBreaks = useCallback((children: React.ReactNode): React.ReactNode => {
+        if (typeof children === 'string') {
+            // 使用 white-space: pre-wrap 样式来保留所有空白字符和换行
+            return <span style={{ whiteSpace: 'pre-wrap' }}>{children}</span>;
+        }
+        return children;
+    }, []);
     // 使用 useMemo 缓存 markdown 组件配置
     const markdownComponents = useMemo(
         (): Components => ({
             ...MARKDOWN_COMPONENTS_BASE,
             // 根据 disableMarkdownSyntax 决定如何渲染标准 Markdown 元素
             ...(disableMarkdownSyntax ? {
-                // 纯文本模式：重写标准 Markdown 组件为纯文本渲染
-                h1: ({ children }) => <span>#{' '}{children}</span>,
-                h2: ({ children }) => <span>##{' '}{children}</span>,
-                h3: ({ children }) => <span>###{' '}{children}</span>,
-                h4: ({ children }) => <span>####{' '}{children}</span>,
-                h5: ({ children }) => <span>#####{' '}{children}</span>,
-                h6: ({ children }) => <span>######{' '}{children}</span>,
+                // 纯文本模式：重写标准 Markdown 组件为纯文本渲染，支持换行
+                h1: ({ children }) => <span>#{' '}{renderTextWithBreaks(children)}</span>,
+                h2: ({ children }) => <span>##{' '}{renderTextWithBreaks(children)}</span>,
+                h3: ({ children }) => <span>###{' '}{renderTextWithBreaks(children)}</span>,
+                h4: ({ children }) => <span>####{' '}{renderTextWithBreaks(children)}</span>,
+                h5: ({ children }) => <span>#####{' '}{renderTextWithBreaks(children)}</span>,
+                h6: ({ children }) => <span>######{' '}{renderTextWithBreaks(children)}</span>,
                 strong: ({ children }) => <span>**{children}**</span>,
                 em: ({ children }) => <span>*{children}*</span>,
-                blockquote: ({ children }) => <span>{'> '}{children}</span>,
+                blockquote: ({ children }) => <span>{'> '}{renderTextWithBreaks(children)}</span>,
                 ul: ({ children }) => <div>{children}</div>,
                 ol: ({ children }) => <div>{children}</div>,
-                li: ({ children }) => <div>- {children}</div>,
-                p: ({ children }) => <div>{children}</div>,
+                li: ({ children }) => <div>- {renderTextWithBreaks(children)}</div>,
+                p: ({ children }) => <div>{renderTextWithBreaks(children)}</div>,
                 br: () => <br />,
             } : {}),
             code: ({ className, children }) => {
@@ -88,7 +97,7 @@ export const useMarkdownConfig = ({ onCodeRun, disableMarkdownSyntax = false }: 
                 );
             },
         }),
-        [onCodeRun, disableMarkdownSyntax],
+        [onCodeRun, disableMarkdownSyntax, renderTextWithBreaks],
     );
 
     // 根据 disableMarkdownSyntax 决定使用哪些插件
