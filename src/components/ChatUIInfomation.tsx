@@ -11,8 +11,6 @@ function ChatUIInfomation() {
         showHappy,
         showError,
         showNormal,
-        showThinking,
-        showWorking,
     } = useLogoState({
         defaultState: "happy",
         autoReturnToNormal: true,
@@ -43,15 +41,7 @@ function ChatUIInfomation() {
                 <AnimatedLogo
                     state={logoState}
                     size={48}
-                    onClick={() =>
-                        [
-                            showError,
-                            showHappy,
-                            showNormal,
-                            showThinking,
-                            showWorking,
-                        ][Math.floor(Math.random() * 5)]()
-                    }
+                    onClick={showNormal}
                 />
             </div>
             <div className="flex items-center gap-2">
