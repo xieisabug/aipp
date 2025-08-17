@@ -1,233 +1,725 @@
-import { useEffect, useState } from 'react';
-import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { useEffect, useRef, useState } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
-import { useTheme } from '@/hooks/useTheme';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { open } from '@tauri-apps/plugin-shell';
+import mermaid from 'mermaid';
+import ReactMarkdown from 'react-markdown';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import remarkMath from 'remark-math';
+import remarkBreaks from 'remark-breaks';
+import rehypeKatex from 'rehype-katex';
+import rehypeRaw from 'rehype-raw';
+import '../styles/ArtifactPreviewWIndow.css';
+import 'katex/dist/katex.min.css';
+import EnvironmentInstallDialog from '../components/EnvironmentInstallDialog';
+import SaveArtifactDialog from '../components/SaveArtifactDialog';
+import { useTheme } from '../hooks/useTheme';
 
-interface ArtifactCollection {
-    id: number;
-    name: string;
-    icon: string;
-    description: string;
-    artifact_type: string;
-    code: string;
-    tags?: string;
-    created_time: string;
-    last_used_time?: string;
-    use_count: number;
+interface LogLine {
+    type: 'log' | 'error' | 'success';
+    message: string;
 }
 
+/**
+ * 仅用于 "artifact_preview" 窗口。
+ * - 监听后端发出的 artifact-log / artifact-error / artifact-success 事件并展示。
+ * - 使用 iframe 沙盒展示预览内容，避免页面跳转导致监听器失效。
+ * - 显示模式：先显示日志，预览准备好后切换到全屏预览
+ */
 export default function ArtifactWindow() {
+    // 集成主题系统
     useTheme();
 
-    const [artifact, setArtifact] = useState<ArtifactCollection | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const [logs, setLogs] = useState<LogLine[]>([]);
+    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+    const [isPreviewReady, setIsPreviewReady] = useState(false);
+    const [currentView, setCurrentView] = useState<'logs' | 'preview'>('logs');
+    const [previewType, setPreviewType] = useState<'react' | 'vue' | 'mermaid' | 'html' | 'svg' | 'xml' | 'markdown' | 'md' | null>(null);
+    const logsEndRef = useRef<HTMLDivElement | null>(null);
+    const unlistenersRef = useRef<(() => void)[]>([]);
+    const isRegisteredRef = useRef(false);
+    const previewTypeRef = useRef<'react' | 'vue' | 'mermaid' | 'html' | 'svg' | 'xml' | 'markdown' | 'md' | null>(null);
+    const mermaidContainerRef = useRef<HTMLDivElement | null>(null);
+    const [mermaidContent, setMermaidContent] = useState<string>('');
+    const [htmlContent, setHtmlContent] = useState<string>('');
+    const [markdownContent, setMarkdownContent] = useState<string>('');
+    const [mermaidScale, setMermaidScale] = useState<number>(1);
+    const [mermaidPosition, setMermaidPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+    const [isDragging, setIsDragging] = useState<boolean>(false);
+    const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+    const [isSpacePressed, setIsSpacePressed] = useState<boolean>(false);
+    const isInstalling = useRef<boolean>(false);
+    
+    // 环境安装相关状态
+    const [showEnvironmentDialog, setShowEnvironmentDialog] = useState<boolean>(false);
+    const [environmentTool, setEnvironmentTool] = useState<string>('');
+    const [environmentMessage, setEnvironmentMessage] = useState<string>('');
+    const [currentLang, setCurrentLang] = useState<string>('');
+    const [currentInputStr, setCurrentInputStr] = useState<string>('');
+    
+    // 保存 artifact 相关状态
+    const [showSaveDialog, setShowSaveDialog] = useState<boolean>(false);
+    const [originalCode, setOriginalCode] = useState<string>(''); // 存储原始代码
+    
+    // 使用 refs 来存储最新的值，避免闭包陷阱
+    const currentLangRef = useRef<string>('');
+    const currentInputStrRef = useRef<string>('');
 
+    // 同步 previewType 到 ref
     useEffect(() => {
-        const loadArtifact = async () => {
-            try {
-                const window = getCurrentWebviewWindow();
-                const windowLabel = window.label;
-                
-                // 从窗口标签中提取 artifact ID (格式: artifact_123)
-                const match = windowLabel.match(/^artifact_(\d+)$/);
-                if (!match) {
-                    throw new Error(`无效的窗口标签: ${windowLabel}`);
+        previewTypeRef.current = previewType;
+    }, [previewType]);
+
+    // 同步 currentLang 和 currentInputStr 到 refs
+    useEffect(() => {
+        currentLangRef.current = currentLang;
+        currentInputStrRef.current = currentInputStr;
+    }, [currentLang, currentInputStr]);
+
+    // 初始化 mermaid - 根据主题动态配置
+    useEffect(() => {
+        // 检测当前主题
+        const isDark = document.documentElement.classList.contains('dark');
+        
+        mermaid.initialize({
+            startOnLoad: false,
+            theme: isDark ? 'dark' : 'default',
+            securityLevel: 'loose',
+            fontFamily: 'monospace',
+            themeVariables: {
+                darkMode: isDark,
+            }
+        });
+    }, []);
+
+    // 自动滚动到底部
+    useEffect(() => {
+        logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [logs]);
+
+    // 渲染 mermaid 图表
+    useEffect(() => {
+
+        // 确保在预览视图且是 mermaid 类型时才渲染
+        if (previewType === 'mermaid' && currentView === 'preview' && mermaidContent && mermaidContainerRef.current) {
+            const renderMermaid = async () => {
+                try {
+                    const container = mermaidContainerRef.current;
+                    if (!container) return;
+
+                    // 找到内部的可缩放容器
+                    const innerContainer = container.querySelector('div > div') as HTMLDivElement;
+                    if (!innerContainer) return;
+
+                    // 清空容器
+                    innerContainer.innerHTML = '';
+
+                    // 创建一个唯一的ID
+                    const id = `mermaid-${Date.now()}`;
+
+                    // 验证 mermaid 内容
+                    if (!mermaidContent.trim()) {
+                        innerContainer.innerHTML = '<div class="text-red-500 p-4">Mermaid 内容为空</div>';
+                        return;
+                    }
+
+                    // 渲染图表
+                    const { svg } = await mermaid.render(id, mermaidContent.trim());
+                    innerContainer.innerHTML = svg;
+
+                    // 设置 SVG 样式以适应容器
+                    const svgElement = innerContainer.querySelector('svg');
+                    if (svgElement) {
+                        svgElement.style.maxWidth = 'none';
+                        svgElement.style.maxHeight = 'none';
+                        svgElement.style.width = 'auto';
+                        svgElement.style.height = 'auto';
+                    }
+                } catch (error) {
+                    const container = mermaidContainerRef.current;
+                    if (container) {
+                        const innerContainer = container.querySelector('div > div') as HTMLDivElement;
+                        if (innerContainer) {
+                            innerContainer.innerHTML = `<div class="text-red-500 p-4">渲染失败: ${error}</div>`;
+                        }
+                    }
                 }
+            };
 
-                const artifactId = parseInt(match[1], 10);
-                console.log('正在加载 artifact ID:', artifactId);
+            // 延迟渲染，确保 DOM 已准备好
+            setTimeout(renderMermaid, 200);
+        }
+    }, [previewType, currentView, mermaidContent]);
 
-                // 直接调用后端 API 获取 artifact 数据
-                const artifactData = await invoke<ArtifactCollection>('get_artifact_by_id', {
-                    id: artifactId
-                });
-
-                if (!artifactData) {
-                    throw new Error('Artifact 不存在');
-                }
-
-                setArtifact(artifactData);
-                console.log('Artifact 加载成功:', artifactData);
-            } catch (err) {
-                console.error('加载 artifact 失败:', err);
-                setError(err instanceof Error ? err.message : String(err));
-            } finally {
-                setIsLoading(false);
+    // 处理Mermaid图表的交互事件
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.code === 'Space' && previewType === 'mermaid' && currentView === 'preview') {
+                e.preventDefault();
+                setIsSpacePressed(true);
             }
         };
 
-        loadArtifact();
-    }, []);
+        const handleKeyUp = (e: KeyboardEvent) => {
+            if (e.code === 'Space') {
+                setIsSpacePressed(false);
+                setIsDragging(false);
+            }
+        };
 
-    const renderContent = () => {
-        if (!artifact) return null;
+        const handleWheel = (e: WheelEvent) => {
+            if (previewType === 'mermaid' && currentView === 'preview' && mermaidContainerRef.current?.contains(e.target as Node)) {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                setMermaidScale(prevScale => Math.max(0.1, Math.min(3, prevScale + delta)));
+            }
+        };
 
-        switch (artifact.artifact_type) {
-            case 'html':
-            case 'svg':
-            case 'xml':
-                // 直接渲染 HTML/SVG/XML 内容，无需外部服务器
-                return (
-                    <div className="w-full h-full overflow-auto">
-                        <div 
-                            className="w-full h-full"
-                            dangerouslySetInnerHTML={{ __html: artifact.code }}
-                        />
-                    </div>
-                );
-            
-            case 'markdown':
-            case 'md':
-                // 对于 Markdown，显示为预格式化文本（可以后续集成 react-markdown）
-                return (
-                    <div className="w-full h-full overflow-auto p-6">
-                        <div className="max-w-4xl mx-auto">
-                            <div className="prose prose-sm max-w-none dark:prose-invert bg-muted/50 rounded-lg p-4">
-                                <pre className="whitespace-pre-wrap font-mono text-sm">
-                                    {artifact.code}
-                                </pre>
-                            </div>
-                        </div>
-                    </div>
-                );
-            
-            case 'mermaid':
-                // 对于 Mermaid，暂时显示代码（可以后续集成 mermaid 渲染）
-                return (
-                    <div className="w-full h-full overflow-auto p-6">
-                        <div className="max-w-4xl mx-auto">
-                            <div className="text-center mb-6">
-                                <h2 className="text-lg font-semibold mb-2">Mermaid 图表</h2>
-                                <p className="text-muted-foreground text-sm">
-                                    完整的图表渲染功能正在开发中，当前显示源代码
-                                </p>
-                            </div>
-                            <div className="bg-muted rounded-lg p-4">
-                                <pre className="whitespace-pre-wrap font-mono text-sm">
-                                    {artifact.code}
-                                </pre>
-                            </div>
-                        </div>
-                    </div>
-                );
-            
-            case 'react':
-            case 'vue':
-                // 对于 React/Vue，提供两种选项：查看代码或启动预览
-                return (
-                    <div className="w-full h-full flex flex-col">
-                        <div className="flex-shrink-0 p-4 border-b border-border bg-muted/30">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <h2 className="font-semibold">
-                                        {artifact.artifact_type.toUpperCase()} 组件
-                                    </h2>
-                                    <p className="text-sm text-muted-foreground">
-                                        查看源代码或启动实时预览
-                                    </p>
-                                </div>
-                                <button
-                                    className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors"
-                                    onClick={async () => {
-                                        try {
-                                            // 调用现有的预览功能
-                                            await invoke('run_artifacts', {
-                                                lang: artifact.artifact_type,
-                                                inputStr: artifact.code
-                                            });
-                                        } catch (error) {
-                                            console.error('启动预览失败:', error);
-                                        }
-                                    }}
-                                >
-                                    启动实时预览
-                                </button>
-                            </div>
-                        </div>
-                        <div className="flex-1 overflow-auto p-4">
-                            <div className="bg-muted rounded-lg p-4">
-                                <pre className="whitespace-pre-wrap font-mono text-sm">
-                                    {artifact.code}
-                                </pre>
-                            </div>
-                        </div>
-                    </div>
-                );
-            
-            default:
-                return (
-                    <div className="w-full h-full flex items-center justify-center">
-                        <div className="text-center max-w-md">
-                            <p className="mb-4 text-muted-foreground">
-                                不支持的 artifact 类型: {artifact.artifact_type}
-                            </p>
-                            <div className="bg-muted rounded-lg p-4 text-left">
-                                <pre className="whitespace-pre-wrap font-mono text-sm">
-                                    {artifact.code.substring(0, 500)}
-                                    {artifact.code.length > 500 ? '...' : ''}
-                                </pre>
-                            </div>
-                        </div>
-                    </div>
-                );
+        document.addEventListener('keydown', handleKeyDown);
+        document.addEventListener('keyup', handleKeyUp);
+        document.addEventListener('wheel', handleWheel, { passive: false });
+
+        return () => {
+            document.removeEventListener('keydown', handleKeyDown);
+            document.removeEventListener('keyup', handleKeyUp);
+            document.removeEventListener('wheel', handleWheel);
+        };
+    }, [previewType, currentView]);
+
+    // 处理鼠标拖动
+    const handleMouseDown = (e: React.MouseEvent) => {
+        if (isSpacePressed && previewType === 'mermaid') {
+            setIsDragging(true);
+            setDragStart({ x: e.clientX - mermaidPosition.x, y: e.clientY - mermaidPosition.y });
         }
     };
 
-    if (isLoading) {
-        return (
-            <div className="flex items-center justify-center h-screen bg-background">
-                <div className="text-center">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-                    <p className="text-muted-foreground">加载 Artifact...</p>
-                </div>
-            </div>
-        );
-    }
+    const handleMouseMove = (e: React.MouseEvent) => {
+        if (isDragging && isSpacePressed) {
+            setMermaidPosition({
+                x: e.clientX - dragStart.x,
+                y: e.clientY - dragStart.y
+            });
+        }
+    };
 
-    if (error) {
-        return (
-            <div className="flex items-center justify-center h-screen bg-background">
-                <div className="text-center">
-                    <p className="text-destructive mb-2">{error}</p>
-                    <p className="text-sm text-muted-foreground">
-                        请检查 Artifact 是否存在或重试
-                    </p>
-                </div>
-            </div>
-        );
-    }
+    const handleMouseUp = () => {
+        setIsDragging(false);
+    };
 
-    if (!artifact) {
-        return (
-            <div className="flex items-center justify-center h-screen bg-background">
-                <div className="text-center">
-                    <p className="text-muted-foreground mb-2">无法加载 Artifact</p>
-                    <p className="text-sm text-muted-foreground">
-                        Artifact 可能已被删除
-                    </p>
-                </div>
-            </div>
-        );
-    }
+    // 重置Mermaid缩放和位置
+    const resetMermaidView = () => {
+        setMermaidScale(1);
+        setMermaidPosition({ x: 0, y: 0 });
+    };
+
+    // 处理环境安装确认
+    const handleEnvironmentInstallConfirm = async () => {
+        try {
+            await invoke('confirm_environment_install', {
+                tool: environmentTool,
+                confirmed: true,
+                lang: currentLangRef.current,
+                inputStr: currentInputStrRef.current
+            });
+        } catch (error) {
+            setLogs(prev => [...prev, { type: 'error', message: `确认安装失败: ${error}` }]);
+        }
+    };
+
+    // 处理环境安装取消
+    const handleEnvironmentInstallCancel = async () => {
+        try {
+            await invoke('confirm_environment_install', {
+                tool: environmentTool,
+                confirmed: false,
+                lang: currentLangRef.current,
+                inputStr: currentInputStrRef.current
+            });
+            setShowEnvironmentDialog(false);
+        } catch (error) {
+            setLogs(prev => [...prev, { type: 'error', message: `取消安装失败: ${error}` }]);
+        }
+    };
+
+    // 当预览准备好时，切换到预览视图
+    useEffect(() => {
+        if (isPreviewReady && (previewUrl || previewType === 'mermaid' || previewType === 'html' || previewType === 'svg' || previewType === 'xml' || previewType === 'markdown' || previewType === 'md')) {
+            setCurrentView('preview');
+        }
+    }, [isPreviewReady, previewUrl, previewType]);
+
+    // 注册事件监听
+    useEffect(() => {
+        let isCancelled = false;
+
+        const registerListeners = async () => {
+            // 在函数执行一开始就检查并设置标志位，避免竞争条件
+            if (isRegisteredRef.current || isCancelled) {
+                return;
+            }
+            isRegisteredRef.current = true;
+
+            const addLog = (type: LogLine['type']) => (event: { payload: any }) => {
+                const message = event.payload as string;
+                setLogs(prev => [...prev, { type, message }]);
+
+                // 根据日志内容检测预览类型
+                if (message.includes('Vue') || message.includes('vue')) {
+                    setPreviewType('vue');
+                } else if (message.includes('React') || message.includes('react')) {
+                    setPreviewType('react');
+                } else if (message.includes('Mermaid') || message.includes('mermaid')) {
+                    setPreviewType('mermaid');
+                    // 如果是 mermaid，从日志中提取内容
+                    const mermaidMatch = message.match(/mermaid content: ([\s\S]+)/);
+                    if (mermaidMatch && mermaidMatch[1]) {
+                        setMermaidContent(mermaidMatch[1]);
+                        setOriginalCode(mermaidMatch[1]); // 保存原始代码
+                        setIsPreviewReady(true);
+                    }
+                } else if (message.includes('html content:')) {
+                    setPreviewType('html');
+                    const htmlMatch = message.match(/html content: ([\s\S]+)/);
+                    if (htmlMatch && htmlMatch[1]) {
+                        setHtmlContent(htmlMatch[1]);
+                        setOriginalCode(htmlMatch[1]); // 保存原始代码
+                        setIsPreviewReady(true);
+                    }
+                } else if (message.includes('svg content:')) {
+                    setPreviewType('svg');
+                    const svgMatch = message.match(/svg content: ([\s\S]+)/);
+                    if (svgMatch && svgMatch[1]) {
+                        setHtmlContent(svgMatch[1]);
+                        setOriginalCode(svgMatch[1]); // 保存原始代码
+                        setIsPreviewReady(true);
+                    }
+                } else if (message.includes('xml content:')) {
+                    setPreviewType('xml');
+                    const xmlMatch = message.match(/xml content: ([\s\S]+)/);
+                    if (xmlMatch && xmlMatch[1]) {
+                        setHtmlContent(xmlMatch[1]);
+                        setOriginalCode(xmlMatch[1]); // 保存原始代码
+                        setIsPreviewReady(true);
+                    }
+                } else if (message.includes('markdown content:') || message.includes('md content:')) {
+                    const type = message.includes('markdown content:') ? 'markdown' : 'md';
+                    setPreviewType(type);
+                    const contentMatch = message.match(/(markdown|md) content: ([\s\S]+)/);
+                    if (contentMatch && contentMatch[2]) {
+                        setMarkdownContent(contentMatch[2]);
+                        setOriginalCode(contentMatch[2]); // 保存原始代码
+                        setIsPreviewReady(true);
+                    }
+                }
+            };
+
+            const handleRedirect = (event: { payload: any }) => {
+                const url = event.payload as string;
+                setPreviewUrl(url);
+                setIsPreviewReady(true);
+            };
+
+            const handleEnvironmentCheck = (event: { payload: any }) => {
+                const data = event.payload;
+                setEnvironmentTool(data.tool);
+                setEnvironmentMessage(data.message);
+                setCurrentLang(data.lang);
+                setCurrentInputStr(data.input_str);
+                setShowEnvironmentDialog(true);
+            };
+
+            const handleEnvironmentInstallStarted = (event: { payload: any }) => {
+                const data = event.payload;
+                setCurrentLang(data.lang);
+                setCurrentInputStr(data.input_str);
+                isInstalling.current = true;
+                setShowEnvironmentDialog(false);
+            };
+
+            const handleBunInstallFinished = (event: { payload: any }) => {
+                const success = event.payload as boolean;
+                console.log('🔧 [ArtifactPreviewWindow] 收到Bun安装完成事件:', success, isInstalling);
+                if (success && isInstalling.current) {
+                    setLogs(prev => [...prev, { type: 'success', message: 'Bun 安装成功，正在重新启动预览...' }]);
+                    // 重新启动预览
+                    invoke('retry_preview_after_install', {
+                        lang: currentLangRef.current,
+                        inputStr: currentInputStrRef.current
+                    }).then(() => {
+                        isInstalling.current = false;
+                    }).catch(error => {
+                        setLogs(prev => [...prev, { type: 'error', message: `重新启动预览失败: ${error}` }]);
+                        isInstalling.current = false;
+                    });
+                } else if (!success) {
+                    setLogs(prev => [...prev, { type: 'error', message: 'Bun 安装失败' }]);
+                    isInstalling.current = false;
+                }
+            };
+
+            const handleUvInstallFinished = (event: { payload: any }) => {
+                const success = event.payload as boolean;
+                if (success && isInstalling.current) {
+                    setLogs(prev => [...prev, { type: 'success', message: 'uv 安装成功，正在重新启动预览...' }]);
+                    // 重新启动预览
+                    invoke('retry_preview_after_install', {
+                        lang: currentLangRef.current,
+                        inputStr: currentInputStrRef.current
+                    }).then(() => {
+                        isInstalling.current = false;
+                    }).catch(error => {
+                        setLogs(prev => [...prev, { type: 'error', message: `重新启动预览失败: ${error}` }]);
+                        isInstalling.current = false;
+                    });
+                } else if (!success) {
+                    setLogs(prev => [...prev, { type: 'error', message: 'uv 安装失败' }]);
+                    isInstalling.current = false;
+                }
+            };
+
+
+            try {
+                const unlisteners = await Promise.all([
+                    listen('artifact-log', addLog('log')),
+                    listen('artifact-error', addLog('error')),
+                    listen('artifact-success', addLog('success')),
+                    listen('artifact-redirect', handleRedirect),
+                    listen('environment-check', handleEnvironmentCheck),
+                    listen('environment-install-started', handleEnvironmentInstallStarted),
+                    listen('bun-install-finished', handleBunInstallFinished),
+                    listen('uv-install-finished', handleUvInstallFinished)
+                ]);
+
+                // 检查是否已被取消
+                if (isCancelled) {
+                    unlisteners.forEach((fn) => fn());
+                    return;
+                }
+
+                unlistenersRef.current = unlisteners;
+            } catch (error) {
+                isRegisteredRef.current = false;
+            }
+        };
+
+        registerListeners();
+
+        return () => {
+            isCancelled = true;
+            unlistenersRef.current.forEach((fn) => fn());
+            unlistenersRef.current = [];
+            isRegisteredRef.current = false;
+        };
+    }, []);
+
+    // 监听窗口关闭事件，清理预览服务器
+    useEffect(() => {
+        const currentWindow = getCurrentWebviewWindow();
+        let unlistenCloseRequested: (() => void) | null = null;
+        let isCleanupDone = false;
+
+        const cleanup = async () => {
+            // 避免重复清理
+            if (isCleanupDone) return;
+            isCleanupDone = true;
+
+            try {
+                // 根据预览类型调用相应的关闭函数
+                if (previewTypeRef.current === 'vue') {
+                    await invoke('close_vue_preview', { previewId: 'vue' });
+                } else if (previewTypeRef.current === 'mermaid' || previewTypeRef.current === 'html' || previewTypeRef.current === 'svg' || previewTypeRef.current === 'xml' || previewTypeRef.current === 'markdown' || previewTypeRef.current === 'md') {
+                    // Mermaid/HTML/SVG/XML/Markdown 不需要服务器清理，只需要清除DOM
+                } else {
+                    await invoke('close_react_preview', { previewId: 'react' });
+                }
+
+                setLogs([]);
+                setPreviewUrl(null);
+                setIsPreviewReady(false);
+                setCurrentView('logs');
+                setPreviewType(null);
+                setMermaidContent('');
+                setHtmlContent('');
+                setMarkdownContent('');
+
+            } catch (error) {
+            }
+        };
+
+        // 监听窗口关闭事件 - Tauri v2 的正确用法
+        const setupCloseListener = async () => {
+            try {
+                unlistenCloseRequested = await currentWindow.onCloseRequested(cleanup);
+            } catch (error) {
+            }
+        };
+
+        setupCloseListener();
+
+        // 添加组件卸载时的清理
+        return () => {
+            if (unlistenCloseRequested) {
+                unlistenCloseRequested();
+            }
+            // 组件卸载时也执行清理
+            if (!isCleanupDone) {
+                cleanup();
+            }
+        };
+    }, []);
+
+    // 添加切换视图的按钮（可选）
+    const handleToggleView = () => {
+        setCurrentView(current => current === 'logs' ? 'preview' : 'logs');
+    };
+
+    // 在浏览器中打开预览页面
+    const handleOpenInBrowser = async () => {
+        if (previewUrl) {
+            try {
+                await open(previewUrl);
+            } catch (error) {
+            }
+        }
+    };
+
+    // 刷新iframe
+    const handleRefresh = () => {
+        if (previewUrl) {
+            // 移除现有的_refresh参数，然后添加新的时间戳
+            const url = new URL(previewUrl);
+            url.searchParams.set('_refresh', Date.now().toString());
+            setPreviewUrl(url.toString());
+        }
+    };
+
+    // 保存当前 artifact 到合集
+    const handleSaveArtifact = () => {
+        const currentType = previewTypeRef.current;
+        if (currentType && (currentType === 'vue' || currentType === 'react' || currentType === 'html')) {
+            setShowSaveDialog(true);
+        }
+    };
+
+    // 检查是否可以保存（仅支持 vue, react, html）
+    const canSave = previewTypeRef.current && ['vue', 'react', 'html'].includes(previewTypeRef.current);
 
     return (
-        <div className="h-screen bg-background flex flex-col">
-            {/* 可选的顶部标题栏 */}
-            <div className="flex-shrink-0 px-4 py-2 border-b border-border bg-background/95 backdrop-blur-sm">
-                <div className="flex items-center gap-2">
-                    <span className="text-lg">{artifact.icon}</span>
-                    <h1 className="font-medium">{artifact.name}</h1>
-                    <span className="text-xs text-muted-foreground">
-                        {artifact.artifact_type.toUpperCase()}
-                    </span>
+        <div className="flex h-screen bg-background">
+            <div className="flex flex-col flex-1 bg-background rounded-xl m-2 shadow-lg border border-border">
+                {/* 顶部工具栏 */}
+                {isPreviewReady && (previewUrl || previewType === 'mermaid' || previewType === 'html' || previewType === 'svg' || previewType === 'xml' || previewType === 'markdown' || previewType === 'md') && (
+                    <div className="flex-shrink-0 p-4 border-b border-border flex items-center justify-between">
+                        <div className="text-sm text-muted-foreground">
+                            {currentView === 'logs' ? '日志视图' :
+                                previewType === 'mermaid' ? 'Mermaid 图表预览' :
+                                    previewType === 'html' ? 'HTML 预览' :
+                                        previewType === 'svg' ? 'SVG 预览' :
+                                            previewType === 'xml' ? 'XML 预览' :
+                                                previewType === 'markdown' || previewType === 'md' ? 'Markdown 预览' :
+                                                    `预览地址: ${previewUrl}`}
+                        </div>
+                        <div className="flex gap-2">
+                            {/* 保存按钮 - 仅在预览模式且可保存时显示 */}
+                            {currentView === 'preview' && canSave && (
+                                <button
+                                    onClick={handleSaveArtifact}
+                                    className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
+                                    title="保存到合集"
+                                >
+                                    保存
+                                </button>
+                            )}
+                            {previewType !== 'mermaid' && previewType !== 'html' && previewType !== 'svg' && previewType !== 'xml' && previewType !== 'markdown' && previewType !== 'md' && (
+                                <>
+                                    <button
+                                        onClick={handleRefresh}
+                                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
+                                        title="刷新预览"
+                                    >
+                                        刷新
+                                    </button>
+                                    <button
+                                        onClick={handleOpenInBrowser}
+                                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
+                                        title="在浏览器中打开"
+                                    >
+                                        打开浏览器
+                                    </button>
+                                </>
+                            )}
+                            <button
+                                onClick={handleToggleView}
+                                className="px-6 py-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
+                            >
+                                {currentView === 'logs' ? '查看预览' : '查看日志'}
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* 主要内容区域 */}
+                <div className="flex-1 flex flex-col">
+                    {currentView === 'logs' ? (
+                        /* 日志视图 - 全屏显示 */
+                        <div className="flex-1 flex flex-col p-4">
+                            <h2 className="text-lg font-semibold mb-2 text-foreground">Artifact Preview Logs</h2>
+                            <div className="flex-1 overflow-y-auto rounded border border-border p-2 bg-muted text-sm font-mono">
+                                {logs.map((log, idx) => (
+                                    <div
+                                        key={idx}
+                                        className={
+                                            log.type === 'error'
+                                                ? 'text-destructive'
+                                                : log.type === 'success'
+                                                    ? 'text-green-600 dark:text-green-400'
+                                                    : 'text-foreground'
+                                        }
+                                    >
+                                        {log.message}
+                                    </div>
+                                ))}
+                                <div ref={logsEndRef} />
+                            </div>
+
+                            {/* 如果预览准备好了，显示提示 */}
+                            {isPreviewReady && (previewUrl || previewType === 'mermaid' || previewType === 'html' || previewType === 'svg' || previewType === 'xml' || previewType === 'markdown' || previewType === 'md') && (
+                                <div className="mt-4 p-3 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded">
+                                    <p className="text-green-700 dark:text-green-400 text-sm">
+                                        ✅ 预览准备完成，即将自动切换到预览视图...
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        /* 预览视图 - 根据类型显示不同内容 */
+                        <div className="flex-1 flex flex-col">
+                            {previewType === 'mermaid' ? (
+                                /* Mermaid 图表预览 */
+                                <div className="flex-1 flex flex-col p-4">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <div className="text-sm text-muted-foreground">
+                                            缩放: {Math.round(mermaidScale * 100)}% | 提示: 滚轮缩放，空格键+拖动
+                                        </div>
+                                        <button
+                                            onClick={resetMermaidView}
+                                            className="px-3 py-1 bg-secondary hover:bg-secondary/80 text-secondary-foreground text-xs rounded transition-colors"
+                                        >
+                                            重置视图
+                                        </button>
+                                    </div>
+                                    <div
+                                        ref={mermaidContainerRef}
+                                        className={`flex-1 bg-background border border-border rounded-lg shadow-sm overflow-hidden relative ${
+                                            isSpacePressed ? 'cursor-grab' : 'cursor-default'
+                                        } ${isDragging ? 'cursor-grabbing' : ''}`}
+                                        onMouseDown={handleMouseDown}
+                                        onMouseMove={handleMouseMove}
+                                        onMouseUp={handleMouseUp}
+                                        onMouseLeave={handleMouseUp}
+                                        style={{
+                                            minHeight: '400px',
+                                            maxHeight: 'calc(100vh - 200px)',
+                                            overflow: 'auto'
+                                        }}
+                                    >
+                                        <div
+                                            style={{
+                                                transform: `scale(${mermaidScale}) translate(${mermaidPosition.x}px, ${mermaidPosition.y}px)`,
+                                                transformOrigin: 'center center',
+                                                transition: isDragging ? 'none' : 'transform 0.1s ease-out',
+                                                display: 'flex',
+                                                justifyContent: 'center',
+                                                alignItems: 'center',
+                                                minWidth: '100%',
+                                                minHeight: '100%',
+                                                padding: '20px'
+                                            }}
+                                        >
+                                            {/* Mermaid SVG 将被渲染在这里 */}
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : previewType === 'markdown' || previewType === 'md' ? (
+                                /* Markdown 预览 */
+                                <div className="flex-1 overflow-auto bg-background p-6">
+                                    <div className="prose prose-lg max-w-none dark:prose-invert">
+                                        <ReactMarkdown
+                                            remarkPlugins={[remarkMath, remarkBreaks]}
+                                            rehypePlugins={[rehypeKatex, rehypeRaw]}
+                                            components={{
+                                                code({ className, children, ...props }: any) {
+                                                    const match = /language-(\w+)/.exec(className || '');
+                                                    const isInline = !match;
+                                                    return !isInline ? (
+                                                        <SyntaxHighlighter
+                                                            style={oneDark as any}
+                                                            language={match[1]}
+                                                            PreTag="div"
+                                                            {...props}
+                                                        >
+                                                            {String(children).replace(/\n$/, '')}
+                                                        </SyntaxHighlighter>
+                                                    ) : (
+                                                        <code className={className} {...props}>
+                                                            {children}
+                                                        </code>
+                                                    );
+                                                }
+                                            }}
+                                        >
+                                            {markdownContent}
+                                        </ReactMarkdown>
+                                    </div>
+                                </div>
+                            ) : previewType === 'html' || previewType === 'svg' || previewType === 'xml' ? (
+                                /* HTML/SVG/XML 预览 */
+                                <iframe
+                                    srcDoc={htmlContent}
+                                    className="flex-1 w-full border-0 bg-background"
+                                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation"
+                                    style={{
+                                        minHeight: '400px'
+                                    }}
+                                />
+                            ) : (
+                                /* iframe 预览 - 用于 React 和 Vue */
+                                <iframe
+                                    src={previewUrl || ''}
+                                    className="flex-1 w-full border-0"
+                                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation"
+                                    onLoad={() => {
+                                    }}
+                                    onError={() => {
+                                    }}
+                                />
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
-
-            {/* 主要内容区域 */}
-            <div className="flex-1 overflow-hidden">
-                {renderContent()}
-            </div>
+            
+            {/* 环境安装确认对话框 */}
+            <EnvironmentInstallDialog
+                tool={environmentTool}
+                message={environmentMessage}
+                isOpen={showEnvironmentDialog}
+                onConfirm={handleEnvironmentInstallConfirm}
+                onCancel={handleEnvironmentInstallCancel}
+            />
+            
+            {/* Artifact 保存对话框 */}
+            {previewTypeRef.current && (
+                <SaveArtifactDialog
+                    isOpen={showSaveDialog}
+                    onClose={() => setShowSaveDialog(false)}
+                    artifactType={previewTypeRef.current}
+                    code={originalCode || htmlContent || mermaidContent || markdownContent}
+                />
+            )}
         </div>
     );
-}
+} 
