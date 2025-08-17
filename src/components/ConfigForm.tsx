@@ -404,35 +404,32 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                 <div className="flex items-center gap-2 ml-4">
                     {onCopy && (
                         <Button
-                            variant="outline"
+                            variant="ghost"
                             size="sm"
                             onClick={onCopy}
                             className="hover:bg-muted hover:border-border hover:text-foreground"
                         >
                             <Copy className="h-4 w-4 mr-1" />
-                            复制
                         </Button>
                     )}
                     {onEdit && (
                         <Button
-                            variant="outline"
+                            variant="ghost"
                             size="sm"
                             onClick={onEdit}
                             className="hover:bg-muted hover:border-border hover:text-foreground"
                         >
                             <Edit3 className="h-4 w-4 mr-1" />
-                            编辑
                         </Button>
                     )}
                     {onDelete && (
                         <Button
-                            variant="outline"
+                            variant="ghost"
                             size="sm"
                             onClick={onDelete}
                             className="hover:bg-destructive/10 hover:border-destructive/30 hover:text-destructive"
                         >
                             <Trash2 className="h-4 w-4 mr-1" />
-                            删除
                         </Button>
                     )}
                     {extraButtons}

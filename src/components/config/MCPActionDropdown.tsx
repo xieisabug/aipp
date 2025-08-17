@@ -17,7 +17,6 @@ interface MCPActionDropdownProps {
     className?: string;
     variant?: 'default' | 'outline' | 'secondary' | 'ghost' | 'link' | 'destructive';
     size?: 'default' | 'sm' | 'lg' | 'icon';
-    buttonText?: string;
     showIcon?: boolean;
     disabled?: boolean;
 }
@@ -28,7 +27,6 @@ const MCPActionDropdown: React.FC<MCPActionDropdownProps> = ({
     className = '',
     variant = 'default',
     size = 'default',
-    buttonText = '添加MCP服务器',
     showIcon = true,
     disabled = false
 }) => {
@@ -53,7 +51,6 @@ const MCPActionDropdown: React.FC<MCPActionDropdownProps> = ({
                     disabled={disabled}
                 >
                     {showIcon && <PlusCircle className="h-4 w-4" />}
-                    {buttonText}
                     <ChevronDown className="h-4 w-4" />
                 </Button>
             </DropdownMenuTrigger>

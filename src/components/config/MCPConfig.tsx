@@ -321,7 +321,6 @@ const MCPConfig: React.FC = () => {
             onTemplateSelect={handleTemplateSelect}
             onJSONImport={handleJSONImport}
             className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm hover:shadow-md transition-all"
-            buttonText="新增MCP"
         />
     ), [handleTemplateSelect, handleJSONImport]);
 
@@ -342,7 +341,6 @@ const MCPConfig: React.FC = () => {
                                     onTemplateSelect={handleTemplateSelect}
                                     onJSONImport={handleJSONImport}
                                     className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg hover:shadow-xl transition-all"
-                                    buttonText="添加第一个MCP服务器"
                                 />
                             }
                         />
@@ -382,7 +380,6 @@ const MCPConfig: React.FC = () => {
                     onJSONImport={handleJSONImport}
                     variant="outline"
                     size="sm"
-                    buttonText="添加"
                     showIcon={false}
                 />
             }

@@ -328,9 +328,6 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
         () => (
             <div className="flex items-center gap-2">
                 <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground">
-                        {enabled ? "已启用" : "已禁用"}
-                    </span>
                     <Switch
                         checked={enabled}
                         onCheckedChange={() => onToggleEnabled(index)}
@@ -338,13 +335,12 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
                 </div>
                 {!isOffical && (
                     <Button
-                        variant="outline"
+                        variant="ghost"
                         size="sm"
                         onClick={onDelete}
                         className="hover:bg-red-50 hover:border-red-300 hover:text-red-700"
                     >
                         <Trash2 className="h-4 w-4 mr-1" />
-                        删除
                     </Button>
                 )}
             </div>

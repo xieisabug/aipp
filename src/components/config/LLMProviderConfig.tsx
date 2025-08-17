@@ -159,7 +159,6 @@ const LLMProviderConfig: React.FC = () => {
             className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm hover:shadow-md transition-all"
         >
             <PlusCircle className="h-4 w-4" />
-            新增提供商
         </Button>
     ), [openNewProviderDialog]);
 
