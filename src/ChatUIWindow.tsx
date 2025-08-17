@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { emit } from "@tauri-apps/api/event";
 import ChatUIToolbar from "./components/ChatUIToolbar";
 import ConversationList from "./components/ConversationList";
 import ChatUIInfomation from "./components/ChatUIInfomation";
-import ConversationUI from "./components/ConversationUI";
+import ConversationUI, { ConversationUIRef } from "./components/ConversationUI";
 import { useTheme } from "./hooks/useTheme";
 
 import { appDataDir } from "@tauri-apps/api/path";
@@ -17,6 +17,7 @@ function ChatUIWindow() {
     const [pluginList, setPluginList] = useState<any[]>([]);
 
     const [selectedConversation, setSelectedConversation] = useState<string>("");
+    const conversationUIRef = useRef<ConversationUIRef>(null);
 
     // 组件挂载完成后，发送窗口加载事件，通知 AskWindow
     useEffect(() => {
@@ -30,8 +31,19 @@ function ChatUIWindow() {
             }
         });
 
+        // 监听窗口焦点变化
+        const windowFocusUnlisten = getCurrentWebviewWindow().onFocusChanged(({ payload: focused }) => {
+            if (focused) {
+                // 窗口获得焦点时，使用 requestAnimationFrame 聚焦到输入框
+                requestAnimationFrame(() => {
+                    conversationUIRef.current?.focus();
+                });
+            }
+        });
+
         return () => {
             unlisten.then((unlisten) => unlisten());
+            windowFocusUnlisten.then((unlistenFn) => unlistenFn());
         };
     }, []);
 
@@ -85,7 +97,7 @@ function ChatUIWindow() {
             </div>
 
             <div className="flex-1 bg-background overflow-auto rounded-xl m-2 ml-0 shadow-lg">
-                <ConversationUI pluginList={pluginList} conversationId={selectedConversation} onChangeConversationId={setSelectedConversation} />
+                <ConversationUI ref={conversationUIRef} pluginList={pluginList} conversationId={selectedConversation} onChangeConversationId={setSelectedConversation} />
             </div>
         </div>
     );

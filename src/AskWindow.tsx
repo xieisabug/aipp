@@ -22,7 +22,7 @@ import IconButton from "./components/IconButton";
 import { throttle } from "lodash";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import useFileManagement from "./hooks/useFileManagement";
-import InputArea from "./components/conversation/InputArea";
+import InputArea, { InputAreaRef } from "./components/conversation/InputArea";
 import { useConversationEvents } from "./hooks/useConversationEvents";
 import { StreamEvent } from "./data/Conversation";
 import { ShineBorder } from "./components/magicui/shine-border";
@@ -41,6 +41,7 @@ function AskWindow() {
     const [response, setResponse] = useState<string>("");
     const [messageId, setMessageId] = useState<number>(-1);
     const inputRef = useRef<HTMLTextAreaElement>(null);
+    const inputAreaRef = useRef<InputAreaRef>(null);
     const [aiIsResponsing, setAiIsResponsing] = useState<boolean>(false);
     const [copySuccess, setCopySuccess] = useState<boolean>(false);
     const [selectedText, setSelectedText] = useState<string>("");
@@ -205,14 +206,29 @@ function AskWindow() {
             }
         };
 
+        // 初始聚焦
         if (inputRef.current) {
             inputRef.current.focus();
         }
+        // 使用新的 InputAreaRef 进行聚焦
+        inputAreaRef.current?.focus();
+
+        // 监听窗口焦点变化
+        const unlisten = appWindow.onFocusChanged(({ payload: focused }) => {
+            if (focused) {
+                // 窗口获得焦点时，使用 requestAnimationFrame 聚焦到输入框
+                requestAnimationFrame(() => {
+                    inputAreaRef.current?.focus();
+                });
+            }
+        });
 
         window.addEventListener("keydown", handleShortcut);
 
         return () => {
             window.removeEventListener("keydown", handleShortcut);
+            // 清理窗口焦点监听
+            unlisten.then((unlistenFn) => unlistenFn());
             // 清理逻辑现在由 useConversationEvents hook 处理
         };
     }, []);
@@ -258,6 +274,11 @@ function AskWindow() {
         setConversationId("");
         setErrorMessage(""); // 清除错误信息
         setShouldShowShineBorder(false); // 开始新对话时关闭边框
+        
+        // 使用 requestAnimationFrame 确保状态更新完成后聚焦
+        requestAnimationFrame(() => {
+            inputAreaRef.current?.focus();
+        });
     };
 
     const { fileInfoList, handleChooseFile, handleDeleteFile, handlePaste } =
@@ -285,6 +306,7 @@ function AskWindow() {
                     />
                 )}
                 <InputArea
+                    ref={inputAreaRef}
                     inputText={query}
                     setInputText={setQuery}
                     fileInfoList={fileInfoList}

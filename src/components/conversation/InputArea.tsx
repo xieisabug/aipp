@@ -49,7 +49,7 @@
  * - 此解决方案参考了业界最佳实践（Cherry Studio 等项目的处理方式）
  */
 
-import React, { useRef, useEffect, useState, useCallback } from "react";
+import React, { useRef, useEffect, useState, useCallback, forwardRef, useImperativeHandle } from "react";
 import "../../styles/InputArea.css";
 import CircleButton from "../CircleButton";
 import Add from "../../assets/add.svg?react";
@@ -64,6 +64,11 @@ import { useFileList } from '../../hooks/useFileList';
 import { useAssistantListListener } from '../../hooks/useAssistantListListener';
 import PinyinFilter, { AssistantItem, FilteredAssistant } from '../../utils/pinyinFilter';
 
+// 暴露给外部的方法接口
+export interface InputAreaRef {
+    focus: () => void;
+}
+
 interface InputAreaProps {
     inputText: string;
     setInputText: React.Dispatch<React.SetStateAction<string>>;
@@ -76,21 +81,29 @@ interface InputAreaProps {
     placement?: "top" | "bottom";
 }
 
-const InputArea: React.FC<InputAreaProps> = React.memo(
-    ({
-        inputText,
-        setInputText,
-        fileInfoList,
-        handleChooseFile,
-        handlePaste,
-        handleDeleteFile,
-        handleSend,
-        aiIsResponsing,
-        placement = "bottom",
-    }) => {
+const InputArea = React.memo(
+    forwardRef<InputAreaRef, InputAreaProps>(
+        ({
+            inputText,
+            setInputText,
+            fileInfoList,
+            handleChooseFile,
+            handlePaste,
+            handleDeleteFile,
+            handleSend,
+            aiIsResponsing,
+            placement = "bottom",
+        }, ref) => {
         // 图片区域的高度
         const IMAGE_AREA_HEIGHT = 80;
         const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+        // 暴露给外部的方法
+        useImperativeHandle(ref, () => ({
+            focus: () => {
+                textareaRef.current?.focus();
+            }
+        }), []);
 
         // WebKit2 GTK 中文输入法兼容性：手动跟踪 IME 组合状态
         // 因为 WebKit2 下 event.isComposing 在确认候选词时会错误地返回 false
@@ -728,7 +741,7 @@ const InputArea: React.FC<InputAreaProps> = React.memo(
                 />
             </div>
         );
-    },
+    }),
 );
 
 export default InputArea;

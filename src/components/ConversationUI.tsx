@@ -5,6 +5,9 @@ import React, {
     useMemo,
     useRef,
     useState,
+    forwardRef,
+    useImperativeHandle,
+    useLayoutEffect,
 } from "react";
 import { toast } from "sonner";
 
@@ -26,7 +29,7 @@ import MessageItem from "./MessageItem";
 import VersionPagination from "./VersionPagination";
 import ConversationTitle from "./conversation/ConversationTitle";
 import useFileDropHandler from "../hooks/useFileDropHandler";
-import InputArea from "./conversation/InputArea";
+import InputArea, { InputAreaRef } from "./conversation/InputArea";
 import MessageEditDialog from "./MessageEditDialog";
 import ConversationTitleEditDialog from "./ConversationTitleEditDialog";
 import { useMessageGroups } from "../hooks/useMessageGroups";
@@ -34,6 +37,11 @@ import useFileManagement from "@/hooks/useFileManagement";
 import { useConversationEvents } from "@/hooks/useConversationEvents";
 import { useAssistantListListener } from "@/hooks/useAssistantListListener";
 import { AssistantListItem } from "@/data/Assistant";
+
+// 暴露给外部的方法接口
+export interface ConversationUIRef {
+    focus: () => void;
+}
 
 interface ConversationUIProps {
     conversationId: string;
@@ -56,11 +64,11 @@ interface AskAssistantApiFunctions {
     ) => void;
 }
 
-function ConversationUI({
+const ConversationUI = forwardRef<ConversationUIRef, ConversationUIProps>(({
     conversationId,
     onChangeConversationId,
     pluginList,
-}: ConversationUIProps) {
+}, ref) => {
     // ============= 插件管理相关状态和逻辑 =============
 
     // 助手类型插件映射表，key为助手类型，value为插件实例
@@ -315,6 +323,14 @@ function ConversationUI({
 
     // 输入相关状态
     const [inputText, setInputText] = useState("");
+    const inputAreaRef = useRef<InputAreaRef>(null);
+
+    // 暴露给外部的方法
+    useImperativeHandle(ref, () => ({
+        focus: () => {
+            inputAreaRef.current?.focus();
+        }
+    }), []);
 
     // 对话标题管理相关状态
     const [titleEditDialogIsOpen, setTitleEditDialogIsOpen] =
@@ -520,6 +536,14 @@ function ConversationUI({
         });
     }, []);
 
+    // 智能聚焦逻辑 - 无延迟版本
+    useLayoutEffect(() => {
+        // 只在 InputArea 存在且不在加载状态时聚焦
+        if (inputAreaRef.current && !isLoadingShow) {
+            inputAreaRef.current.focus();
+        }
+    }, [conversationId, isLoadingShow]); // 监听对话ID和加载状态变化
+
     // 对话加载和管理逻辑
     useEffect(() => {
         if (!conversationId) {
@@ -549,7 +573,7 @@ function ConversationUI({
         }).then((res: ConversationWithMessages) => {
             setMessages(res.messages);
             setConversation(res.conversation);
-            setIsLoadingShow(false);
+            setIsLoadingShow(false); // 这里会触发 useLayoutEffect 中的聚焦
 
             if (res.messages.length === 2) {
                 if (res.messages[0].message_type === "system" && res.messages[1].message_type === "user") {
@@ -1202,6 +1226,7 @@ function ConversationUI({
             ) : null}
 
             <InputArea
+                ref={inputAreaRef}
                 inputText={inputText}
                 setInputText={setInputText}
                 fileInfoList={fileInfoList}
@@ -1239,6 +1264,6 @@ function ConversationUI({
             ) : null}
         </div>
     );
-}
+});
 
 export default ConversationUI;
