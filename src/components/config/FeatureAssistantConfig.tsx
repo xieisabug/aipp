@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { listen, emit } from "@tauri-apps/api/event";
 import ConfigForm from "../ConfigForm";
 import { MessageSquare, Eye, FolderOpen, Settings, Wifi, Monitor } from "lucide-react";
 import { toast } from 'sonner';
@@ -163,21 +163,26 @@ const FeatureAssistantConfig: React.FC = () => {
         }
     ], [themeOptions, colorModeOptions, markdownRenderOptions]);
 
-    const handleSaveDisplayConfig = useCallback(() => {
+    const handleSaveDisplayConfig = useCallback(async () => {
         const values = displayFormReturnData.getValues();
         
-        invoke("save_feature_config", {
-            featureCode: "display",
-            config: {
-                theme: values.theme,
-                color_mode: values.color_mode,
-                user_message_markdown_render: values.user_message_markdown_render,
-            }
-        }).then(() => {
+        try {
+            await invoke("save_feature_config", {
+                featureCode: "display",
+                config: {
+                    theme: values.theme,
+                    color_mode: values.color_mode,
+                    user_message_markdown_render: values.user_message_markdown_render,
+                }
+            });
+            
+            // 发出主题变化事件，通知其他窗口
+            await emit('theme-changed', { mode: values.color_mode });
+            
             toast.success('显示配置保存成功');
-        }).catch((e) => {
+        } catch (e) {
             toast.error('保存显示配置失败: ' + e);
-        });
+        }
     }, []);
 
     // 总结相关表单

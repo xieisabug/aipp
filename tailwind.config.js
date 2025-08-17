@@ -43,10 +43,6 @@ export default {
   				DEFAULT: 'hsl(var(--destructive))',
   				foreground: 'hsl(var(--destructive-foreground))'
   			},
-  			'user-message': {
-  				DEFAULT: 'hsl(var(--user-message-bg))',
-  				foreground: 'hsl(var(--user-message-foreground))'
-  			},
   			border: 'hsl(var(--border))',
   			input: 'hsl(var(--input))',
   			ring: 'hsl(var(--ring))',
