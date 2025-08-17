@@ -5,10 +5,12 @@ import rehypeRaw from "rehype-raw";
 import rehypeKatex from "rehype-katex";
 import rehypeHighlight from "rehype-highlight";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
+import { common } from "lowlight";
 import remarkCustomCompenent from "@/react-markdown/remarkCustomComponent";
 import TipsComponent from "@/react-markdown/components/TipsComponent";
 import MessageFileAttachment from "@/components/MessageFileAttachment";
 import MessageWebContent from "@/components/conversation/MessageWebContent";
+import { definer as vueDefiner } from "highlightjs-vue";
 
 // ReactMarkdown 插件配置
 export const REMARK_PLUGINS = [
@@ -48,7 +50,7 @@ export const REHYPE_PLUGINS = [
     rehypeRaw,
     [rehypeSanitize, SANITIZE_SCHEMA] as const,
     rehypeKatex,
-    rehypeHighlight,
+    [rehypeHighlight, { languages: { ...common, vue: vueDefiner} }],
 ] as const;
 
 // ReactMarkdown 组件配置的基础部分 - 移除无用的 mcp_tool_call

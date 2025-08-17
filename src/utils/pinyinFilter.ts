@@ -1,4 +1,5 @@
 import { pinyin } from "pinyin-pro";
+import { ArtifactCollectionItem, FilteredArtifact } from "../data/ArtifactCollection";
 
 export interface AssistantItem {
     id: number;
@@ -16,6 +17,128 @@ export interface FilteredAssistant extends AssistantItem {
  * 支持全拼和首字母匹配
  */
 export class PinyinFilter {
+    /**
+     * 基于搜索查询使用名称和拼音过滤工件
+     * @param artifacts 要过滤的工件列表
+     * @param query 搜索查询（可以是中文字符、拼音或首字母）
+     * @returns 过滤并排序的工件列表
+     */
+    static filterArtifacts(
+        artifacts: ArtifactCollectionItem[],
+        query: string,
+    ): FilteredArtifact[] {
+        if (!query.trim()) {
+            return artifacts.map((artifact) => ({
+                ...artifact,
+                matchType: "exact",
+                highlightIndices: [],
+            }));
+        }
+
+        const queryLower = query.toLowerCase();
+        const results: FilteredArtifact[] = [];
+
+        for (const artifact of artifacts) {
+            const nameLower = artifact.name.toLowerCase();
+            const descriptionLower = artifact.description?.toLowerCase() || '';
+
+            // 检查精确名称匹配
+            if (nameLower.includes(queryLower)) {
+                const indices = this.getMatchIndices(nameLower, queryLower);
+                results.push({
+                    ...artifact,
+                    matchType: "exact",
+                    highlightIndices: indices,
+                });
+                continue;
+            }
+
+            // 检查描述匹配
+            if (descriptionLower.includes(queryLower)) {
+                results.push({
+                    ...artifact,
+                    matchType: "exact",
+                    highlightIndices: [],
+                });
+                continue;
+            }
+
+            // 检查拼音匹配
+            try {
+                const pinyinArray = pinyin(artifact.name, {
+                    toneType: "none",
+                    type: "array",
+                }).map((p) => p.toLowerCase());
+
+                const pinyinFull = pinyinArray.join("");
+                const pinyinWithSpace = pinyinArray.join(" ");
+                const pinyinInitials = pinyinArray
+                    .map((p) => p.charAt(0))
+                    .join("");
+
+                // 全拼匹配（连续拼音，如 "shitu" 匹配 "识图"）
+                if (pinyinFull.includes(queryLower)) {
+                    const indices = this.getPinyinMatchIndices(
+                        pinyinArray,
+                        pinyinFull,
+                        queryLower,
+                    );
+                    results.push({
+                        ...artifact,
+                        matchType: "pinyin",
+                        highlightIndices: indices,
+                    });
+                    continue;
+                }
+
+                // 分词拼音匹配（如 "shi tu" 匹配 "识图"）
+                if (pinyinWithSpace.includes(queryLower)) {
+                    const indices = this.getSpacedPinyinMatchIndices(
+                        artifact.name,
+                        pinyinWithSpace,
+                        queryLower,
+                    );
+                    results.push({
+                        ...artifact,
+                        matchType: "pinyin",
+                        highlightIndices: indices,
+                    });
+                    continue;
+                }
+
+                // 首字母匹配（如 "stcs" 匹配 "识图测试"）
+                if (this.isInitialsMatch(pinyinInitials, queryLower)) {
+                    const indices = this.getInitialsMatchIndices(
+                        pinyinInitials,
+                        queryLower,
+                    );
+                    results.push({
+                        ...artifact,
+                        matchType: "initial",
+                        highlightIndices: indices,
+                    });
+                }
+            } catch (error) {
+                // 降级处理：如果拼音转换失败，跳过拼音匹配
+                console.warn("Failed to convert to pinyin:", error);
+            }
+        }
+
+        // 按匹配类型优先级排序，然后按使用频率和名称排序
+        return results.sort((a, b) => {
+            // 优先级：精确匹配 > 拼音匹配 > 首字母匹配 > 模糊匹配
+            const priority = { exact: 0, pinyin: 1, initial: 2, fuzzy: 3 };
+            if (a.matchType !== b.matchType) {
+                return priority[a.matchType] - priority[b.matchType];
+            }
+            // 相同匹配类型下，按使用频率排序（高频率在前）
+            if (a.use_count !== b.use_count) {
+                return b.use_count - a.use_count;
+            }
+            return a.name.localeCompare(b.name);
+        });
+    }
+
     /**
      * 基于搜索查询使用名称和拼音过滤助手
      * @param assistants 要过滤的助手列表

@@ -14,6 +14,7 @@ import rehypeRaw from 'rehype-raw';
 import '../styles/ArtifactPreviewWIndow.css';
 import 'katex/dist/katex.min.css';
 import EnvironmentInstallDialog from '../components/EnvironmentInstallDialog';
+import SaveArtifactDialog from '../components/SaveArtifactDialog';
 import { useTheme } from '../hooks/useTheme';
 
 interface LogLine {
@@ -57,6 +58,10 @@ export default function ArtifactPreviewWindow() {
     const [environmentMessage, setEnvironmentMessage] = useState<string>('');
     const [currentLang, setCurrentLang] = useState<string>('');
     const [currentInputStr, setCurrentInputStr] = useState<string>('');
+    
+    // 保存 artifact 相关状态
+    const [showSaveDialog, setShowSaveDialog] = useState<boolean>(false);
+    const [originalCode, setOriginalCode] = useState<string>(''); // 存储原始代码
     
     // 使用 refs 来存储最新的值，避免闭包陷阱
     const currentLangRef = useRef<string>('');
@@ -272,6 +277,7 @@ export default function ArtifactPreviewWindow() {
                     const mermaidMatch = message.match(/mermaid content: ([\s\S]+)/);
                     if (mermaidMatch && mermaidMatch[1]) {
                         setMermaidContent(mermaidMatch[1]);
+                        setOriginalCode(mermaidMatch[1]); // 保存原始代码
                         setIsPreviewReady(true);
                     }
                 } else if (message.includes('html content:')) {
@@ -279,6 +285,7 @@ export default function ArtifactPreviewWindow() {
                     const htmlMatch = message.match(/html content: ([\s\S]+)/);
                     if (htmlMatch && htmlMatch[1]) {
                         setHtmlContent(htmlMatch[1]);
+                        setOriginalCode(htmlMatch[1]); // 保存原始代码
                         setIsPreviewReady(true);
                     }
                 } else if (message.includes('svg content:')) {
@@ -286,6 +293,7 @@ export default function ArtifactPreviewWindow() {
                     const svgMatch = message.match(/svg content: ([\s\S]+)/);
                     if (svgMatch && svgMatch[1]) {
                         setHtmlContent(svgMatch[1]);
+                        setOriginalCode(svgMatch[1]); // 保存原始代码
                         setIsPreviewReady(true);
                     }
                 } else if (message.includes('xml content:')) {
@@ -293,6 +301,7 @@ export default function ArtifactPreviewWindow() {
                     const xmlMatch = message.match(/xml content: ([\s\S]+)/);
                     if (xmlMatch && xmlMatch[1]) {
                         setHtmlContent(xmlMatch[1]);
+                        setOriginalCode(xmlMatch[1]); // 保存原始代码
                         setIsPreviewReady(true);
                     }
                 } else if (message.includes('markdown content:') || message.includes('md content:')) {
@@ -301,6 +310,7 @@ export default function ArtifactPreviewWindow() {
                     const contentMatch = message.match(/(markdown|md) content: ([\s\S]+)/);
                     if (contentMatch && contentMatch[2]) {
                         setMarkdownContent(contentMatch[2]);
+                        setOriginalCode(contentMatch[2]); // 保存原始代码
                         setIsPreviewReady(true);
                     }
                 }
@@ -486,6 +496,17 @@ export default function ArtifactPreviewWindow() {
         }
     };
 
+    // 保存当前 artifact 到合集
+    const handleSaveArtifact = () => {
+        const currentType = previewTypeRef.current;
+        if (currentType && (currentType === 'vue' || currentType === 'react' || currentType === 'html')) {
+            setShowSaveDialog(true);
+        }
+    };
+
+    // 检查是否可以保存（仅支持 vue, react, html）
+    const canSave = previewTypeRef.current && ['vue', 'react', 'html'].includes(previewTypeRef.current);
+
     return (
         <div className="flex h-screen bg-background">
             <div className="flex flex-col flex-1 bg-background rounded-xl m-2 shadow-lg border border-border">
@@ -502,6 +523,16 @@ export default function ArtifactPreviewWindow() {
                                                     `预览地址: ${previewUrl}`}
                         </div>
                         <div className="flex gap-2">
+                            {/* 保存按钮 - 仅在预览模式且可保存时显示 */}
+                            {currentView === 'preview' && canSave && (
+                                <button
+                                    onClick={handleSaveArtifact}
+                                    className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
+                                    title="保存到合集"
+                                >
+                                    保存
+                                </button>
+                            )}
                             {previewType !== 'mermaid' && previewType !== 'html' && previewType !== 'svg' && previewType !== 'xml' && previewType !== 'markdown' && previewType !== 'md' && (
                                 <>
                                     <button
@@ -679,6 +710,16 @@ export default function ArtifactPreviewWindow() {
                 onConfirm={handleEnvironmentInstallConfirm}
                 onCancel={handleEnvironmentInstallCancel}
             />
+            
+            {/* Artifact 保存对话框 */}
+            {previewTypeRef.current && (
+                <SaveArtifactDialog
+                    isOpen={showSaveDialog}
+                    onClose={() => setShowSaveDialog(false)}
+                    artifactType={previewTypeRef.current}
+                    code={originalCode || htmlContent || mermaidContent || markdownContent}
+                />
+            )}
         </div>
     );
 } 

@@ -1,3 +1,4 @@
+use crate::db::artifacts_collection_db::ArtifactCollection;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::Emitter;
@@ -579,4 +580,123 @@ pub fn awaken_aipp(app_handle: &AppHandle) {
         &Local::now().to_string()
     );
     create_ask_window(app_handle);
+}
+
+// Create artifact collections window to manage saved artifacts
+fn create_artifact_collections_window(app_handle: &AppHandle) {
+    let (window_size, window_position) = get_window_size_and_position(
+        app_handle,
+        1200.0,
+        800.0,
+        &["chat_ui", "ask", "config"],
+    );
+
+    let builder = WebviewWindowBuilder::new(
+        app_handle,
+        "artifact_collections",
+        WebviewUrl::App("artifacts_collections.html".into()),
+    )
+    .title("Artifacts 合集管理")
+    .inner_size(window_size.width, window_size.height)
+    .resizable(true)
+    .minimizable(true)
+    .maximizable(true)
+    .center();
+
+    let builder = if let Some(position) = window_position {
+        builder.position(position.x, position.y)
+    } else {
+        builder.center()
+    };
+
+    match builder.build() {
+        Ok(_window) => {
+            println!("Artifact collections window created successfully");
+        }
+        Err(e) => {
+            eprintln!("Failed to create artifact collections window: {}", e);
+        }
+    }
+}
+
+// Create artifact window to display a single artifact
+fn create_artifact_window(app_handle: &AppHandle, artifact: &ArtifactCollection) {
+    let window_label = format!("artifact_{}", artifact.id);
+    
+    let (window_size, window_position) = get_window_size_and_position(
+        app_handle,
+        1000.0,
+        700.0,
+        &["chat_ui", "ask", "artifact_collections"],
+    );
+
+    let builder = WebviewWindowBuilder::new(
+        app_handle,
+        &window_label,
+        WebviewUrl::App("index.html".into()),
+    )
+    .title(&format!("{} - {}", artifact.name, artifact.artifact_type.to_uppercase()))
+    .inner_size(window_size.width, window_size.height)
+    .resizable(true)
+    .minimizable(true)
+    .maximizable(true)
+    .center();
+
+    let builder = if let Some(position) = window_position {
+        builder.position(position.x, position.y)
+    } else {
+        builder.center()
+    };
+
+    match builder.build() {
+        Ok(_window) => {
+            println!("Artifact window created successfully: {}", window_label);
+            // 窗口会根据自己的 label 自动加载对应的 artifact 数据
+        }
+        Err(e) => {
+            eprintln!("Failed to create artifact window: {}", e);
+        }
+    }
+}
+
+/// Open artifact collections management window
+#[tauri::command]
+pub async fn open_artifact_collections_window(app_handle: AppHandle) -> Result<(), String> {
+    if app_handle.get_webview_window("artifact_collections").is_none() {
+        println!("Creating artifact collections window");
+        create_artifact_collections_window(&app_handle);
+    } else if let Some(window) = app_handle.get_webview_window("artifact_collections") {
+        println!("Showing artifact collections window");
+        if window.is_minimized().unwrap_or(false) {
+            window.unminimize().unwrap();
+        }
+        window.show().unwrap();
+        window.set_focus().unwrap();
+    }
+    Ok(())
+}
+
+/// Open artifact window to display a single artifact
+pub async fn open_artifact_window(
+    app_handle: AppHandle,
+    artifact: ArtifactCollection,
+) -> Result<(), String> {
+    let window_label = format!("artifact_{}", artifact.id);
+    
+    if app_handle.get_webview_window(&window_label).is_none() {
+        println!("Creating artifact window: {}", window_label);
+        create_artifact_window(&app_handle, &artifact);
+    } else if let Some(window) = app_handle.get_webview_window(&window_label) {
+        println!("Showing artifact window: {}", window_label);
+        if window.is_minimized().unwrap_or(false) {
+            window.unminimize().unwrap();
+        }
+        window.show().unwrap();
+        window.set_focus().unwrap();
+        
+        // Update the artifact data in case it has changed
+        println!("Sending updated artifact data to existing window: {}", window_label);
+        let _ = window.emit("artifact-data", &artifact);
+    }
+    Ok(())
 }

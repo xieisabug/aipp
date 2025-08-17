@@ -60,9 +60,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCaretCoordinates } from "../../utils/caretCoordinates";
 import BangCompletionList from "./BangCompletionList";
 import AssistantCompletionList from "./AssistantCompletionList";
+import ArtifactCompletionList from "./ArtifactCompletionList";
 import { useFileList } from '../../hooks/useFileList';
 import { useAssistantListListener } from '../../hooks/useAssistantListListener';
 import PinyinFilter, { AssistantItem, FilteredAssistant } from '../../utils/pinyinFilter';
+import { ArtifactCollectionItem, FilteredArtifact } from '../../data/ArtifactCollection';
 
 // 暴露给外部的方法接口
 export interface InputAreaRef {
@@ -125,6 +127,12 @@ const InputArea = React.memo(
         const [filteredAssistants, setFilteredAssistants] = useState<FilteredAssistant[]>([]);
         const [selectedAssistantIndex, setSelectedAssistantIndex] = useState<number>(0);
 
+        // Artifact selection states
+        const [artifactListVisible, setArtifactListVisible] = useState<boolean>(false);
+        const [artifacts, setArtifacts] = useState<ArtifactCollectionItem[]>([]);
+        const [filteredArtifacts, setFilteredArtifacts] = useState<FilteredArtifact[]>([]);
+        const [selectedArtifactIndex, setSelectedArtifactIndex] = useState<number>(0);
+
         const handleOpenFile = (fileId: number) => {
             invoke("open_attachment_with_default_app", { id: fileId });
         }
@@ -154,6 +162,18 @@ const InputArea = React.memo(
                 }));
                 setFilteredAssistants(initialFiltered);
             });
+
+            // Load artifacts for # selection
+            invoke<ArtifactCollectionItem[]>("get_artifacts_for_completion").then((artifactList) => {
+                setArtifacts(artifactList);
+                // Initialize with default match info for all artifacts
+                const initialFiltered: FilteredArtifact[] = artifactList.map(artifact => ({
+                    ...artifact,
+                    matchType: 'exact' as const,
+                    highlightIndices: []
+                }));
+                setFilteredArtifacts(initialFiltered);
+            });
         }, []);
 
         // 监听助手列表变化
@@ -182,9 +202,76 @@ const InputArea = React.memo(
                         value.lastIndexOf("!", cursorPosition - 1),
                         value.lastIndexOf("！", cursorPosition - 1),
                     );
+                    const hashIndex = value.lastIndexOf("#", cursorPosition - 1);
 
-                    // Check if @ is closer to cursor than !
-                    if (atIndex !== -1 && atIndex > bangIndex) {
+                    // Find the most recent symbol
+                    const maxIndex = Math.max(atIndex, bangIndex, hashIndex);
+
+                    if (hashIndex !== -1 && hashIndex === maxIndex) {
+                        // Handle # symbol for artifacts
+                        const hashInput = value
+                            .substring(hashIndex + 1, cursorPosition)
+                            .toLowerCase();
+                        
+                        // Filter artifacts using pinyin
+                        const filtered = PinyinFilter.filterArtifacts(artifacts, hashInput);
+                        
+                        if (filtered.length > 0) {
+                            setFilteredArtifacts(filtered);
+                            setSelectedArtifactIndex(0);
+                            setArtifactListVisible(true);
+                            setBangListVisible(false);
+                            setAssistantListVisible(false);
+
+                            const cursorCoords = getCaretCoordinates(
+                                textareaRef.current,
+                                hashIndex + 1,
+                            );
+                            const rect =
+                                textareaRef.current.getBoundingClientRect();
+                            const style = window.getComputedStyle(
+                                textareaRef.current,
+                            );
+                            const paddingTop = parseFloat(style.paddingTop);
+                            const paddingBottom = parseFloat(
+                                style.paddingBottom,
+                            );
+                            const textareaHeight = parseFloat(style.height);
+
+                            const inputAreaRect = document
+                                .querySelector(".input-area")!
+                                .getBoundingClientRect();
+                            const left =
+                                rect.left -
+                                inputAreaRect.left +
+                                cursorCoords.cursorLeft;
+
+                            if (placement === "top") {
+                                const top =
+                                    rect.top +
+                                    rect.height +
+                                    Math.min(
+                                        textareaHeight,
+                                        cursorCoords.cursorTop,
+                                    ) -
+                                    paddingTop -
+                                    paddingBottom;
+                                setCursorPosition({ bottom: 0, left, top });
+                            } else {
+                                const bottom =
+                                    inputAreaRect.top -
+                                    rect.top -
+                                    cursorCoords.cursorTop +
+                                    10 +
+                                    (textareaRef.current.scrollHeight -
+                                        textareaRef.current.clientHeight);
+                                setCursorPosition({ bottom, left, top: 0 });
+                            }
+                        } else {
+                            setArtifactListVisible(false);
+                        }
+                    } else if (atIndex !== -1 && atIndex === maxIndex) {
+                        // Handle @ symbol for assistants
                         const atInput = value
                             .substring(atIndex + 1, cursorPosition)
                             .toLowerCase();
@@ -196,7 +283,8 @@ const InputArea = React.memo(
                             setFilteredAssistants(filtered);
                             setSelectedAssistantIndex(0);
                             setAssistantListVisible(true);
-                            setBangListVisible(false); // Hide bang list when @ is active
+                            setBangListVisible(false);
+                            setArtifactListVisible(false);
 
                             const cursorCoords = getCaretCoordinates(
                                 textareaRef.current,
@@ -245,7 +333,7 @@ const InputArea = React.memo(
                         } else {
                             setAssistantListVisible(false);
                         }
-                    } else if (bangIndex !== -1 && bangIndex < cursorPosition) {
+                    } else if (bangIndex !== -1 && bangIndex === maxIndex) {
                         // Handle ! symbol (existing logic)
                         const bangInput = value
                             .substring(bangIndex + 1, cursorPosition)
@@ -259,7 +347,8 @@ const InputArea = React.memo(
                             setBangList(filteredBangs);
                             setSelectedBangIndex(0);
                             setBangListVisible(true);
-                            setAssistantListVisible(false); // Hide assistant list when ! is active
+                            setAssistantListVisible(false);
+                            setArtifactListVisible(false);
 
                             const cursorCoords = getCaretCoordinates(
                                 textareaRef.current,
@@ -309,9 +398,10 @@ const InputArea = React.memo(
                             setBangListVisible(false);
                         }
                     } else {
-                        // Hide both lists when neither @ nor ! is active
+                        // Hide all lists when no trigger symbol is active
                         setBangListVisible(false);
                         setAssistantListVisible(false);
+                        setArtifactListVisible(false);
                     }
                 }
             };
@@ -323,7 +413,7 @@ const InputArea = React.memo(
                     handleSelectionChange,
                 );
             };
-        }, [originalBangList, assistants, placement]);
+        }, [originalBangList, assistants, artifacts, placement]);
 
         const adjustTextareaHeight = () => {
             const textarea = textareaRef.current;
@@ -346,15 +436,76 @@ const InputArea = React.memo(
             const cursorPosition = e.target.selectionStart;
             setInputText(newValue);
 
-            // Check for @ symbol first
+            // Check for symbols
             const atIndex = newValue.lastIndexOf("@", cursorPosition - 1);
             const bangIndex = Math.max(
                 newValue.lastIndexOf("!", cursorPosition - 1),
                 newValue.lastIndexOf("！", cursorPosition - 1),
             );
+            const hashIndex = newValue.lastIndexOf("#", cursorPosition - 1);
 
-            // Check if @ is closer to cursor than !
-            if (atIndex !== -1 && atIndex > bangIndex) {
+            // Find the most recent symbol
+            const maxIndex = Math.max(atIndex, bangIndex, hashIndex);
+
+            if (hashIndex !== -1 && hashIndex === maxIndex) {
+                // Handle # symbol for artifacts
+                const hashInput = newValue
+                    .substring(hashIndex + 1, cursorPosition)
+                    .toLowerCase();
+
+                // Filter artifacts using pinyin
+                const filtered = PinyinFilter.filterArtifacts(artifacts, hashInput);
+
+                if (filtered.length > 0) {
+                    setFilteredArtifacts(filtered);
+                    setSelectedArtifactIndex(0);
+                    setArtifactListVisible(true);
+                    setBangListVisible(false);
+                    setAssistantListVisible(false);
+
+                    // Update cursor position
+                    const textarea = e.target;
+                    const cursorCoords = getCaretCoordinates(
+                        textarea,
+                        cursorPosition,
+                    );
+                    const rect = textarea.getBoundingClientRect();
+                    const style = window.getComputedStyle(textarea);
+                    const paddingTop = parseFloat(style.paddingTop);
+                    const paddingBottom = parseFloat(style.paddingBottom);
+                    const textareaHeight = parseFloat(style.height);
+                    const inputAreaRect = document
+                        .querySelector(".input-area")!
+                        .getBoundingClientRect();
+
+                    const left =
+                        rect.left -
+                        inputAreaRect.left +
+                        cursorCoords.cursorLeft;
+
+                    if (placement === "top") {
+                        const top =
+                            rect.top +
+                            rect.height +
+                            Math.min(textareaHeight, cursorCoords.cursorTop) -
+                            paddingTop -
+                            paddingBottom;
+
+                        setCursorPosition({ bottom: 0, left, top });
+                    } else {
+                        const bottom =
+                            inputAreaRect.top -
+                            rect.top -
+                            cursorCoords.cursorTop +
+                            10 +
+                            (textarea.scrollHeight - textarea.clientHeight);
+                        setCursorPosition({ bottom, left, top: 0 });
+                    }
+                } else {
+                    setArtifactListVisible(false);
+                }
+            } else if (atIndex !== -1 && atIndex === maxIndex) {
+                // Handle @ symbol for assistants
                 const atInput = newValue
                     .substring(atIndex + 1, cursorPosition)
                     .toLowerCase();
@@ -366,7 +517,8 @@ const InputArea = React.memo(
                     setFilteredAssistants(filtered);
                     setSelectedAssistantIndex(0);
                     setAssistantListVisible(true);
-                    setBangListVisible(false); // Hide bang list when @ is active
+                    setBangListVisible(false);
+                    setArtifactListVisible(false);
 
                     // Update cursor position
                     const textarea = e.target;
@@ -409,7 +561,7 @@ const InputArea = React.memo(
                 } else {
                     setAssistantListVisible(false);
                 }
-            } else if (bangIndex !== -1 && bangIndex < cursorPosition) {
+            } else if (bangIndex !== -1 && bangIndex === maxIndex) {
                 // Handle ! symbol (existing logic)
                 const bangInput = newValue
                     .substring(bangIndex + 1, cursorPosition)
@@ -422,7 +574,8 @@ const InputArea = React.memo(
                     setBangList(filteredBangs);
                     setSelectedBangIndex(0);
                     setBangListVisible(true);
-                    setAssistantListVisible(false); // Hide assistant list when ! is active
+                    setAssistantListVisible(false);
+                    setArtifactListVisible(false);
 
                     // Update cursor position
                     const textarea = e.target;
@@ -466,9 +619,10 @@ const InputArea = React.memo(
                     setBangListVisible(false);
                 }
             } else {
-                // Hide both lists when neither @ nor ! is active
+                // Hide all lists when no trigger symbol is active
                 setBangListVisible(false);
                 setAssistantListVisible(false);
+                setArtifactListVisible(false);
             }
         };
 
@@ -485,6 +639,26 @@ const InputArea = React.memo(
                 if (e.shiftKey) {
                     // Shift + Enter for new line
                     return;
+                } else if (artifactListVisible) {
+                    // Select artifact - 阻止表单提交
+                    e.preventDefault();
+                    const selectedArtifact = filteredArtifacts[selectedArtifactIndex];
+                    const textarea = e.currentTarget as HTMLTextAreaElement;
+                    const cursorPosition = textarea.selectionStart;
+                    const hashIndex = textarea.value.lastIndexOf("#", cursorPosition - 1);
+
+                    if (hashIndex !== -1) {
+                        const beforeHash = textarea.value.substring(0, hashIndex);
+                        const afterHash = textarea.value.substring(cursorPosition);
+                        setInputText(beforeHash + `#${selectedArtifact.name} ` + afterHash);
+
+                        // 设置光标位置
+                        setTimeout(() => {
+                            const newPosition = hashIndex + selectedArtifact.name.length + 2;
+                            textarea.setSelectionRange(newPosition, newPosition);
+                        }, 0);
+                    }
+                    setArtifactListVisible(false);
                 } else if (assistantListVisible) {
                     // Select assistant - 阻止表单提交
                     e.preventDefault();
@@ -556,6 +730,26 @@ const InputArea = React.memo(
                     e.preventDefault();
                     handleSend();
                 }
+            } else if (e.key === "Tab" && artifactListVisible) {
+                // Select artifact
+                e.preventDefault();
+                const selectedArtifact = filteredArtifacts[selectedArtifactIndex];
+                const textarea = e.currentTarget as HTMLTextAreaElement;
+                const cursorPosition = textarea.selectionStart;
+                const hashIndex = textarea.value.lastIndexOf("#", cursorPosition - 1);
+
+                if (hashIndex !== -1) {
+                    const beforeHash = textarea.value.substring(0, hashIndex);
+                    const afterHash = textarea.value.substring(cursorPosition);
+                    setInputText(beforeHash + `#${selectedArtifact.name} ` + afterHash);
+
+                    // 设置光标位置
+                    setTimeout(() => {
+                        const newPosition = hashIndex + selectedArtifact.name.length + 2;
+                        textarea.setSelectionRange(newPosition, newPosition);
+                    }, 0);
+                }
+                setArtifactListVisible(false);
             } else if (e.key === "Tab" && assistantListVisible) {
                 // Select assistant
                 e.preventDefault();
@@ -613,6 +807,16 @@ const InputArea = React.memo(
                     }, 0);
                 }
                 setBangListVisible(false);
+            } else if (e.key === "ArrowUp" && artifactListVisible) {
+                e.preventDefault();
+                setSelectedArtifactIndex((prevIndex) =>
+                    prevIndex > 0 ? prevIndex - 1 : filteredArtifacts.length - 1,
+                );
+            } else if (e.key === "ArrowDown" && artifactListVisible) {
+                e.preventDefault();
+                setSelectedArtifactIndex((prevIndex) =>
+                    prevIndex < filteredArtifacts.length - 1 ? prevIndex + 1 : 0,
+                );
             } else if (e.key === "ArrowUp" && assistantListVisible) {
                 e.preventDefault();
                 setSelectedAssistantIndex((prevIndex) =>
@@ -637,6 +841,7 @@ const InputArea = React.memo(
                 e.preventDefault();
                 setBangListVisible(false);
                 setAssistantListVisible(false);
+                setArtifactListVisible(false);
             }
         };
 
@@ -738,6 +943,21 @@ const InputArea = React.memo(
                     textareaRef={textareaRef}
                     setInputText={setInputText}
                     setAssistantListVisible={setAssistantListVisible}
+                />
+
+                <ArtifactCompletionList
+                    artifactListVisible={artifactListVisible}
+                    placement={placement}
+                    cursorPosition={cursorPosition}
+                    artifacts={filteredArtifacts}
+                    selectedArtifactIndex={selectedArtifactIndex}
+                    textareaRef={textareaRef}
+                    setInputText={setInputText}
+                    setArtifactListVisible={setArtifactListVisible}
+                    onArtifactSelect={(artifact) => {
+                        // Optional: handle artifact selection for additional actions
+                        console.log('Artifact selected:', artifact.name);
+                    }}
                 />
             </div>
         );

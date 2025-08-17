@@ -17,7 +17,9 @@
     "plugin",
     "preview_react",
     "preview_vue",
-    "artifact_preview"
+    "artifact_preview",
+    "artifact_collections",
+    "artifact_*"
   ],
   "permissions": [
     "core:default",

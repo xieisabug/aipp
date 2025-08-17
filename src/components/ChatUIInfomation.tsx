@@ -26,9 +26,9 @@ function ChatUIInfomation() {
         }
     };
 
-    const openPlugin = async () => {
+    const openArtifactsCollections = async () => {
         try {
-            await invoke("open_plugin_window");
+            await invoke("open_artifact_collections_window");
             showHappy();
         } catch (error) {
             showError();
@@ -51,7 +51,7 @@ function ChatUIInfomation() {
                 />
                 <IconButton
                     icon={<Experiment className="fill-foreground" />}
-                    onClick={openPlugin}
+                    onClick={openArtifactsCollections}
                 />
             </div>
         </div>
