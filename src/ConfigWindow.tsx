@@ -6,6 +6,7 @@ import MCPConfig from "./components/config/MCPConfig";
 import { appDataDir } from "@tauri-apps/api/path";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { Blocks, Bot, ServerCrash, Settings } from "lucide-react";
+import { useTheme } from "./hooks/useTheme";
 
 interface MenuItem {
     id: string;
@@ -23,33 +24,36 @@ const contentMap: Record<string, React.ComponentType<any>> = {
 };
 
 function ConfigWindow() {
+    // 集成主题系统
+    useTheme();
+
     const menuList: Array<MenuItem> = [
         {
             id: "llm-provider-config",
             name: "大模型配置",
-            icon: <ServerCrash color="#6b7280" className="w-full h-full" />,
+            icon: <ServerCrash className="w-full h-full text-muted-foreground" />,
             iconSelected: (
-                <ServerCrash color="#111827" className="w-full h-full" />
+                <ServerCrash className="w-full h-full text-foreground" />
             ),
         },
         {
             id: "assistant-config",
             name: "个人助手配置",
-            icon: <Bot color="#6b7280" className="w-full h-full" />,
-            iconSelected: <Bot color="#111827" className="w-full h-full" />,
+            icon: <Bot className="w-full h-full text-muted-foreground" />,
+            iconSelected: <Bot className="w-full h-full text-foreground" />,
         },
         {
             id: "mcp-config",
             name: "MCP管理",
-            icon: <Blocks color="#6b7280" className="w-full h-full" />,
-            iconSelected: <Blocks color="#111827" className="w-full h-full" />,
+            icon: <Blocks className="w-full h-full text-muted-foreground" />,
+            iconSelected: <Blocks className="w-full h-full text-foreground" />,
         },
         {
             id: "feature-assistant-config",
             name: "程序配置",
-            icon: <Settings color="#6b7280" className="w-full h-full" />,
+            icon: <Settings className="w-full h-full text-muted-foreground" />,
             iconSelected: (
-                <Settings color="#111827" className="w-full h-full" />
+                <Settings className="w-full h-full text-foreground" />
             ),
         },
     ];
@@ -124,7 +128,7 @@ function ConfigWindow() {
                                     select-none hover:translate-x-0.5
                                     ${
                                         selectedMenu === item.id
-                                            ? "bg-gray-100 text-gray-900 font-semibold shadow-sm"
+                                            ? "bg-primary/10 text-primary font-semibold shadow-sm"
                                             : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                                     }
                                 `}
@@ -132,7 +136,7 @@ function ConfigWindow() {
                             >
                                 {/* 选中状态的左侧指示条 */}
                                 {selectedMenu === item.id && (
-                                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-gray-800 rounded-r-sm" />
+                                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-r-sm" />
                                 )}
                                 <div className="flex items-center">
                                     <div className="w-4 h-4 md:w-5 md:h-5 flex-shrink-0 mr-2 md:mr-3 lg:mr-3.5">

@@ -190,6 +190,116 @@ body {
     font-size: 1em;
 }
 
+/* Comprehensive prose styling for dark mode compatibility */
+.prose {
+    @apply text-foreground;
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+    @apply text-foreground;
+}
+
+.prose p {
+    @apply text-foreground;
+    margin-top: 1em;
+    margin-bottom: 1em;
+}
+
+.prose strong {
+    @apply text-foreground font-bold;
+}
+
+.prose em {
+    @apply text-foreground italic;
+}
+
+.prose ul,
+.prose ol {
+    @apply text-foreground;
+    margin-top: 1em;
+    margin-bottom: 1em;
+    padding-left: 1.5em;
+}
+
+.prose li {
+    @apply text-foreground;
+    margin-top: 0.5em;
+    margin-bottom: 0.5em;
+}
+
+.prose ul > li {
+    position: relative;
+}
+
+.prose ul > li::before {
+    content: "•";
+    @apply text-foreground;
+    position: absolute;
+    left: -1em;
+}
+
+.prose ol > li {
+    list-style-type: decimal;
+    @apply text-foreground;
+}
+
+.prose blockquote {
+    @apply text-muted-foreground border-l-4 border-border pl-4 italic;
+    margin-top: 1.5em;
+    margin-bottom: 1.5em;
+}
+
+.prose code {
+    @apply text-foreground bg-muted px-1 py-0.5 rounded text-sm;
+}
+
+.prose pre {
+    @apply text-foreground bg-muted p-4 rounded-lg overflow-x-auto;
+    margin-top: 1.5em;
+    margin-bottom: 1.5em;
+}
+
+.prose pre code {
+    @apply bg-transparent p-0;
+}
+
+.prose a {
+    @apply text-primary hover:text-primary/80 underline;
+}
+
+.prose table {
+    @apply text-foreground border-collapse border border-border;
+    margin-top: 2em;
+    margin-bottom: 2em;
+    width: 100%;
+}
+
+.prose th,
+.prose td {
+    @apply text-foreground border border-border px-3 py-2;
+}
+
+.prose th {
+    @apply bg-muted font-semibold;
+}
+
+.prose hr {
+    @apply border-border;
+    margin-top: 2em;
+    margin-bottom: 2em;
+}
+
+.prose img {
+    margin-top: 1.5em;
+    margin-bottom: 1.5em;
+    border-radius: 0.5rem;
+}
+
 :root {
     --sidebar: hsl(0 0% 98%);
     --sidebar-foreground: hsl(240 5.3% 26.1%);
@@ -232,14 +342,5 @@ body {
   to {
     background-position: 0% 0%;
         }
-    }
-}
-
-@layer base {
-  * {
-    @apply border-border outline-ring/50;
-    }
-  body {
-    @apply bg-background text-foreground;
     }
 }

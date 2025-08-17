@@ -5,6 +5,9 @@ import React, {
     useMemo,
     useRef,
     useState,
+    forwardRef,
+    useImperativeHandle,
+    useLayoutEffect,
 } from "react";
 import { toast } from "sonner";
 
@@ -26,18 +29,18 @@ import MessageItem from "./MessageItem";
 import VersionPagination from "./VersionPagination";
 import ConversationTitle from "./conversation/ConversationTitle";
 import useFileDropHandler from "../hooks/useFileDropHandler";
-import InputArea from "./conversation/InputArea";
+import InputArea, { InputAreaRef } from "./conversation/InputArea";
 import MessageEditDialog from "./MessageEditDialog";
 import ConversationTitleEditDialog from "./ConversationTitleEditDialog";
-import useConversationManager from "../hooks/useConversationManager";
 import { useMessageGroups } from "../hooks/useMessageGroups";
 import useFileManagement from "@/hooks/useFileManagement";
 import { useConversationEvents } from "@/hooks/useConversationEvents";
+import { useAssistantListListener } from "@/hooks/useAssistantListListener";
+import { AssistantListItem } from "@/data/Assistant";
 
-interface AssistantListItem {
-    id: number;
-    name: string;
-    assistant_type: number;
+// 暴露给外部的方法接口
+export interface ConversationUIRef {
+    focus: () => void;
 }
 
 interface ConversationUIProps {
@@ -61,11 +64,11 @@ interface AskAssistantApiFunctions {
     ) => void;
 }
 
-function ConversationUI({
+const ConversationUI = forwardRef<ConversationUIRef, ConversationUIProps>(({
     conversationId,
     onChangeConversationId,
     pluginList,
-}: ConversationUIProps) {
+}, ref) => {
     // ============= 插件管理相关状态和逻辑 =============
 
     // 助手类型插件映射表，key为助手类型，value为插件实例
@@ -145,10 +148,6 @@ function ConversationUI({
         )
             .then((updatedConversation) => {
                 setMessages(updatedConversation.messages);
-                console.log(
-                    "Updated messages after message_add:",
-                    updatedConversation.messages,
-                );
             })
             .catch((error) => {
                 console.error(
@@ -188,10 +187,6 @@ function ConversationUI({
             newMap.set(
                 groupMergeData.new_group_id,
                 groupMergeData.original_group_id,
-            );
-            console.log(
-                "Updated groupMergeMap:",
-                Array.from(newMap.entries()),
             );
             return newMap;
         });
@@ -328,6 +323,14 @@ function ConversationUI({
 
     // 输入相关状态
     const [inputText, setInputText] = useState("");
+    const inputAreaRef = useRef<InputAreaRef>(null);
+
+    // 暴露给外部的方法
+    useImperativeHandle(ref, () => ({
+        focus: () => {
+            inputAreaRef.current?.focus();
+        }
+    }), []);
 
     // 对话标题管理相关状态
     const [titleEditDialogIsOpen, setTitleEditDialogIsOpen] =
@@ -533,6 +536,14 @@ function ConversationUI({
         });
     }, []);
 
+    // 智能聚焦逻辑 - 无延迟版本
+    useLayoutEffect(() => {
+        // 只在 InputArea 存在且不在加载状态时聚焦
+        if (inputAreaRef.current && !isLoadingShow) {
+            inputAreaRef.current.focus();
+        }
+    }, [conversationId, isLoadingShow]); // 监听对话ID和加载状态变化
+
     // 对话加载和管理逻辑
     useEffect(() => {
         if (!conversationId) {
@@ -562,7 +573,7 @@ function ConversationUI({
         }).then((res: ConversationWithMessages) => {
             setMessages(res.messages);
             setConversation(res.conversation);
-            setIsLoadingShow(false);
+            setIsLoadingShow(false); // 这里会触发 useLayoutEffect 中的聚焦
 
             if (res.messages.length === 2) {
                 if (res.messages[0].message_type === "system" && res.messages[1].message_type === "user") {
@@ -590,15 +601,27 @@ function ConversationUI({
         };
     }, [conversation]);
 
+    // 监听助手列表变化
+    useAssistantListListener({
+        onAssistantListChanged: useCallback((assistantList: AssistantListItem[]) => {
+            setAssistants(assistantList);
+            // 如果当前选中的助手不在新列表中，选择第一个助手
+            if (assistantList.length > 0 && 
+                !assistantList.some(assistant => assistant.id === selectedAssistant)) {
+                setSelectedAssistant(assistantList[0].id);
+            }
+        }, [selectedAssistant])
+    });
+
     // 监听错误通知事件
     useEffect(() => {
         const unsubscribe = listen("conversation-window-error-notification", (event) => {
             const errorMessage = event.payload as string;
             console.error("Received error notification:", errorMessage);
-            
+
             // 重置AI响应状态
             setAiIsResponsing(false);
-            
+
             // 使用智能边框控制，而不是直接清空
             updateShiningMessages();
         });
@@ -616,6 +639,14 @@ function ConversationUI({
     const combinedMessagesForGrouping = useMemo(() => {
         const combinedMessages = [...messages];
 
+
+        // 找到最后一个用户消息，用于确定当前对话轮次的基准时间
+        const lastUserMessage = [...combinedMessages].reverse().find(msg => msg.message_type === "user");
+        const baseTimestamp = lastUserMessage ? new Date(lastUserMessage.created_time).getTime() : Date.now();
+
+        // 为了确保同一轮对话中的所有流式消息使用相同的时间戳，我们使用统一的时间戳
+        const uniformStreamTimestamp = baseTimestamp + 1000;
+
         // 将流式消息添加到显示列表中
         streamingMessages.forEach((streamEvent) => {
             // 检查是否已经存在同样ID的消息
@@ -623,23 +654,14 @@ function ConversationUI({
                 (msg) => msg.id === streamEvent.message_id,
             );
             if (existingIndex === -1) {
-                // 推断合理的时间戳：基于最后一条消息的时间稍微往后一点
-                const lastMessage =
-                    combinedMessages[combinedMessages.length - 1];
-                const baseTime = lastMessage
-                    ? new Date(lastMessage.created_time)
-                    : new Date();
                 const tempMessage: Message = {
                     id: streamEvent.message_id,
                     conversation_id: conversation?.id || 0,
                     message_type: streamEvent.message_type,
                     content: streamEvent.content,
                     llm_model_id: null,
-                    created_time: new Date(baseTime.getTime() + 1000), // 基于最后消息时间+1秒
-                    start_time:
-                        streamEvent.message_type === "reasoning"
-                            ? baseTime
-                            : null,
+                    created_time: new Date(uniformStreamTimestamp), // 使用统一时间戳
+                    start_time: new Date(uniformStreamTimestamp),
                     finish_time: streamEvent.is_done
                         ? streamEvent.end_time || new Date()
                         : null,
@@ -648,9 +670,11 @@ function ConversationUI({
                     parent_group_id: null, // 流式消息暂时不设置parent_group_id
                     regenerate: null,
                 };
+
+
                 combinedMessages.push(tempMessage);
             } else {
-                // 存在则更新消息内容
+                // 存在则更新消息内容，但保持时间戳不变
                 combinedMessages[existingIndex] = {
                     ...combinedMessages[existingIndex],
                     content: streamEvent.content,
@@ -659,8 +683,10 @@ function ConversationUI({
                         ? streamEvent.end_time || new Date()
                         : combinedMessages[existingIndex].finish_time,
                 };
+
             }
         });
+
 
         return combinedMessages;
     }, [messages, streamingMessages, conversation?.id]);
@@ -676,31 +702,77 @@ function ConversationUI({
     const {
         generationGroups,
         selectedVersions,
-        messageIdToGroupRootTimestamp,
+        groupRootMessageIds,
         handleGenerationVersionChange,
         getMessageVersionInfo,
         getGenerationGroupControl,
     } = useMessageGroups({ allDisplayMessages: combinedMessagesForGrouping, groupMergeMap });
 
-    // 最后进行排序，使用从 useMessageGroups 获取的时间戳映射
+    // 智能排序逻辑：先过滤可见消息，再基于分组基准时间排序
     const allDisplayMessages = useMemo(() => {
-        // 计算每个消息的排序基准时间：使用 O(1) Map 查找替代 O(N) 遍历
-        const getMessageSortTime = (message: Message): number => {
-            // 尝试从 messageIdToGroupRootTimestamp 中获取根时间戳
-            const rootTimestamp = messageIdToGroupRootTimestamp.get(message.id);
-            if (rootTimestamp !== undefined) {
-                return rootTimestamp;
+        // 首先过滤出可见的消息
+        const visibleMessages = combinedMessagesForGrouping.filter((message) => {
+            // 跳过系统消息和工具结果
+            if (message.message_type === "system" || message.message_type === "tool_result") {
+                return false;
             }
             
-            // 对于没有分组的消息，使用自身创建时间
-            return new Date(message.created_time).getTime();
-        };
+            // 检查版本可见性
+            const versionInfo = getMessageVersionInfo(message);
+            if (versionInfo && !versionInfo.shouldShow) {
+                return false;
+            }
+            
+            return true;
+        });
 
-        const sorted = [...combinedMessagesForGrouping].sort(
-            (a, b) => getMessageSortTime(a) - getMessageSortTime(b)
-        );
+        // 创建消息到根组的映射，包括子分组的消息
+        const messageToRootGroupMap = new Map<number, string>();
+        
+        // 首先建立所有 generation_group_id 到根分组的映射
+        const generationIdToRootMap = new Map<string, string>();
+        combinedMessagesForGrouping.forEach(message => {
+            if (message.generation_group_id) {
+                // 查找这个 generation_group_id 在哪个根分组中
+                generationGroups.forEach((group, rootGroupId) => {
+                    group.versions.forEach(version => {
+                        if (version.versionId === message.generation_group_id) {
+                            generationIdToRootMap.set(message.generation_group_id, rootGroupId);
+                        }
+                    });
+                });
+            }
+        });
+        
+        // 然后为每个消息建立到根分组的映射
+        combinedMessagesForGrouping.forEach(message => {
+            if (message.generation_group_id) {
+                const rootGroupId = generationIdToRootMap.get(message.generation_group_id);
+                if (rootGroupId) {
+                    messageToRootGroupMap.set(message.id, rootGroupId);
+                }
+            }
+        });
+
+        // 然后对可见消息进行排序
+        const sorted = visibleMessages.sort((a, b) => {
+            const aGroupId = messageToRootGroupMap.get(a.id);
+            const bGroupId = messageToRootGroupMap.get(b.id);
+
+            // 获取排序基准值：分组消息使用分组基准消息ID，非分组消息使用自身ID
+            const aBaseValue = aGroupId ? (groupRootMessageIds.get(aGroupId) || a.id) : a.id;
+            const bBaseValue = bGroupId ? (groupRootMessageIds.get(bGroupId) || b.id) : b.id;
+
+            if (aBaseValue !== bBaseValue) {
+                return aBaseValue - bBaseValue;
+            }
+            
+            // 基准值相同时，按ID排序（同一分组内的消息或ID相同的情况）
+            return a.id - b.id;
+        });
+        
         return sorted;
-    }, [combinedMessagesForGrouping, messageIdToGroupRootTimestamp]);
+    }, [combinedMessagesForGrouping, generationGroups, groupRootMessageIds, getMessageVersionInfo]);
 
     // ============= Reasoning 展开状态管理 =============
 
@@ -772,14 +844,10 @@ function ConversationUI({
     // ============= 业务逻辑处理函数 =============
 
     // 对话管理相关操作
-    const { deleteConversation } = useConversationManager();
-    const handleDeleteConversation = useCallback(() => {
-        deleteConversation(conversationId, {
-            onSuccess: () => {
-                onChangeConversationId("");
-            },
-        });
-    }, [conversationId, deleteConversation, onChangeConversationId]);
+    const handleDeleteConversationSuccess = useCallback(() => {
+        // 删除成功后清空会话ID，返回新建对话界面
+        onChangeConversationId("");
+    }, [onChangeConversationId]);
 
     // 消息更新处理回调函数
     const handleMessageUpdate = useCallback((streamEvent: StreamEvent) => {
@@ -989,19 +1057,11 @@ function ConversationUI({
         }
     }, 200);
 
-    // 过滤系统消息和工具结果消息并渲染MessageItem组件
+    // 渲染已经过滤和排序的消息
     const filteredMessages = useMemo(() => {
-        const result = allDisplayMessages
-            .filter((m) => m.message_type !== "system" && m.message_type !== "tool_result")
-            .map((message) => {
+        const result = allDisplayMessages.map((message) => {
                 // 查找对应的流式消息信息（如果存在）
                 const streamEvent = streamingMessages.get(message.id);
-
-                // 检查是否需要根据版本管理隐藏消息
-                const versionInfo = getMessageVersionInfo(message);
-                if (versionInfo && !versionInfo.shouldShow) {
-                    return null; // 不显示非当前版本的消息
-                }
 
                 // 检查是否需要显示版本控制
                 const groupControl = getGenerationGroupControl(message);
@@ -1077,10 +1137,10 @@ function ConversationUI({
                         const placeholderElement = (
                             <React.Fragment key={`placeholder_${groupId}`}>
                                 <div className="flex justify-start mb-4">
-                                    <div className="bg-gray-100 rounded-lg p-4 max-w-3xl">
+                                    <div className="bg-muted rounded-lg p-4 max-w-3xl">
                                         <div className="flex items-center space-x-2">
-                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900"></div>
-                                            <span className="text-sm text-gray-600">
+                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-foreground"></div>
+                                            <span className="text-sm text-muted-foreground">
                                                 正在重新生成...
                                             </span>
                                         </div>
@@ -1116,7 +1176,6 @@ function ConversationUI({
     }, [
         allDisplayMessages,
         streamingMessages,
-        getMessageVersionInfo,
         getGenerationGroupControl,
         handleGenerationVersionChange,
         reasoningExpandStates,
@@ -1131,12 +1190,12 @@ function ConversationUI({
     return (
         <div
             ref={dropRef}
-            className="h-full relative flex flex-col bg-white rounded-xl"
+            className="h-full relative flex flex-col bg-background rounded-xl"
         >
             {conversationId ? (
                 <ConversationTitle
                     onEdit={openTitleEditDialog}
-                    onDelete={handleDeleteConversation}
+                    onDelete={handleDeleteConversationSuccess}
                     conversation={conversation}
                 />
             ) : null}
@@ -1167,6 +1226,7 @@ function ConversationUI({
             ) : null}
 
             <InputArea
+                ref={inputAreaRef}
                 inputText={inputText}
                 setInputText={setInputText}
                 fileInfoList={fileInfoList}
@@ -1195,15 +1255,15 @@ function ConversationUI({
             />
 
             {isLoadingShow ? (
-                <div className="bg-white/95 w-full h-full absolute flex items-center justify-center backdrop-blur rounded-xl">
+                <div className="bg-background/95 w-full h-full absolute flex items-center justify-center backdrop-blur rounded-xl">
                     <div className="loading-icon"></div>
-                    <div className="text-indigo-500 text-base font-medium">
+                    <div className="text-primary text-base font-medium">
                         加载中...
                     </div>
                 </div>
             ) : null}
         </div>
     );
-}
+});
 
 export default ConversationUI;

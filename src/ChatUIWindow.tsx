@@ -1,18 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { emit } from "@tauri-apps/api/event";
 import ChatUIToolbar from "./components/ChatUIToolbar";
 import ConversationList from "./components/ConversationList";
 import ChatUIInfomation from "./components/ChatUIInfomation";
-import ConversationUI from "./components/ConversationUI";
+import ConversationUI, { ConversationUIRef } from "./components/ConversationUI";
+import { useTheme } from "./hooks/useTheme";
 
 import { appDataDir } from "@tauri-apps/api/path";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 function ChatUIWindow() {
+    // 集成主题系统
+    useTheme();
+
     const [pluginList, setPluginList] = useState<any[]>([]);
 
     const [selectedConversation, setSelectedConversation] = useState<string>("");
+    const conversationUIRef = useRef<ConversationUIRef>(null);
 
     // 组件挂载完成后，发送窗口加载事件，通知 AskWindow
     useEffect(() => {
@@ -26,8 +31,19 @@ function ChatUIWindow() {
             }
         });
 
+        // 监听窗口焦点变化
+        const windowFocusUnlisten = getCurrentWebviewWindow().onFocusChanged(({ payload: focused }) => {
+            if (focused) {
+                // 窗口获得焦点时，使用 requestAnimationFrame 聚焦到输入框
+                requestAnimationFrame(() => {
+                    conversationUIRef.current?.focus();
+                });
+            }
+        });
+
         return () => {
             unlisten.then((unlisten) => unlisten());
+            windowFocusUnlisten.then((unlistenFn) => unlistenFn());
         };
     }, []);
 
@@ -73,15 +89,15 @@ function ChatUIWindow() {
     }, []);
 
     return (
-        <div className="flex h-screen bg-gray-100">
-            <div className="flex-none w-[280px] flex flex-col bg-white shadow-lg box-border rounded-r-xl my-2 mr-2">
+        <div className="flex h-screen bg-background">
+            <div className="flex-none w-[280px] flex flex-col shadow-lg box-border rounded-r-xl my-2 mr-2">
                 <ChatUIInfomation />
                 <ChatUIToolbar onNewConversation={() => setSelectedConversation("")} />
                 <ConversationList conversationId={selectedConversation} onSelectConversation={setSelectedConversation} />
             </div>
 
-            <div className="flex-1 bg-white overflow-auto rounded-xl m-2 ml-0 shadow-lg">
-                <ConversationUI pluginList={pluginList} conversationId={selectedConversation} onChangeConversationId={setSelectedConversation} />
+            <div className="flex-1 bg-background overflow-auto rounded-xl m-2 ml-0 shadow-lg">
+                <ConversationUI ref={conversationUIRef} pluginList={pluginList} conversationId={selectedConversation} onChangeConversationId={setSelectedConversation} />
             </div>
         </div>
     );

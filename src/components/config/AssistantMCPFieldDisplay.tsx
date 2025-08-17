@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { invoke } from "@tauri-apps/api/core";
 import { Button } from "../ui/button";
-import { Settings, Server, Wrench, AlertCircle } from "lucide-react";
+import { Settings } from "lucide-react";
 import AssistantMCPConfigDialog from './AssistantMCPConfigDialog';
 
 interface AssistantMCPFieldDisplayProps {
@@ -125,32 +125,16 @@ const AssistantMCPFieldDisplay: React.FC<AssistantMCPFieldDisplayProps> = ({
         }
 
         const toolCallMethod = mcpSummary.useNativeToolCall ? "原生ToolCall" : "Prompt调用";
-        return `已启用 ${mcpSummary.enabledServers} 个服务器，${mcpSummary.enabledTools} 个工具 • ${toolCallMethod}`;
-    };
-
-    const getStatusIcon = () => {
-        if (loading) {
-            return <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400" />;
-        }
-
-        if (error) {
-            return <AlertCircle className="h-4 w-4 text-red-500" />;
-        }
-
-        if (mcpSummary.totalServers === 0) {
-            return <Server className="h-4 w-4 text-gray-400" />;
-        }
-
-        return <Wrench className="h-4 w-4 text-gray-600" />;
+        return [<div>启用 {mcpSummary.enabledServers} 个服务器</div>, <div>启用 {mcpSummary.enabledTools} 个工具</div>,<div>{toolCallMethod}</div>];
     };
 
     return (
         <>
-            <div className="flex items-center justify-between py-2">
-                <div className="flex items-center gap-3">
-                    {getStatusIcon()}
+            <div className="flex items-center justify-between">
+                <div className="flex items-start gap-3">
+                    
                     <div>
-                        <div className="text-sm font-medium text-gray-900">{getSummaryText()}</div>
+                        <div className="text-sm font-medium text-foreground">{getSummaryText()}</div>
                     </div>
                 </div>
 

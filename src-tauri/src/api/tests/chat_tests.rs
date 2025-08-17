@@ -1,4 +1,6 @@
-use crate::api::ai::chat::{extract_assistant_from_message, parse_assistant_mentions, ParseOptions, PositionRestriction};
+use crate::api::ai::chat::{
+    extract_assistant_from_message, parse_assistant_mentions, ParseOptions, PositionRestriction,
+};
 use crate::db::assistant_db::Assistant;
 
 /// 创建测试用的助手列表
@@ -217,7 +219,7 @@ async fn test_extract_assistant_from_message_with_emoji_name() {
 async fn test_parse_assistant_mentions_multiple_mentions() {
     let assistants = create_test_assistants();
     let content = "Hello @gpt4, please ask @claude about this, and @gemini-pro can help too.";
-    
+
     let options = ParseOptions {
         first_only: false,
         position_restriction: PositionRestriction::Anywhere,
@@ -227,10 +229,10 @@ async fn test_parse_assistant_mentions_multiple_mentions() {
     };
 
     let result = parse_assistant_mentions(&assistants, content, &options).unwrap();
-    
+
     assert_eq!(result.mentions.len(), 3);
     assert_eq!(result.mentions[0].assistant_id, 1); // gpt4
-    assert_eq!(result.mentions[1].assistant_id, 2); // claude  
+    assert_eq!(result.mentions[1].assistant_id, 2); // claude
     assert_eq!(result.mentions[2].assistant_id, 3); // gemini-pro
     assert_eq!(result.original_content, content);
     assert_eq!(result.primary_assistant_id, Some(1));
@@ -240,7 +242,7 @@ async fn test_parse_assistant_mentions_multiple_mentions() {
 async fn test_parse_assistant_mentions_first_only_anywhere() {
     let assistants = create_test_assistants();
     let content = "Hello @gpt4, please ask @claude about this.";
-    
+
     let options = ParseOptions {
         first_only: true,
         position_restriction: PositionRestriction::Anywhere,
@@ -250,7 +252,7 @@ async fn test_parse_assistant_mentions_first_only_anywhere() {
     };
 
     let result = parse_assistant_mentions(&assistants, content, &options).unwrap();
-    
+
     assert_eq!(result.mentions.len(), 1);
     assert_eq!(result.mentions[0].assistant_id, 1); // gpt4
     assert_eq!(result.primary_assistant_id, Some(1));
@@ -260,7 +262,7 @@ async fn test_parse_assistant_mentions_first_only_anywhere() {
 async fn test_parse_assistant_mentions_word_boundary() {
     let assistants = create_test_assistants();
     let content = "Hello@gpt4 and @claude are here."; // 第一个@前面没空格，第二个有
-    
+
     let options = ParseOptions {
         first_only: false,
         position_restriction: PositionRestriction::WordBoundary,
@@ -270,7 +272,7 @@ async fn test_parse_assistant_mentions_word_boundary() {
     };
 
     let result = parse_assistant_mentions(&assistants, content, &options).unwrap();
-    
+
     // 应该只匹配第二个@claude，因为第一个@gpt4前面不是单词边界
     assert_eq!(result.mentions.len(), 1);
     assert_eq!(result.mentions[0].assistant_id, 2); // claude
@@ -281,7 +283,7 @@ async fn test_parse_assistant_mentions_word_boundary() {
 async fn test_parse_assistant_mentions_remove_mentions() {
     let assistants = create_test_assistants();
     let content = "Hello @gpt4, can you help with @claude integration?";
-    
+
     let options = ParseOptions {
         first_only: false,
         position_restriction: PositionRestriction::Anywhere,
@@ -291,17 +293,20 @@ async fn test_parse_assistant_mentions_remove_mentions() {
     };
 
     let result = parse_assistant_mentions(&assistants, content, &options).unwrap();
-    
+
     assert_eq!(result.mentions.len(), 2);
-    assert_eq!(result.cleaned_content, "Hello can you help with integration?");
+    assert_eq!(
+        result.cleaned_content,
+        "Hello can you help with integration?"
+    );
     assert_eq!(result.original_content, content);
 }
 
-#[tokio::test]  
+#[tokio::test]
 async fn test_parse_assistant_mentions_case_insensitive() {
     let assistants = create_test_assistants();
     let content = "@GPT4 Hello world"; // 大写GPT4
-    
+
     let options = ParseOptions {
         first_only: true,
         position_restriction: PositionRestriction::StartOnly,
@@ -311,7 +316,7 @@ async fn test_parse_assistant_mentions_case_insensitive() {
     };
 
     let result = parse_assistant_mentions(&assistants, content, &options).unwrap();
-    
+
     assert_eq!(result.mentions.len(), 1);
     assert_eq!(result.mentions[0].assistant_id, 1); // 应该匹配到gpt4
     assert_eq!(result.cleaned_content, "Hello world");
@@ -321,7 +326,7 @@ async fn test_parse_assistant_mentions_case_insensitive() {
 async fn test_parse_assistant_mentions_no_space_required() {
     let assistants = create_test_assistants();
     let content = "@gpt4help me with this"; // @gpt4后面直接跟字母
-    
+
     let options = ParseOptions {
         first_only: true,
         position_restriction: PositionRestriction::StartOnly,
@@ -331,7 +336,7 @@ async fn test_parse_assistant_mentions_no_space_required() {
     };
 
     let result = parse_assistant_mentions(&assistants, content, &options).unwrap();
-    
+
     // 这种情况下不应该匹配，因为@gpt4help不是完整的gpt4名称
     assert_eq!(result.mentions.len(), 0);
     assert_eq!(result.primary_assistant_id, None);
@@ -341,7 +346,7 @@ async fn test_parse_assistant_mentions_no_space_required() {
 async fn test_parse_assistant_mentions_with_space_in_name() {
     let assistants = create_test_assistants();
     let content = "Hello @chat gpt, how are you?";
-    
+
     let options = ParseOptions {
         first_only: true,
         position_restriction: PositionRestriction::Anywhere,
@@ -351,7 +356,7 @@ async fn test_parse_assistant_mentions_with_space_in_name() {
     };
 
     let result = parse_assistant_mentions(&assistants, content, &options).unwrap();
-    
+
     assert_eq!(result.mentions.len(), 1);
     assert_eq!(result.mentions[0].assistant_id, 4); // chat gpt
     assert_eq!(result.cleaned_content, "Hello how are you?");
@@ -361,7 +366,7 @@ async fn test_parse_assistant_mentions_with_space_in_name() {
 async fn test_parse_assistant_mentions_unicode_and_emoji() {
     let assistants = create_test_assistants();
     let content = "你好 @中文名称，还有 @emoji👿 assistant";
-    
+
     let options = ParseOptions {
         first_only: false,
         position_restriction: PositionRestriction::Anywhere,
@@ -371,7 +376,7 @@ async fn test_parse_assistant_mentions_unicode_and_emoji() {
     };
 
     let result = parse_assistant_mentions(&assistants, content, &options).unwrap();
-    
+
     assert_eq!(result.mentions.len(), 2);
     assert_eq!(result.mentions[0].assistant_id, 5); // 中文名称
     assert_eq!(result.mentions[1].assistant_id, 6); // emoji👿
@@ -382,7 +387,7 @@ async fn test_parse_assistant_mentions_unicode_and_emoji() {
 async fn test_parse_assistant_mentions_no_matches() {
     let assistants = create_test_assistants();
     let content = "Hello @unknown and @nonexistent helpers";
-    
+
     let options = ParseOptions {
         first_only: false,
         position_restriction: PositionRestriction::Anywhere,
@@ -392,7 +397,7 @@ async fn test_parse_assistant_mentions_no_matches() {
     };
 
     let result = parse_assistant_mentions(&assistants, content, &options).unwrap();
-    
+
     assert_eq!(result.mentions.len(), 0);
     assert_eq!(result.primary_assistant_id, None);
     assert_eq!(result.cleaned_content, content); // 没有变化
@@ -413,7 +418,7 @@ async fn test_parse_assistant_mentions_overlapping_names() {
     });
 
     let content = "@gpt4 and @gpt should work correctly";
-    
+
     let options = ParseOptions {
         first_only: false,
         position_restriction: PositionRestriction::Anywhere,
@@ -423,11 +428,29 @@ async fn test_parse_assistant_mentions_overlapping_names() {
     };
 
     let result = parse_assistant_mentions(&assistants, content, &options).unwrap();
-    
+
     assert_eq!(result.mentions.len(), 2);
     // 应该正确匹配更长的名称优先
     assert_eq!(result.mentions[0].assistant_id, 1); // gpt4
     assert_eq!(result.mentions[1].assistant_id, 7); // gpt
+}
+
+#[tokio::test]
+async fn test_parse_assistant_mentions_with_mentions_on_end() {
+    let assistants = create_test_assistants();
+    let content = "hello @gpt4";
+
+    let options = ParseOptions {
+        first_only: true,
+        position_restriction: PositionRestriction::Anywhere,
+        remove_mentions: true,
+        case_sensitive: false,
+        require_word_boundary: true,
+    };
+    let result = parse_assistant_mentions(&assistants, content, &options).unwrap();
+    assert_eq!(result.mentions.len(), 1);
+    assert_eq!(result.mentions[0].assistant_id, 1);
+    assert_eq!(result.primary_assistant_id, Some(1));
 }
 
 // ========== 性能测试 ==========
@@ -435,10 +458,10 @@ async fn test_parse_assistant_mentions_overlapping_names() {
 #[tokio::test]
 async fn test_parse_assistant_mentions_performance_large_text_with_mention() {
     let assistants = create_test_assistants();
-    
+
     // 创建大段文本，在后段添加@助手
     let mut large_text = String::new();
-    
+
     // 添加10000行文本内容，每行约100字符，总共约1MB
     for i in 0..10000 {
         large_text.push_str(&format!(
@@ -446,12 +469,12 @@ async fn test_parse_assistant_mentions_performance_large_text_with_mention() {
             i + 1
         ));
     }
-    
+
     // 在后段添加@助手提及
     large_text.push_str("最后在这里提及 @gpt4 助手来帮助我们完成任务。");
-    
+
     println!("测试文本长度: {} 字符", large_text.len());
-    
+
     let options = ParseOptions {
         first_only: true,
         position_restriction: PositionRestriction::Anywhere,
@@ -462,19 +485,19 @@ async fn test_parse_assistant_mentions_performance_large_text_with_mention() {
 
     // 开始性能测试
     let start_time = std::time::Instant::now();
-    
+
     let result = parse_assistant_mentions(&assistants, &large_text, &options).unwrap();
-    
+
     let elapsed = start_time.elapsed();
-    
+
     println!("解析耗时: {:?}", elapsed);
     println!("找到的@mentions数量: {}", result.mentions.len());
-    
+
     // 验证结果正确性
     assert_eq!(result.mentions.len(), 1);
     assert_eq!(result.mentions[0].assistant_id, 1); // gpt4
     assert_eq!(result.primary_assistant_id, Some(1));
-    
+
     // 性能断言：在1MB文本中应该能在合理时间内完成（比如200ms内）
     assert!(elapsed.as_millis() < 200, "解析时间过长: {:?}", elapsed);
 }
@@ -482,10 +505,10 @@ async fn test_parse_assistant_mentions_performance_large_text_with_mention() {
 #[tokio::test]
 async fn test_parse_assistant_mentions_performance_large_text_no_mention() {
     let assistants = create_test_assistants();
-    
+
     // 创建大段文本，完全没有@符号
     let mut large_text = String::new();
-    
+
     // 添加10000行文本内容，每行约100字符，总共约1MB
     for i in 0..10000 {
         large_text.push_str(&format!(
@@ -493,12 +516,12 @@ async fn test_parse_assistant_mentions_performance_large_text_no_mention() {
             i + 1
         ));
     }
-    
+
     // 在最后添加一些不包含@的结尾文本
     large_text.push_str("最后的文本内容也没有任何助手提及，只是普通的文字内容。");
-    
+
     println!("测试文本长度: {} 字符", large_text.len());
-    
+
     let options = ParseOptions {
         first_only: false, // 搜索全部，这样会遍历整个文本
         position_restriction: PositionRestriction::Anywhere,
@@ -509,18 +532,18 @@ async fn test_parse_assistant_mentions_performance_large_text_no_mention() {
 
     // 开始性能测试
     let start_time = std::time::Instant::now();
-    
+
     let result = parse_assistant_mentions(&assistants, &large_text, &options).unwrap();
-    
+
     let elapsed = start_time.elapsed();
-    
+
     println!("解析耗时: {:?}", elapsed);
     println!("找到的@mentions数量: {}", result.mentions.len());
-    
+
     // 验证结果正确性
     assert_eq!(result.mentions.len(), 0);
     assert_eq!(result.primary_assistant_id, None);
-    
+
     // 性能断言：即使没有@符号，在1MB文本中也应该能在合理时间内完成（比如150ms内）
     assert!(elapsed.as_millis() < 150, "解析时间过长: {:?}", elapsed);
 }
@@ -528,13 +551,13 @@ async fn test_parse_assistant_mentions_performance_large_text_no_mention() {
 #[tokio::test]
 async fn test_parse_assistant_mentions_performance_multiple_mentions_in_large_text() {
     let assistants = create_test_assistants();
-    
+
     // 创建包含多个@提及的大段文本
     let mut large_text = String::new();
-    
+
     // 前段添加一些@提及
     large_text.push_str("开始的时候我想请教 @claude 一些问题，");
-    
+
     // 中间添加大量文本
     for i in 0..5000 {
         large_text.push_str(&format!(
@@ -542,10 +565,10 @@ async fn test_parse_assistant_mentions_performance_multiple_mentions_in_large_te
             i + 1
         ));
     }
-    
+
     // 中段添加@提及
     large_text.push_str("中间部分我需要 @gpt4 来帮助分析，");
-    
+
     // 继续添加大量文本
     for i in 5000..10000 {
         large_text.push_str(&format!(
@@ -553,12 +576,12 @@ async fn test_parse_assistant_mentions_performance_multiple_mentions_in_large_te
             i + 1
         ));
     }
-    
+
     // 后段添加@提及
     large_text.push_str("最后请 @gemini-pro 来总结一下整个内容。");
-    
+
     println!("测试文本长度: {} 字符", large_text.len());
-    
+
     let options = ParseOptions {
         first_only: false, // 查找所有@提及
         position_restriction: PositionRestriction::Anywhere,
@@ -569,34 +592,34 @@ async fn test_parse_assistant_mentions_performance_multiple_mentions_in_large_te
 
     // 开始性能测试
     let start_time = std::time::Instant::now();
-    
+
     let result = parse_assistant_mentions(&assistants, &large_text, &options).unwrap();
-    
+
     let elapsed = start_time.elapsed();
-    
+
     println!("解析耗时: {:?}", elapsed);
     println!("找到的@mentions数量: {}", result.mentions.len());
-    
+
     // 验证结果正确性
     assert_eq!(result.mentions.len(), 3);
     assert_eq!(result.mentions[0].assistant_id, 2); // claude
     assert_eq!(result.mentions[1].assistant_id, 1); // gpt4
     assert_eq!(result.mentions[2].assistant_id, 3); // gemini-pro
     assert_eq!(result.primary_assistant_id, Some(2));
-    
+
     // 性能断言：在包含多个@提及的1MB文本中应该能在合理时间内完成（比如200ms内）
     assert!(elapsed.as_millis() < 200, "解析时间过长: {:?}", elapsed);
 }
 
-#[tokio::test]  
+#[tokio::test]
 async fn test_parse_assistant_mentions_performance_with_remove_mentions() {
     let assistants = create_test_assistants();
-    
+
     // 创建包含多个@提及的大段文本，测试移除@提及的性能
     let mut large_text = String::new();
-    
+
     large_text.push_str("请 @gpt4 帮我，");
-    
+
     // 添加大量文本
     for i in 0..8000 {
         large_text.push_str(&format!(
@@ -604,20 +627,20 @@ async fn test_parse_assistant_mentions_performance_with_remove_mentions() {
             i + 1
         ));
     }
-    
+
     large_text.push_str("还需要 @claude 协助，");
-    
+
     for i in 8000..10000 {
         large_text.push_str(&format!(
             "第{}段内容：继续添加更多的文本内容来测试性能表现。",
             i + 1
         ));
     }
-    
+
     large_text.push_str("最后请 @中文名称 来总结。");
-    
+
     println!("测试文本长度: {} 字符", large_text.len());
-    
+
     let options = ParseOptions {
         first_only: false,
         position_restriction: PositionRestriction::Anywhere,
@@ -628,25 +651,29 @@ async fn test_parse_assistant_mentions_performance_with_remove_mentions() {
 
     // 开始性能测试
     let start_time = std::time::Instant::now();
-    
+
     let result = parse_assistant_mentions(&assistants, &large_text, &options).unwrap();
-    
+
     let elapsed = start_time.elapsed();
-    
+
     println!("解析并移除@mentions耗时: {:?}", elapsed);
     println!("找到的@mentions数量: {}", result.mentions.len());
     println!("清理后文本长度: {}", result.cleaned_content.len());
-    
+
     // 验证结果正确性
     assert_eq!(result.mentions.len(), 3);
     assert!(result.cleaned_content.len() > 0);
     assert!(result.cleaned_content.len() < large_text.len()); // 应该比原文本短
-    
+
     // 验证@提及被正确移除
     assert!(!result.cleaned_content.contains("@gpt4"));
     assert!(!result.cleaned_content.contains("@claude"));
     assert!(!result.cleaned_content.contains("@中文名称"));
-    
+
     // 性能断言：移除@提及操作也应该在合理时间内完成（比如250ms内）
-    assert!(elapsed.as_millis() < 250, "解析和清理时间过长: {:?}", elapsed);
+    assert!(
+        elapsed.as_millis() < 250,
+        "解析和清理时间过长: {:?}",
+        elapsed
+    );
 }

@@ -7,13 +7,12 @@
     },
     "bundle": {
         "active": true,
-        "targets": ["msi", "deb", "rpm", "dmg", "app"],
-        "icon": [
-            "icons/32x32.png",
-            "icons/128x128.png",
-            "icons/128x128@2x.png",
-            "icons/icon.icns",
-            "icons/icon.ico"
+        "targets": [
+            "msi",
+            "deb",
+            "rpm",
+            "dmg",
+            "app"
         ],
         "resources": [
             "artifacts/templates/**/*"
@@ -31,14 +30,17 @@
             "iconPath": "icons/favicon.ico"
         },
         "security": {
-            "dangerousDisableAssetCspModification": ["style-src"],
+            "dangerousDisableAssetCspModification": [
+                "style-src",
+                "img-src"
+            ],
             "csp": {
                 "default-src": "'self'",
                 "frame-src": "'self' http://localhost:* https://localhost:*",
                 "connect-src": "'self' http://localhost:* https://localhost:* ipc: http://ipc.localhost",
                 "style-src": "'self' 'unsafe-inline'",
                 "font-src": "'self' data:",
-                "img-src": "'self' asset:",
+                "img-src": "'self' asset: data:",
                 "script-src": "'self' 'unsafe-eval'"
             },
             "assetProtocol": {

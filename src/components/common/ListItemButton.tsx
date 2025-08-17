@@ -21,8 +21,8 @@ const ListItemButton: React.FC<ListItemButtonProps> = ({
             className={`
                 w-full justify-start text-left transition-all duration-200
                 ${isSelected
-                    ? 'bg-gray-800 hover:bg-gray-900 text-white shadow-md'
-                    : 'hover:bg-gray-50 hover:border-gray-300 text-gray-700'
+                    ? 'bg-primary hover:bg-primary/90 text-primary-foreground shadow-md'
+                    : 'hover:bg-muted hover:border-muted-foreground text-foreground'
                 }
                 ${className}
             `}

@@ -111,14 +111,14 @@ const ModelSelectionDialog: React.FC<ModelSelectionDialogProps> = ({
 
                     {/* 缺失模型提醒 */}
                     {modelData.missing_models.length > 0 && (
-                        <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
-                            <div className="flex items-center gap-2 text-orange-800 font-medium mb-2">
+                        <div className="p-3 bg-orange-50/80 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg">
+                            <div className="flex items-center gap-2 text-orange-800 dark:text-orange-200 font-medium mb-2">
                                 <AlertTriangle className="h-4 w-4" />
                                 以下模型未找到，将自动删除
                             </div>
                             <div className="flex flex-wrap gap-1">
                                 {modelData.missing_models.map((model, index) => (
-                                    <Badge key={index} variant="outline" className="text-orange-700 border-orange-300">
+                                    <Badge key={index} variant="outline" className="text-orange-700 dark:text-orange-300 border-orange-300 dark:border-orange-700">
                                         {model}
                                     </Badge>
                                 ))}
@@ -134,7 +134,7 @@ const ModelSelectionDialog: React.FC<ModelSelectionDialogProps> = ({
                             {selectedModels.map((model) => (
                                 <div 
                                     key={model.code} 
-                                    className="flex items-center space-x-3 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer"
+                                    className="flex items-center space-x-3 p-3 border rounded-lg hover:bg-muted cursor-pointer"
                                     onClick={() => handleModelToggle(model.code, !model.is_selected)}
                                 >
                                     <Checkbox

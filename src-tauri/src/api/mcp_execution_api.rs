@@ -41,6 +41,88 @@ fn emit_mcp_tool_call_update(
     );
 }
 
+// 验证工具调用是否可以执行
+fn validate_tool_call_execution(tool_call: &MCPToolCall) -> Result<bool, String> {
+    let is_retry = tool_call.status == "failed";
+    
+    if tool_call.status != "pending" && tool_call.status != "failed" {
+        return Err(format!(
+            "工具调用状态为 {} 时无法重新执行",
+            tool_call.status
+        ));
+    }
+    
+    Ok(is_retry)
+}
+
+// 验证服务器状态
+fn validate_server_status(server: &MCPServer) -> Result<(), String> {
+    if !server.is_enabled {
+        return Err("MCP服务器已禁用".to_string());
+    }
+    Ok(())
+}
+
+// 处理工具执行结果
+async fn handle_tool_execution_result(
+    app_handle: &tauri::AppHandle,
+    state: &tauri::State<'_, crate::AppState>,
+    feature_config_state: &tauri::State<'_, crate::FeatureConfigState>,
+    message_token_manager: &tauri::State<'_, crate::state::message_token::MessageTokenManager>,
+    window: &tauri::Window,
+    call_id: i64,
+    mut tool_call: MCPToolCall,
+    execution_result: Result<String, String>,
+    is_retry: bool,
+) -> Result<MCPToolCall, String> {
+    let db = MCPDatabase::new(app_handle).map_err(|e| format!("初始化数据库失败: {}", e))?;
+    
+    match execution_result {
+        Ok(result) => {
+            println!("✅ 工具调用 {} 执行成功", tool_call.id);
+            
+            db.update_mcp_tool_call_status(call_id, "success", Some(&result), None)
+                .map_err(|e| format!("更新工具调用状态失败: {}", e))?;
+            
+            tool_call.status = "success".to_string();
+            tool_call.result = Some(result.clone());
+            tool_call.error = None;
+
+            emit_mcp_tool_call_update(window, tool_call.conversation_id, &tool_call);
+
+            // 处理对话继续逻辑
+            if let Err(e) = handle_tool_success_continuation(
+                app_handle,
+                state,
+                feature_config_state,
+                message_token_manager,
+                window,
+                &tool_call,
+                &result,
+                is_retry,
+            )
+            .await
+            {
+                println!("⚠️ 工具执行成功但触发对话继续失败: {}", e);
+            }
+        }
+        Err(error) => {
+            println!("❌ 工具调用 {} 执行失败: {}", tool_call.id, error);
+            
+            db.update_mcp_tool_call_status(call_id, "failed", None, Some(&error))
+                .map_err(|e| format!("更新工具调用状态失败: {}", e))?;
+            
+            tool_call.status = "failed".to_string();
+            tool_call.error = Some(error);
+            tool_call.result = None;
+
+            emit_mcp_tool_call_update(window, tool_call.conversation_id, &tool_call);
+        }
+    }
+
+    Ok(tool_call)
+}
+
 // 规范化从 LLM 返回的 parameters JSON，移除可能的代码块包裹
 fn normalize_parameters_json(parameters: &str) -> String {
     let trimmed = parameters.trim();
@@ -66,19 +148,32 @@ pub async fn create_mcp_tool_call(
     server_name: String,
     tool_name: String,
     parameters: String,
+    llm_call_id: Option<String>,
+    assistant_message_id: Option<i64>,
 ) -> Result<MCPToolCall, String> {
-    let db = MCPDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+    let db = MCPDatabase::new(&app_handle).map_err(|e| format!("初始化数据库失败: {}", e))?;
 
-    // Find the server by name
-    let servers = db.get_mcp_servers().map_err(|e| e.to_string())?;
+    // 查找并验证服务器
+    let servers = db.get_mcp_servers().map_err(|e| format!("获取MCP服务器列表失败: {}", e))?;
     let server = servers
         .iter()
         .find(|s| s.name == server_name && s.is_enabled)
-        .ok_or_else(|| format!("Server '{}' not found or disabled", server_name))?;
+        .ok_or_else(|| format!("服务器 '{}' 未找到或已禁用", server_name))?;
 
-    // Create the tool call record
-    let tool_call = db
-        .create_mcp_tool_call(
+    // 根据是否提供 llm_call_id 选择相应的创建方法
+    let tool_call = if llm_call_id.is_some() || assistant_message_id.is_some() {
+        db.create_mcp_tool_call_with_llm_id(
+            conversation_id,
+            message_id,
+            server.id,
+            &server_name,
+            &tool_name,
+            &parameters,
+            llm_call_id.as_deref(),
+            assistant_message_id,
+        )
+    } else {
+        db.create_mcp_tool_call(
             conversation_id,
             message_id,
             server.id,
@@ -86,12 +181,14 @@ pub async fn create_mcp_tool_call(
             &tool_name,
             &parameters,
         )
-        .map_err(|e| e.to_string())?;
+    };
 
-    Ok(tool_call)
+    let result = tool_call.map_err(|e| format!("创建MCP工具调用失败: {}", e))?;
+    
+    Ok(result)
 }
 
-// 新的带 LLM ID 的创建方法
+// 为了向后兼容，提供一个不带LLM ID的创建函数
 pub async fn create_mcp_tool_call_with_llm_id(
     app_handle: tauri::AppHandle,
     conversation_id: i64,
@@ -102,30 +199,16 @@ pub async fn create_mcp_tool_call_with_llm_id(
     llm_call_id: Option<&str>,
     assistant_message_id: Option<i64>,
 ) -> Result<MCPToolCall, String> {
-    let db = MCPDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-
-    // Find the server by name
-    let servers = db.get_mcp_servers().map_err(|e| e.to_string())?;
-    let server = servers
-        .iter()
-        .find(|s| s.name == server_name && s.is_enabled)
-        .ok_or_else(|| format!("Server '{}' not found or disabled", server_name))?;
-
-    // Create the tool call record with LLM ID
-    let tool_call = db
-        .create_mcp_tool_call_with_llm_id(
-            conversation_id,
-            message_id,
-            server.id,
-            &server_name,
-            &tool_name,
-            &parameters,
-            llm_call_id,
-            assistant_message_id,
-        )
-        .map_err(|e| e.to_string())?;
-
-    Ok(tool_call)
+    create_mcp_tool_call(
+        app_handle,
+        conversation_id,
+        message_id,
+        server_name,
+        tool_name,
+        parameters,
+        llm_call_id.map(|s| s.to_string()),
+        assistant_message_id,
+    ).await
 }
 
 #[tauri::command]
@@ -137,98 +220,50 @@ pub async fn execute_mcp_tool_call(
     window: tauri::Window,
     call_id: i64,
 ) -> Result<MCPToolCall, String> {
-    let db = MCPDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+    let db = MCPDatabase::new(&app_handle).map_err(|e| format!("初始化数据库失败: {}", e))?;
 
-    // Get the tool call
-    let mut tool_call = db.get_mcp_tool_call(call_id).map_err(|e| e.to_string())?;
+    // 获取工具调用信息
+    let mut tool_call = db.get_mcp_tool_call(call_id)
+        .map_err(|e| format!("获取工具调用信息失败: {}", e))?;
 
-    // Check if this is a retry of a failed call
-    let is_retry = tool_call.status == "failed";
+    // 验证工具调用状态
+    let is_retry = validate_tool_call_execution(&tool_call)?;
 
-    // Only allow re-execution if the call failed, or if it's not started yet
-    if tool_call.status != "pending" && tool_call.status != "failed" {
-        return Err(format!(
-            "Cannot re-execute tool call with status: {}",
-            tool_call.status
-        ));
-    }
+    // 获取并验证服务器状态
+    let server = db.get_mcp_server(tool_call.server_id)
+        .map_err(|e| format!("获取MCP服务器信息失败: {}", e))?;
+    validate_server_status(&server)?;
 
-    // Get the server
-    let server = db
-        .get_mcp_server(tool_call.server_id)
-        .map_err(|e| e.to_string())?;
-
-    if !server.is_enabled {
-        return Err("Server is disabled".to_string());
-    }
-
-    // Conditionally transition to executing to avoid concurrent duplicate executions
-    if !db
-        .mark_mcp_tool_call_executing_if_pending(call_id)
-        .map_err(|e| e.to_string())?
+    // 原子性地将状态转为执行中，避免并发重复执行
+    if !db.mark_mcp_tool_call_executing_if_pending(call_id)
+        .map_err(|e| format!("更新工具调用状态失败: {}", e))?
     {
-        // Someone else has taken this call (or it already started). Reload and return current state.
-        let current = db.get_mcp_tool_call(call_id).map_err(|e| e.to_string())?;
+        let current = db.get_mcp_tool_call(call_id)
+            .map_err(|e| format!("获取当前工具调用状态失败: {}", e))?;
         return Ok(current);
     }
 
-    // Reload tool call to get updated status and emit event
-    tool_call = db.get_mcp_tool_call(call_id).map_err(|e| e.to_string())?;
+    // 重新加载工具调用以获取更新后的状态并发送事件
+    tool_call = db.get_mcp_tool_call(call_id)
+        .map_err(|e| format!("重新加载工具调用信息失败: {}", e))?;
     emit_mcp_tool_call_update(&window, tool_call.conversation_id, &tool_call);
 
-    // Execute the tool based on transport type
-    let execution_result = match server.transport_type.as_str() {
-        "stdio" => execute_stdio_tool(&server, &tool_call.tool_name, &tool_call.parameters).await,
-        "sse" => execute_sse_tool(&server, &tool_call.tool_name, &tool_call.parameters).await,
-        "http" => execute_http_tool(&server, &tool_call.tool_name, &tool_call.parameters).await,
-        _ => Err(format!(
-            "Unsupported transport type: {}",
-            server.transport_type
-        )),
-    };
+    // 执行工具
+    let execution_result = execute_tool_by_transport(&server, &tool_call.tool_name, &tool_call.parameters).await;
 
-    // Update the tool call with the result
-    match execution_result {
-        Ok(result) => {
-            db.update_mcp_tool_call_status(call_id, "success", Some(&result), None)
-                .map_err(|e| e.to_string())?;
-            tool_call.status = "success".to_string();
-            tool_call.result = Some(result.clone());
-            tool_call.error = None; // Clear any previous error
-
-            // Emit status update event
-            emit_mcp_tool_call_update(&window, tool_call.conversation_id, &tool_call);
-
-            // Auto-trigger conversation continuation after successful tool execution
-            // For retries, we need to handle this differently to avoid duplicate messages
-            if let Err(e) = handle_tool_success_continuation(
-                &app_handle,
-                &state,
-                &feature_config_state,
-                &message_token_manager,
-                &window,
-                &tool_call,
-                &result,
-                is_retry,
-            )
-            .await
-            {
-                println!("Failed to trigger conversation continuation: {}", e);
-            }
-        }
-        Err(error) => {
-            db.update_mcp_tool_call_status(call_id, "failed", None, Some(&error))
-                .map_err(|e| e.to_string())?;
-            tool_call.status = "failed".to_string();
-            tool_call.error = Some(error);
-            tool_call.result = None; // Clear any previous result
-
-            // Emit status update event
-            emit_mcp_tool_call_update(&window, tool_call.conversation_id, &tool_call);
-        }
-    }
-
-    Ok(tool_call)
+    // 处理执行结果
+    handle_tool_execution_result(
+        &app_handle,
+        &state,
+        &feature_config_state,
+        &message_token_manager,
+        &window,
+        call_id,
+        tool_call,
+        execution_result,
+        is_retry,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -289,33 +324,26 @@ async fn handle_tool_success_continuation(
     }
 }
 
-// Handle retry success by updating existing tool_result message and triggering new AI response
+// 处理重试成功的情况：更新现有工具结果消息并触发新的AI响应
 async fn handle_retry_success_continuation(
     app_handle: &tauri::AppHandle,
-    _state: &tauri::State<'_, crate::AppState>,
-    _feature_config_state: &tauri::State<'_, crate::FeatureConfigState>,
-    _message_token_manager: &tauri::State<'_, crate::state::message_token::MessageTokenManager>,
-    _window: &tauri::Window,
+    state: &tauri::State<'_, crate::AppState>,
+    feature_config_state: &tauri::State<'_, crate::FeatureConfigState>,
+    message_token_manager: &tauri::State<'_, crate::state::message_token::MessageTokenManager>,
+    window: &tauri::Window,
     tool_call: &MCPToolCall,
     result: &str,
 ) -> Result<(), String> {
-    println!(
-        "Handling retry success continuation for tool call {}",
-        tool_call.id
-    );
+    let conversation_db = ConversationDatabase::new(app_handle).map_err(|e| format!("初始化对话数据库失败: {}", e))?;
 
-    // 对于重试，我们只更新工具结果，不触发新的AI对话
-    // 避免重试导致的多次AI回复
-    let conversation_db = ConversationDatabase::new(app_handle).map_err(|e| e.to_string())?;
-
-    // Update existing tool_result message in database (for record keeping)
+    // 更新现有的 tool_result 消息在数据库中（用于记录保存）
     let messages = conversation_db
         .message_repo()
         .unwrap()
         .list_by_conversation_id(tool_call.conversation_id)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("获取对话消息列表失败: {}", e))?;
 
-    // Look for existing tool_result message that matches this tool call
+    // 查找与此工具调用匹配的现有 tool_result 消息
     let existing_tool_message = messages.into_iter().find(|(msg, _)| {
         msg.message_type == "tool_result"
             && msg
@@ -334,26 +362,42 @@ async fn handle_retry_success_continuation(
 
     match existing_tool_message {
         Some((mut existing_msg, _)) => {
-            // Update the existing tool_result message in database
+            // 更新现有的 tool_result 消息在数据库中
             existing_msg.content = updated_tool_result_content;
             conversation_db
                 .message_repo()
                 .unwrap()
                 .update(&existing_msg)
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| format!("更新工具结果消息失败: {}", e))?;
 
-            println!("Updated existing tool result message {} in database for retry (no AI continuation triggered)", existing_msg.id);
+            // 重试成功后也应该触发AI对话继续
+            return trigger_conversation_continuation(
+                app_handle,
+                state, 
+                feature_config_state,
+                message_token_manager,
+                window,
+                tool_call,
+                result,
+            ).await;
         }
         None => {
-            println!("No existing tool result message found for retry tool call {}, skipping AI continuation to avoid duplicates", tool_call.id);
+            // 即使未找到现有消息，也应该触发对话继续
+            return trigger_conversation_continuation(
+                app_handle,
+                state,
+                feature_config_state, 
+                message_token_manager,
+                window,
+                tool_call,
+                result,
+            ).await;
         }
     }
-
-    Ok(())
 }
 
-// Trigger conversation continuation after tool execution (genai style)
-// Tool results are stored in database and included in AI conversation history but not shown in UI
+// 触发工具执行后的对话继续（genai 风格）
+// 工具结果存储在数据库中并包含在AI对话历史中，但不在UI中显示
 async fn trigger_conversation_continuation(
     app_handle: &tauri::AppHandle,
     state: &tauri::State<'_, crate::AppState>,
@@ -363,28 +407,27 @@ async fn trigger_conversation_continuation(
     tool_call: &MCPToolCall,
     result: &str,
 ) -> Result<(), String> {
-    let conversation_db = ConversationDatabase::new(app_handle).map_err(|e| e.to_string())?;
+    let conversation_db = ConversationDatabase::new(app_handle).map_err(|e| format!("初始化对话数据库失败: {}", e))?;
 
-    // Get the conversation details
+    // 获取对话详情
     let conversation = conversation_db
         .conversation_repo()
         .unwrap()
         .read(tool_call.conversation_id)
-        .map_err(|e| e.to_string())?
-        .ok_or("Conversation not found")?;
+        .map_err(|e| format!("获取对话信息失败: {}", e))?
+        .ok_or("未找到对话")?;
 
     let assistant_id = conversation
         .assistant_id
-        .ok_or("No assistant associated with conversation")?;
+        .ok_or("对话未关联助手")?;
 
-    // Use the new tool_result_continue_ask_ai function instead of creating user message
     // 使用数据库中保存的 llm_call_id（若存在），否则退回到兼容格式
     let tool_call_id = tool_call.llm_call_id
         .clone()
         .unwrap_or_else(|| format!("mcp_tool_call_{}", tool_call.id));
 
-    // Call tool_result_continue_ask_ai to continue the conversation with tool result
-    match tool_result_continue_ask_ai(
+    // 调用 tool_result_continue_ask_ai 以工具结果继续对话
+    tool_result_continue_ask_ai(
         app_handle.clone(),
         state.clone(),
         feature_config_state.clone(),
@@ -396,25 +439,27 @@ async fn trigger_conversation_continuation(
         result.to_string(),
     )
     .await
-    {
-        Ok(_) => {
-            println!(
-                "Successfully triggered conversation continuation for tool call {}",
-                tool_call.id
-            );
-            Ok(())
-        }
-        Err(e) => {
-            println!("Failed to trigger conversation continuation: {:?}", e);
-            Err(format!(
-                "Failed to trigger conversation continuation: {:?}",
-                e
-            ))
+    .map_err(|e| format!("触发对话继续失败: {:?}", e))?;
+    
+    Ok(())
+}
+
+// 统一的工具执行函数，根据传输类型选择相应的执行策略
+async fn execute_tool_by_transport(
+    server: &MCPServer,
+    tool_name: &str,
+    parameters: &str,
+) -> Result<String, String> {
+    match server.transport_type.as_str() {
+        "stdio" => execute_stdio_tool(server, tool_name, parameters).await,
+        "sse" => execute_sse_tool(server, tool_name, parameters).await,
+        "http" => execute_http_tool(server, tool_name, parameters).await,
+        _ => {
+            let error_msg = format!("不支持的传输类型: {}", server.transport_type);
+            Err(error_msg)
         }
     }
 }
-
-// Tool execution implementations
 async fn execute_stdio_tool(
     server: &MCPServer,
     tool_name: &str,
@@ -430,14 +475,16 @@ async fn execute_stdio_tool(
     let command = server
         .command
         .as_ref()
-        .ok_or("No command specified for stdio transport")?;
+        .ok_or("未为 stdio 传输指定命令")?;
     let parts: Vec<&str> = command.split_whitespace().collect();
     if parts.is_empty() {
-        return Err("Empty command".to_string());
+        return Err("命令为空".to_string());
     }
 
+    let timeout_ms = server.timeout.unwrap_or(30000) as u64;
+
     let client_result = tokio::time::timeout(
-        std::time::Duration::from_millis(server.timeout.unwrap_or(30000) as u64),
+        std::time::Duration::from_millis(timeout_ms),
         async {
             let client = (()) // This is a placeholder for the actual client initialization
                 .serve(
@@ -454,20 +501,20 @@ async fn execute_stdio_tool(
                             }
                         }
                     }))
-                    .map_err(|e| format!("Failed to create child process: {}", e))?,
+                    .map_err(|e| format!("创建子进程失败: {}", e))?,
                 )
                 .await
-                .map_err(|e| format!("Failed to initialize client: {}", e))?;
+                .map_err(|e| format!("初始化客户端失败: {}", e))?;
 
-            // Parse parameters as JSON（容错：移除 ``` 包裹）
+            // 解析参数为 JSON（容错：移除 ``` 包裹）
             let params_clean = normalize_parameters_json(parameters);
             let params_value: serde_json::Value = serde_json::from_str(&params_clean)
-                .map_err(|e| format!("Invalid parameters JSON: {}", e))?;
+                .map_err(|e| format!("无效的参数 JSON: {}", e))?;
 
             // Convert Value to Map<String, Value>
             let params_map = match params_value {
                 serde_json::Value::Object(map) => map,
-                _ => return Err("Parameters must be a JSON object".to_string()),
+                _ => return Err("参数必须是 JSON 对象".to_string()),
             };
 
             // Call the tool with correct API
@@ -479,20 +526,20 @@ async fn execute_stdio_tool(
             let response = client
                 .call_tool(request_param)
                 .await
-                .map_err(|e| format!("Tool call failed: {}", e))?;
+                .map_err(|e| format!("工具调用失败: {}", e))?;
 
             // Cancel the client connection
             client
                 .cancel()
                 .await
-                .map_err(|e| format!("Failed to cancel client: {}", e))?;
+                .map_err(|e| format!("关闭客户端连接失败: {}", e))?;
 
             // Return the result content
             if response.is_error.unwrap_or(false) {
-                Err(format!("Tool execution error: {:?}", response.content))
+                Err(format!("工具执行错误: {:?}", response.content))
             } else {
                 serde_json::to_string(&response.content)
-                    .map_err(|e| format!("Failed to serialize result: {}", e))
+                    .map_err(|e| format!("序列化结果失败: {}", e))
             }
         },
     )
@@ -500,8 +547,8 @@ async fn execute_stdio_tool(
 
     match client_result {
         Ok(Ok(result)) => Ok(result),
-        Ok(Err(e)) => Err(format!("Tool execution failed: {}", e)),
-        Err(_) => Err("Timeout while executing tool".to_string()),
+        Ok(Err(e)) => Err(format!("工具执行失败: {}", e)),
+        Err(_) => Err("工具执行超时".to_string()),
     }
 }
 

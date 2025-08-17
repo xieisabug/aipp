@@ -58,7 +58,6 @@ const AddAssistantDialog: React.FC<AddAssistantDialogProps> = ({ assistantTypes,
       <DialogTrigger asChild>
         <Button {...triggerButtonProps}>
           <PlusCircle className="h-4 w-4" />
-          新增助手
         </Button>
       </DialogTrigger>
       <DialogContent>

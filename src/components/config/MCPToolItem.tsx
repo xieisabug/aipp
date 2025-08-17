@@ -39,23 +39,23 @@ const MCPToolItem: React.FC<MCPToolItemProps> = ({
         tool.tool_description && truncatedDescription !== tool.tool_description;
 
     return (
-        <div className="bg-gray-50 rounded-lg overflow-hidden">
+        <div className="bg-muted rounded-lg overflow-hidden">
             <div className="flex items-start justify-between p-4 gap-4">
                 <div className="flex-1 min-w-0 pr-4">
                     <div className="flex items-center gap-2 mb-2">
-                        <div className="font-medium text-gray-900 truncate">
+                        <div className="font-medium text-foreground truncate">
                             {tool.tool_name}
                         </div>
                         {hasParameters && (
                             <button
                                 onClick={() => onToggleExpansion(tool.id)}
-                                className="flex-shrink-0 p-1 hover:bg-gray-200 rounded transition-colors"
+                                className="flex-shrink-0 p-1 hover:bg-muted-foreground/20 rounded transition-colors"
                                 title={isExpanded ? "收起参数" : "展开参数"}
                             >
                                 {isExpanded ? (
-                                    <ChevronDown className="h-4 w-4 text-gray-500" />
+                                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
                                 ) : (
-                                    <ChevronRight className="h-4 w-4 text-gray-500" />
+                                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
                                 )}
                             </button>
                         )}
@@ -64,7 +64,7 @@ const MCPToolItem: React.FC<MCPToolItemProps> = ({
                         <TooltipProvider delayDuration={1500}>
                             <Tooltip>
                                 <TooltipTrigger asChild>
-                                    <div className="text-sm text-gray-500 leading-relaxed">
+                                    <div className="text-sm text-muted-foreground leading-relaxed">
                                         {isDescriptionTruncated
                                             ? truncatedDescription
                                             : tool.tool_description}
@@ -86,7 +86,7 @@ const MCPToolItem: React.FC<MCPToolItemProps> = ({
                 </div>
                 <div className="flex items-center gap-6 flex-shrink-0">
                     <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-700 whitespace-nowrap">
+                        <span className="text-sm text-foreground whitespace-nowrap">
                             启用
                         </span>
                         <Switch
@@ -97,7 +97,7 @@ const MCPToolItem: React.FC<MCPToolItemProps> = ({
                         />
                     </div>
                     <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-700 whitespace-nowrap">
+                        <span className="text-sm text-foreground whitespace-nowrap">
                             自动运行
                         </span>
                         <Switch

@@ -20,8 +20,8 @@ const MCPToolParameters: React.FC<MCPToolParametersProps> = ({
     return (
         <Collapsible open={isExpanded}>
             <CollapsibleContent className="px-4 pb-4">
-                <div className="border-t border-gray-200 pt-3">
-                    <div className="text-sm font-medium text-gray-700 mb-3">
+                <div className="border-t border-border pt-3">
+                    <div className="text-sm font-medium text-foreground mb-3">
                         参数：
                     </div>
                     <div className="space-y-3">

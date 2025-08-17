@@ -30,36 +30,36 @@ pub struct AssistantMention {
 #[derive(Debug, Clone)]
 pub struct MessageParseResult {
     pub mentions: Vec<AssistantMention>,
-    pub cleaned_content: String,  // 移除@mentions后的内容
-    pub original_content: String, // 原始内容
+    pub cleaned_content: String,           // 移除@mentions后的内容
+    pub original_content: String,          // 原始内容
     pub primary_assistant_id: Option<i64>, // 主要助手ID（第一个匹配的）
 }
 
 /// 位置限制选项
 #[derive(Debug, Clone)]
 pub enum PositionRestriction {
-    Anywhere,        // 任何位置
-    StartOnly,       // 仅开头
-    WordBoundary,    // 单词边界（前面是空格或开头）
+    Anywhere,     // 任何位置
+    StartOnly,    // 仅开头
+    WordBoundary, // 单词边界（前面是空格或开头）
 }
 
 /// 解析选项
 #[derive(Debug, Clone)]
 pub struct ParseOptions {
-    pub first_only: bool,           // 只匹配第一个
+    pub first_only: bool, // 只匹配第一个
     pub position_restriction: PositionRestriction,
-    pub remove_mentions: bool,      // 是否从结果中移除@mentions
-    pub case_sensitive: bool,       // 大小写敏感
-    pub require_word_boundary: bool,  // 要求词边界（替代 require_space_after）
+    pub remove_mentions: bool,       // 是否从结果中移除@mentions
+    pub case_sensitive: bool,        // 大小写敏感
+    pub require_word_boundary: bool, // 要求词边界（替代 require_space_after）
 }
 
 impl Default for ParseOptions {
     fn default() -> Self {
         Self {
             first_only: true,
-            position_restriction: PositionRestriction::StartOnly,
+            position_restriction: PositionRestriction::Anywhere,
             remove_mentions: true,
-            case_sensitive: true,
+            case_sensitive: false,
             require_word_boundary: true,
         }
     }
@@ -355,16 +355,20 @@ fn is_word_boundary_end(chars: &[char], pos: usize) -> bool {
     if pos >= chars.len() {
         return true; // 字符串结尾是有效边界
     }
-    
+
     let next_char = chars[pos];
-    
+
     // 如果下一个字符不是字母、数字或某些连接符，就认为是边界
     // 这样可以自动处理所有标点符号、空格、中文标点等
     !next_char.is_alphanumeric() && next_char != '_' && next_char != '-'
 }
 
 /// 检查位置是否满足限制条件
-fn check_position_restriction(chars: &[char], pos: usize, restriction: &PositionRestriction) -> bool {
+fn check_position_restriction(
+    chars: &[char],
+    pos: usize,
+    restriction: &PositionRestriction,
+) -> bool {
     match restriction {
         PositionRestriction::Anywhere => true,
         PositionRestriction::StartOnly => pos == 0,
@@ -393,7 +397,7 @@ fn try_match_specific_assistant(
     };
 
     let pattern_chars: Vec<char> = format!("@{}", assistant_name).chars().collect();
-    
+
     // 检查是否有足够的字符来匹配
     if start_pos + pattern_chars.len() > chars.len() {
         return None;
@@ -401,11 +405,11 @@ fn try_match_specific_assistant(
 
     // 执行字符匹配
     let match_slice = &chars[start_pos..start_pos + pattern_chars.len()];
-    
+
     let matches = if options.case_sensitive {
         match_slice == &pattern_chars[..]
     } else {
-        match_slice.iter().collect::<String>().to_lowercase() 
+        match_slice.iter().collect::<String>().to_lowercase()
             == pattern_chars.iter().collect::<String>().to_lowercase()
     };
 
@@ -414,12 +418,12 @@ fn try_match_specific_assistant(
     }
 
     let end_pos = start_pos + pattern_chars.len();
-    
+
     // 使用改进的边界检测
     if options.require_word_boundary && !is_word_boundary_end(chars, end_pos) {
         return None;
     }
-    
+
     // 即使不要求word boundary，我们也需要确保这是一个完整的助手名称匹配
     // 如果assistant name后面直接跟着字母数字字符，说明这不是一个完整匹配
     if !options.require_word_boundary && end_pos < chars.len() {
@@ -460,12 +464,7 @@ fn try_match_assistant_at_position(
 
     // 尝试匹配每个助手名称
     for assistant in &sorted_assistants {
-        if let Some(mention) = try_match_specific_assistant(
-            assistant,
-            chars,
-            start_pos,
-            options,
-        ) {
+        if let Some(mention) = try_match_specific_assistant(assistant, chars, start_pos, options) {
             return Some(mention);
         }
     }
@@ -492,14 +491,14 @@ fn remove_mentions_from_content(content: &str, mentions: &[AssistantMention]) ->
             result.push(chars[i]);
             i += 1;
         }
-        
+
         // 跳过mention内容
         i = mention.end_pos;
-        
+
         // 智能处理mention后的空格和标点符号
         if i < chars.len() {
             let next_char = chars[i];
-            
+
             // 如果mention后面紧跟着逗号、句号等标点符号，跳过它们前面可能的空格
             if ",.!?;:，。！？；：".contains(next_char) {
                 // 跳过标点符号
@@ -524,7 +523,7 @@ fn remove_mentions_from_content(content: &str, mentions: &[AssistantMention]) ->
     }
 
     let result_str = result.iter().collect::<String>();
-    
+
     // 清理多余的空格
     result_str
         .split_whitespace()
@@ -546,15 +545,10 @@ pub fn parse_assistant_mentions(
 
     while i < chars.len() {
         if chars[i] == '@' {
-            if let Some(mention) = try_match_assistant_at_position(
-                assistants, 
-                &chars, 
-                i, 
-                options
-            ) {
+            if let Some(mention) = try_match_assistant_at_position(assistants, &chars, i, options) {
                 mentions.push(mention.clone());
                 i = mention.end_pos;
-                
+
                 // 如果只需要第一个匹配，直接退出
                 if options.first_only {
                     break;
@@ -574,7 +568,6 @@ pub fn parse_assistant_mentions(
         content.to_string()
     };
 
-
     Ok(MessageParseResult {
         primary_assistant_id: mentions.first().map(|m| m.assistant_id),
         mentions,
@@ -586,7 +579,7 @@ pub fn parse_assistant_mentions(
 /// 从消息中提取 @assistant_name 并返回处理后的消息和助手ID
 /// 如果找到 @assistant_name，则返回对应的助手ID和清理后的消息
 /// 如果没有找到或找不到对应助手，则返回原始助手ID和原始消息
-/// 
+///
 /// 这个函数保持向后兼容，内部使用新的解析器实现
 pub async fn extract_assistant_from_message(
     assistants: &Vec<Assistant>,
@@ -595,9 +588,9 @@ pub async fn extract_assistant_from_message(
 ) -> Result<(i64, String), AppError> {
     // 使用默认选项，保持原有行为：只匹配开头的第一个@符号
     let options = ParseOptions::default();
-    
+
     let result = parse_assistant_mentions(assistants, prompt, &options)?;
-    
+
     Ok((
         result.primary_assistant_id.unwrap_or(default_assistant_id),
         result.cleaned_content,
@@ -950,8 +943,8 @@ async fn attempt_stream_chat(
                                             start_time: Some(now),
                                             finish_time: None,
                                             token_count: 0,
-                                            generation_group_id: None,
-                                            parent_group_id: None,
+                                            generation_group_id: Some(generation_group_id.clone()), // 添加generation_group_id
+                                            parent_group_id: parent_group_id_override.clone(), // 添加parent_group_id
                                             tool_calls_json: None,
                                         })
                                         .unwrap();

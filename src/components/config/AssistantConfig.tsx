@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { toast } from "sonner";
 import { invoke } from "@tauri-apps/api/core";
 import { AssistantDetail, AssistantListItem } from "../../data/Assistant";
+import { useAssistantListListener } from "../../hooks/useAssistantListListener";
 import ConfigForm from "../ConfigForm";
 import ConfirmDialog from "../ConfirmDialog";
 import AddAssistantDialog from "./AddAssistantDialog";
@@ -211,6 +212,25 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                 toast.error("获取助手列表失败: " + error);
             });
     }, []);
+    
+    // 监听助手列表变化
+    useAssistantListListener({
+        onAssistantListChanged: useCallback((assistantList: AssistantListItem[]) => {
+            setAssistants(assistantList);
+            // 如果当前选中的助手不在新列表中，选择第一个助手
+            if (assistantList.length > 0) {
+                const currentAssistantExists = assistantList.some(
+                    assistant => assistant.id === currentAssistant?.assistant.id
+                );
+                if (!currentAssistantExists) {
+                    handleChooseAssistant(assistantList[0]);
+                }
+            } else {
+                setCurrentAssistant(null);
+            }
+        }, [currentAssistant?.assistant.id])
+    });
+
     // 使用 useCallback 缓存回调函数
     const onSave = useCallback((assistant: AssistantDetail) => {
         return invoke<void>("save_assistant", { assistantDetail: assistant });
@@ -226,6 +246,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                     {
                         id: assistantDetail.assistant.id,
                         name: assistantDetail.assistant.name,
+                        assistant_type: assistantDetail.assistant.assistant_type,
                     },
                 ]);
                 setCurrentAssistant(assistantDetail);
@@ -498,6 +519,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                 newAssistants[index] = {
                     id: updatedAssistant.assistant.id,
                     name: updatedAssistant.assistant.name,
+                    assistant_type: updatedAssistant.assistant.assistant_type,
                 };
                 setAssistants(newAssistants);
             }
@@ -706,9 +728,30 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
             {
                 id: assistantDetail.assistant.id,
                 name: assistantDetail.assistant.name,
+                assistant_type: assistantDetail.assistant.assistant_type,
             },
         ]);
         setCurrentAssistant(assistantDetail);
+        
+        // 重置表单状态为新助手的配置
+        form.reset({
+            assistantType: assistantDetail.assistant.assistant_type,
+            model:
+                assistantDetail.model.length > 0
+                    ? `${assistantDetail.model[0].model_code}%%${assistantDetail.model[0].provider_id}`
+                    : "-1",
+            prompt: assistantDetail.prompts[0]?.prompt || "",
+            ...assistantDetail.model_configs.reduce(
+                (acc, config) => {
+                    acc[config.name] =
+                        config.value_type === "boolean"
+                            ? config.value == "true"
+                            : config.value;
+                    return acc;
+                },
+                {} as Record<string, any>,
+            ),
+        });
     };
 
     // 下拉菜单选项
@@ -733,7 +776,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
             assistantTypes={assistantTypes}
             onAssistantAdded={handleAssistantAdded}
             triggerButtonProps={{
-                className: "gap-2 bg-gray-800 hover:bg-gray-900 text-white shadow-sm hover:shadow-md transition-all"
+                className: "gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm hover:shadow-md transition-all"
             }}
         />
     ), [assistantTypes, handleAssistantAdded]);
@@ -745,7 +788,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                 sidebar={null}
                 content={
                     <EmptyState
-                        icon={<Bot className="h-8 w-8 text-gray-500" />}
+                        icon={<Bot className="h-8 w-8 text-muted-foreground" />}
                         title="还没有配置助手"
                         description="创建你的第一个AI助手，开始享受个性化的智能对话体验"
                         action={
@@ -797,7 +840,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
         />
     ) : (
         <EmptyState
-            icon={<Settings className="h-8 w-8 text-gray-500" />}
+            icon={<Settings className="h-8 w-8 text-muted-foreground" />}
             title="选择一个助手"
             description="从左侧列表中选择一个助手开始配置"
         />

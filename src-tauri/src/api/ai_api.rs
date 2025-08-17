@@ -403,29 +403,18 @@ pub async fn tool_result_continue_ask_ai(
         .unwrap()
         .list_by_conversation_id(conversation_id_i64)?;
 
-    // Build message list with latest children (same logic as ask_ai)
-    let mut latest_children: HashMap<i64, (Message, Option<MessageAttachment>)> = HashMap::new();
-    let mut child_ids: HashSet<i64> = HashSet::new();
-
-    for (message, attachment) in all_messages.iter() {
-        if let Some(parent_id) = message.parent_id {
-            child_ids.insert(message.id);
-            latest_children
-                .entry(parent_id)
-                .and_modify(|e| *e = (message.clone(), attachment.clone()))
-                .or_insert((message.clone(), attachment.clone()));
-        }
-    }
+    // 使用统一的排序逻辑
+    let (latest_children, child_ids) = get_latest_child_messages(&all_messages);
 
     // Build final message list including the new tool_result message
     let init_message_list: Vec<(String, String, Vec<MessageAttachment>)> = all_messages
-        .into_iter()
+        .iter()
         .filter(|(message, _)| !child_ids.contains(&message.id))
         .map(|(message, attachment)| {
             let (final_message, final_attachment) = latest_children
                 .get(&message.id)
                 .map(|child| child.clone())
-                .unwrap_or((message, attachment));
+                .unwrap_or((message.clone(), attachment.clone()));
 
             (
                 final_message.message_type,
@@ -435,18 +424,11 @@ pub async fn tool_result_continue_ask_ai(
         })
         .collect();
 
-    println!(
-        "[[init_message_list (tool_result_continue)]]: {:#?}\n",
-        init_message_list
-    );
+    // 使用统一的排序函数进行排序
+    let init_message_list = sort_messages_by_group_and_id(init_message_list, &all_messages);
 
     // 收集 MCP 信息
     let mcp_info = collect_mcp_info_for_assistant(&app_handle, assistant_id).await?;
-    println!(
-        "[[MCP enabled_servers]]: {} [[native_toolcall]]: {}\n",
-        mcp_info.enabled_servers.len(),
-        mcp_info.use_native_toolcall
-    );
     let is_native_toolcall = mcp_info.use_native_toolcall;
 
     let cancel_token = CancellationToken::new();
@@ -479,7 +461,10 @@ pub async fn tool_result_continue_ask_ai(
         None,
         false,
         None,
-    )?;
+    ).map_err(|e| {
+        println!("[[Failed to create client in tool_result_continue_ask_ai]]: {}", e);
+        e
+    })?;
 
     let temp_model_detail = crate::db::llm_db::ModelDetail {
         model: crate::db::llm_db::LLMModel {
@@ -558,10 +543,6 @@ pub async fn tool_result_continue_ask_ai(
     // 兼容：Gemini 通过 OpenAI 适配时，服务端要求 function_response.name 不为空。通用 ToolResponse 不带 name。
     // 为避免 400，这里在该场景下对"继续对话"强制降级为非原生。
     let use_native_for_continue = has_available_tools;
-    println!(
-        "[[tool_result_continue native?]]: {} (provider_api_type={}, model_code={})",
-        use_native_for_continue, provider_api_type, model_code
-    );
     let chat_request = if use_native_for_continue {
         // 重新构建消息序列，确保 Assistant-Tool 消息正确配对
         // 而不是让 build_chat_messages_with_context 自动重建，我们手动控制顺序
@@ -580,11 +561,6 @@ pub async fn tool_result_continue_ask_ai(
                 }
             }
         }
-
-        println!(
-            "[[DEBUG - tool_call_to_response]]: {:#?}",
-            tool_call_to_response
-        );
 
         // 按顺序处理消息，确保 Assistant-Tool 配对
         for (message_type, content, attachment_list) in init_message_list.iter() {
@@ -605,8 +581,6 @@ pub async fn tool_result_continue_ask_ai(
                 }
                 "response" => {
                     // 从数据库重建完整的 Assistant 消息和其对应的 Tool 响应
-                    // 查找这个 response 消息对应的数据库记录
-                    println!("[[DEBUG - Processing response message]]");
 
                     // 尝试从内容中提取工具调用信息重建Assistant消息
                     if let Some(assistant_with_calls) = crate::api::ai::conversation::reconstruct_assistant_with_tool_calls_from_content(content) {
@@ -618,7 +592,6 @@ pub async fn tool_result_continue_ask_ai(
                                 if let Some(response_content) = tool_call_to_response.get(&tool_call.call_id) {
                                     let tool_response = genai::chat::ToolResponse::new(tool_call.call_id.clone(), response_content.clone());
                                     chat_messages.push(genai::chat::ChatMessage::from(tool_response));
-                                    println!("[[DEBUG - Added Tool response for call_id]]: {}", tool_call.call_id);
                                 }
                             }
                         }
@@ -629,53 +602,10 @@ pub async fn tool_result_continue_ask_ai(
                 }
                 "tool_result" => {
                     // 跳过，因为已经在上面的 response 处理中配对处理了
-                    println!(
-                        "[[DEBUG - Skipping tool_result as it's handled in response pairing]]"
-                    );
                 }
                 _ => {
                     chat_messages.push(genai::chat::ChatMessage::assistant(content));
                 }
-            }
-        }
-
-        println!("[[DEBUG - AFTER manual message reconstruction]]:");
-        for (i, msg) in chat_messages.iter().enumerate() {
-            println!("  Message [{}]: role={:?}", i, msg.role);
-            match &msg.role {
-                genai::chat::ChatRole::Assistant => match &msg.content {
-                    genai::chat::MessageContent::Text(text) => {
-                        println!(
-                            "    Content: {}",
-                            text.chars().take(100).collect::<String>()
-                        );
-                    }
-                    genai::chat::MessageContent::ToolCalls(tool_calls) => {
-                        println!("    Tool calls count: {}", tool_calls.len());
-                        for tc in tool_calls {
-                            println!("      - call_id: {}, fn_name: {}", tc.call_id, tc.fn_name);
-                        }
-                    }
-                    _ => println!("    Content: <other>"),
-                },
-                genai::chat::ChatRole::Tool => match &msg.content {
-                    genai::chat::MessageContent::Text(text) => {
-                        println!(
-                            "    Tool response content: {}",
-                            text.chars().take(100).collect::<String>()
-                        );
-                    }
-                    _ => println!("    Tool response: <other>"),
-                },
-                _ => match &msg.content {
-                    genai::chat::MessageContent::Text(text) => {
-                        println!(
-                            "    Content: {}",
-                            text.chars().take(100).collect::<String>()
-                        );
-                    }
-                    _ => println!("    Content: <other>"),
-                },
             }
         }
 
@@ -716,10 +646,6 @@ pub async fn tool_result_continue_ask_ai(
             .collect();
 
         let chat_messages = build_chat_messages(&transformed_list);
-        println!(
-            "[[chat_messages (tool_result_continue non_native)]]: {:#?}\n",
-            chat_messages
-        );
         ChatRequest::new(chat_messages)
     };
 
@@ -829,32 +755,17 @@ pub async fn regenerate_ai(
         (filtered_messages, Some(message_id)) // 使用被重发消息的ID作为parent_id表示这是它的一个版本
     };
 
-    // 计算每个父消息最新的子消息（parent_id -> latest child）
-    let mut latest_children: HashMap<i64, (Message, Option<MessageAttachment>)> = HashMap::new();
-    let mut child_ids: HashSet<i64> = HashSet::new();
-
-    for (msg, attach) in filtered_messages.iter() {
-        if let Some(parent_id) = msg.parent_id {
-            child_ids.insert(msg.id);
-            latest_children
-                .entry(parent_id)
-                .and_modify(|e| {
-                    if msg.id > e.0.id {
-                        *e = (msg.clone(), attach.clone());
-                    }
-                })
-                .or_insert((msg.clone(), attach.clone()));
-        }
-    }
+    // 使用统一的排序逻辑
+    let (latest_children, child_ids) = get_latest_child_messages(&filtered_messages);
 
     // 构建最终的消息列表：
     //    - 对于没有子消息的根消息(包括 system / user / assistant)，直接保留
     //    - 对于有子消息的根消息，仅保留最新的子消息
     let mut init_message_list: Vec<(String, String, Vec<MessageAttachment>)> = Vec::new();
 
-    for (msg, attach) in filtered_messages.into_iter() {
+    for (msg, attach) in filtered_messages.iter() {
         if child_ids.contains(&msg.id) {
-            // 根消息，有子消息，后续处理
+            // 这是子消息，跳过（会在父消息处理时包含最新的子消息）
             continue;
         }
 
@@ -862,12 +773,15 @@ pub async fn regenerate_ai(
         let (final_msg, final_attach_opt) = latest_children
             .get(&msg.id)
             .cloned()
-            .unwrap_or((msg, attach));
+            .unwrap_or((msg.clone(), attach.clone()));
 
         let attachments_vec = final_attach_opt.map(|a| vec![a]).unwrap_or_else(Vec::new);
 
         init_message_list.push((final_msg.message_type, final_msg.content, attachments_vec));
     }
+
+    // 使用统一的排序函数进行排序
+    let init_message_list = sort_messages_by_group_and_id(init_message_list, &filtered_messages);
 
     println!(
         "[[init_message_list (regenerate)]]: {:#?}\n",
@@ -1153,6 +1067,103 @@ pub async fn regenerate_ai(
     })
 }
 
+/// 获取每个父消息的最新子消息（统一的排序逻辑）
+/// 返回: (latest_children_map, child_ids_set)
+fn get_latest_child_messages(
+    messages: &[(Message, Option<MessageAttachment>)],
+) -> (
+    HashMap<i64, (Message, Option<MessageAttachment>)>,
+    HashSet<i64>,
+) {
+    let mut latest_children: HashMap<i64, (Message, Option<MessageAttachment>)> = HashMap::new();
+    let mut child_ids: HashSet<i64> = HashSet::new();
+
+    for (message, attachment) in messages.iter() {
+        if let Some(parent_id) = message.parent_id {
+            child_ids.insert(message.id);
+            latest_children
+                .entry(parent_id)
+                .and_modify(|existing| {
+                    // 选择ID更大的消息作为最新版本
+                    if message.id > existing.0.id {
+                        *existing = (message.clone(), attachment.clone());
+                    }
+                })
+                .or_insert((message.clone(), attachment.clone()));
+        }
+    }
+
+    (latest_children, child_ids)
+}
+
+/// 按照group和ID排序消息列表
+/// 规则：
+/// 1. 按照root group的最小消息ID排序
+/// 2. 同一group内的消息按ID排序
+/// 3. 没有generation_group_id的消息排在最前面（按ID排序）
+fn sort_messages_by_group_and_id(
+    messages: Vec<(String, String, Vec<MessageAttachment>)>,
+    original_messages: &[(Message, Option<MessageAttachment>)],
+) -> Vec<(String, String, Vec<MessageAttachment>)> {
+    let mut result = messages;
+
+    // 创建消息内容到原始消息的映射，用于获取group信息
+    let mut content_to_message: HashMap<String, &Message> = HashMap::new();
+    for (msg, _) in original_messages {
+        content_to_message.insert(msg.content.clone(), msg);
+    }
+
+    // 创建group到最小ID的映射
+    let mut group_to_min_id: HashMap<String, i64> = HashMap::new();
+    for (msg, _) in original_messages {
+        if let Some(ref group_id) = msg.generation_group_id {
+            group_to_min_id
+                .entry(group_id.clone())
+                .and_modify(|min_id| {
+                    if msg.id < *min_id {
+                        *min_id = msg.id;
+                    }
+                })
+                .or_insert(msg.id);
+        }
+    }
+
+    // 排序逻辑
+    result.sort_by(|a, b| {
+        let msg_a = content_to_message.get(&a.1);
+        let msg_b = content_to_message.get(&b.1);
+
+        match (msg_a, msg_b) {
+            (Some(ma), Some(mb)) => {
+                match (&ma.generation_group_id, &mb.generation_group_id) {
+                    // 两个都有group_id
+                    (Some(group_a), Some(group_b)) => {
+                        if group_a == group_b {
+                            // 同一个group内，按消息ID排序
+                            ma.id.cmp(&mb.id)
+                        } else {
+                            // 不同group，按group的最小ID排序
+                            let min_a = group_to_min_id.get(group_a).unwrap_or(&ma.id);
+                            let min_b = group_to_min_id.get(group_b).unwrap_or(&mb.id);
+                            min_a.cmp(min_b)
+                        }
+                    }
+                    // 只有A有group_id，按消息ID排序（而不是固定让B排前面）
+                    (Some(_), None) => ma.id.cmp(&mb.id),
+                    // 只有B有group_id，按消息ID排序（而不是固定让A排前面）
+                    (None, Some(_)) => ma.id.cmp(&mb.id),
+                    // 两个都没有group_id，按消息ID排序
+                    (None, None) => ma.id.cmp(&mb.id),
+                }
+            }
+            // 如果找不到对应的原始消息，保持原顺序
+            _ => std::cmp::Ordering::Equal,
+        }
+    });
+
+    result
+}
+
 fn add_message(
     app_handle: &tauri::AppHandle,
     parent_id: Option<i64>,
@@ -1271,32 +1282,18 @@ async fn initialize_conversation(
                 .unwrap()
                 .list_by_conversation_id(conversation_id)?;
 
-            // 创建一个 HashMap 来存储每个消息的最新子消息
-            let mut latest_children: HashMap<i64, (Message, Option<MessageAttachment>)> =
-                HashMap::new();
-            // 创建一个 HashSet 来存储所有作为子消息的消息 ID
-            let mut child_ids: HashSet<i64> = HashSet::new();
-
-            // 遍历所有消息，更新最新子消息和子消息 ID 集合
-            for (message, attachment) in all_messages.iter() {
-                if let Some(parent_id) = message.parent_id {
-                    child_ids.insert(message.id);
-                    latest_children
-                        .entry(parent_id)
-                        .and_modify(|e| *e = (message.clone(), attachment.clone()))
-                        .or_insert((message.clone(), attachment.clone()));
-                }
-            }
+            // 使用统一的排序逻辑
+            let (latest_children, child_ids) = get_latest_child_messages(&all_messages);
 
             // 构建最终的消息列表
             let message_list: Vec<(String, String, Vec<MessageAttachment>)> = all_messages
-                .into_iter()
+                .iter()
                 .filter(|(message, _)| !child_ids.contains(&message.id))
                 .map(|(message, attachment)| {
                     let (final_message, final_attachment) = latest_children
                         .get(&message.id)
                         .map(|child| child.clone())
-                        .unwrap_or((message, attachment));
+                        .unwrap_or((message.clone(), attachment.clone()));
 
                     (
                         final_message.message_type,
@@ -1305,6 +1302,9 @@ async fn initialize_conversation(
                     )
                 })
                 .collect();
+
+            // 使用统一的排序函数进行排序
+            let message_list = sort_messages_by_group_and_id(message_list, &all_messages);
 
             // 获取到消息的附件列表
             let message_attachment_list = db
@@ -1403,7 +1403,10 @@ pub async fn regenerate_conversation_title(
     feature_config_state: State<'_, FeatureConfigState>,
     conversation_id: i64,
 ) -> Result<(), AppError> {
-    let conversation_db = ConversationDatabase::new(&app_handle).map_err(AppError::from)?;
+    let conversation_db = ConversationDatabase::new(&app_handle).map_err(|e| {
+        println!("[[Failed to create conversation_db in tool_result_continue_ask_ai]]: {}", e);
+        AppError::from(e)
+    })?;
 
     // 获取对话的消息
     let messages = conversation_db

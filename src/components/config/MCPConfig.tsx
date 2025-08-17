@@ -320,8 +320,7 @@ const MCPConfig: React.FC = () => {
         <MCPActionDropdown
             onTemplateSelect={handleTemplateSelect}
             onJSONImport={handleJSONImport}
-            className="bg-gray-800 hover:bg-gray-900 text-white shadow-sm hover:shadow-md transition-all"
-            buttonText="新增MCP"
+            className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm hover:shadow-md transition-all"
         />
     ), [handleTemplateSelect, handleJSONImport]);
 
@@ -334,15 +333,14 @@ const MCPConfig: React.FC = () => {
                     content={null}
                     emptyState={
                         <EmptyState
-                            icon={<Blocks className="h-8 w-8 text-gray-500" />}
+                            icon={<Blocks className="h-8 w-8 text-muted-foreground" />}
                             title="还没有配置MCP服务器"
                             description="开始添加你的第一个MCP服务器，扩展AI助手的能力"
                             action={
                                 <MCPActionDropdown
                                     onTemplateSelect={handleTemplateSelect}
                                     onJSONImport={handleJSONImport}
-                                    className="bg-gray-800 hover:bg-gray-900 text-white shadow-lg hover:shadow-xl transition-all"
-                                    buttonText="添加第一个MCP服务器"
+                                    className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg hover:shadow-xl transition-all"
                                 />
                             }
                         />
@@ -382,7 +380,6 @@ const MCPConfig: React.FC = () => {
                     onJSONImport={handleJSONImport}
                     variant="outline"
                     size="sm"
-                    buttonText="添加"
                     showIcon={false}
                 />
             }
@@ -410,11 +407,11 @@ const MCPConfig: React.FC = () => {
     const content = selectedServer ? (
         <div className="space-y-6">
             {/* 服务器基本信息 */}
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <div className="bg-background rounded-lg border border-border p-6">
                 <div className="flex items-center justify-between mb-4">
                     <div>
-                        <h3 className="text-lg font-semibold text-gray-900">{selectedServer.name}</h3>
-                        <p className="text-sm text-gray-500">{selectedServer.description || '暂无描述'}</p>
+                        <h3 className="text-lg font-semibold text-foreground">{selectedServer.name}</h3>
+                        <p className="text-sm text-muted-foreground">{selectedServer.description || '暂无描述'}</p>
                     </div>
                     <div className="flex items-center gap-1">
                         <Switch
@@ -443,36 +440,36 @@ const MCPConfig: React.FC = () => {
                             size="sm"
                             onClick={() => handleDeleteServer(selectedServer.id)}
                         >
-                            <Trash2 className="h-4 w-4 text-red-500" />
+                            <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
                     </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
-                        <span className="font-medium text-gray-700">传输类型:</span>
+                        <span className="font-medium text-foreground">传输类型:</span>
                         <Badge variant="secondary" className="ml-2">
                             {selectedServer.transport_type}
                         </Badge>
                     </div>
                     <div>
-                        <span className="font-medium text-gray-700">长期运行:</span>
+                        <span className="font-medium text-foreground">长期运行:</span>
                         <Badge variant={selectedServer.is_long_running ? "default" : "secondary"} className="ml-2">
                             {selectedServer.is_long_running ? "是" : "否"}
                         </Badge>
                     </div>
                     {selectedServer.timeout && (
                         <div>
-                            <span className="font-medium text-gray-700">超时时间:</span>
-                            <span className="ml-2 text-gray-600">{selectedServer.timeout}ms</span>
+                            <span className="font-medium text-foreground">超时时间:</span>
+                            <span className="ml-2 text-muted-foreground">{selectedServer.timeout}ms</span>
                         </div>
                     )}
                 </div>
             </div>
 
             {/* 能力列表 - 使用 Tabs */}
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <h4 className="text-md font-semibold text-gray-900 mb-4">服务器能力</h4>
+            <div className="bg-background rounded-lg border border-border p-6">
+                <h4 className="text-md font-semibold text-foreground mb-4">服务器能力</h4>
 
                 {/* 动态计算需要显示的tabs */}
                 {(() => {
@@ -528,15 +525,15 @@ const MCPConfig: React.FC = () => {
                                 <TabsContent value="prompts" className="mt-4">
                                     <div className="space-y-3">
                                         {serverPrompts.map((prompt) => (
-                                            <div key={prompt.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                            <div key={prompt.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
                                                 <div className="flex-1">
-                                                    <div className="font-medium text-gray-900">{prompt.prompt_name}</div>
+                                                    <div className="font-medium text-foreground">{prompt.prompt_name}</div>
                                                     {prompt.prompt_description && (
-                                                        <div className="text-sm text-gray-500 mt-1">{prompt.prompt_description}</div>
+                                                        <div className="text-sm text-muted-foreground mt-1">{prompt.prompt_description}</div>
                                                     )}
                                                 </div>
                                                 <div className="flex items-center gap-2">
-                                                    <span className="text-sm text-gray-700">启用</span>
+                                                    <span className="text-sm text-foreground">启用</span>
                                                     <Switch
                                                         checked={prompt.is_enabled}
                                                         onCheckedChange={(checked) =>
@@ -555,11 +552,11 @@ const MCPConfig: React.FC = () => {
                                 <TabsContent value="resources" className="mt-4">
                                     <div className="space-y-3">
                                         {serverResources.map((resource) => (
-                                            <div key={resource.id} className="p-3 bg-gray-50 rounded-lg">
-                                                <div className="font-medium text-gray-900">{resource.resource_name}</div>
-                                                <div className="text-sm text-gray-500 mt-1">{resource.resource_uri}</div>
+                                            <div key={resource.id} className="p-3 bg-muted rounded-lg">
+                                                <div className="font-medium text-foreground">{resource.resource_name}</div>
+                                                <div className="text-sm text-muted-foreground mt-1">{resource.resource_uri}</div>
                                                 {resource.resource_description && (
-                                                    <div className="text-sm text-gray-600 mt-1">{resource.resource_description}</div>
+                                                    <div className="text-sm text-muted-foreground mt-1">{resource.resource_description}</div>
                                                 )}
                                                 <Badge variant="outline" className="mt-2">{resource.resource_type}</Badge>
                                             </div>
@@ -571,9 +568,9 @@ const MCPConfig: React.FC = () => {
                         </Tabs>
                     ) : (
                         <div className="text-center py-8">
-                            <Blocks className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                            <p className="text-sm text-gray-500">暂无能力数据</p>
-                            <p className="text-xs text-gray-400 mt-1">点击上方"刷新能力"按钮获取服务器能力</p>
+                            <Blocks className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                            <p className="text-sm text-muted-foreground">暂无能力数据</p>
+                            <p className="text-xs text-muted-foreground mt-1">点击上方"刷新能力"按钮获取服务器能力</p>
                         </div>
                     );
                 })()}
@@ -581,7 +578,7 @@ const MCPConfig: React.FC = () => {
         </div>
     ) : (
         <EmptyState
-            icon={<Blocks className="h-8 w-8 text-gray-500" />}
+            icon={<Blocks className="h-8 w-8 text-muted-foreground" />}
             title="选择一个MCP服务器"
             description="从左侧列表中选择一个服务器开始配置"
         />

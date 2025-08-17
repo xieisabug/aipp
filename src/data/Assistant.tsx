@@ -1,6 +1,7 @@
 export interface AssistantListItem {
     id: number;
     name: string;
+    assistant_type: number;
 }
 
 export interface Assistant {

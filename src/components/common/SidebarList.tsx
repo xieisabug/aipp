@@ -17,15 +17,15 @@ const SidebarList: React.FC<SidebarListProps> = ({
     addButton
 }) => {
     return (
-        <Card className="bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 h-fit sticky top-6">
+        <Card className="bg-gradient-to-br from-muted/20 to-muted/40 border-border h-fit sticky top-6">
             <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0">
-                        <CardTitle className="text-lg font-semibold text-gray-700 flex items-center gap-2">
+                        <CardTitle className="text-lg font-semibold text-foreground flex items-center gap-2">
                             {icon}
                             {title}
                         </CardTitle>
-                        <CardDescription className="text-gray-600 mt-2">
+                        <CardDescription className="text-muted-foreground mt-2">
                             {description}
                         </CardDescription>
                     </div>

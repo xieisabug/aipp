@@ -181,7 +181,7 @@ const MCPServerDialog: React.FC<MCPServerDialogProps> = ({
 
 
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-gray-700">MCP类型 *</label>
+                            <label className="text-sm font-medium text-foreground">MCP类型 *</label>
                             <CustomSelect
                                 options={MCP_TRANSPORT_TYPES}
                                 value={formData.transport_type}
@@ -251,7 +251,7 @@ const MCPServerDialog: React.FC<MCPServerDialogProps> = ({
                                 <div className="flex items-center justify-between">
                                     <div>
                                         <Label>是否长期运行</Label>
-                                        <p className="text-sm text-gray-500 mt-1">长期运行的服务器会保持连接状态</p>
+                                        <p className="text-sm text-muted-foreground mt-1">长期运行的服务器会保持连接状态</p>
                                     </div>
                                     <Switch
                                         checked={formData.is_long_running}

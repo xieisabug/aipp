@@ -79,7 +79,7 @@ const TagInput: React.FC<TagInputProps> = ({
             {(tags.length > 0 || onFetchModels) && (
                 <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-sm text-gray-600">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <Tag className="h-4 w-4" />
                             <span className="font-medium">
                                 {tags.length > 0 ? `已配置模型 (${tags.length})` : "模型列表"}
@@ -92,7 +92,7 @@ const TagInput: React.FC<TagInputProps> = ({
                                     size="sm"
                                     onClick={onFetchModels}
                                     disabled={isFetchingModels}
-                                    className="h-6 px-2 text-xs hover:bg-gray-50 hover:border-gray-400"
+                                    className="h-6 px-2 text-xs hover:bg-muted hover:border-muted-foreground"
                                 >
                                     {isFetchingModels ? "获取中..." : "获取Model列表"}
                                 </Button>
@@ -102,7 +102,7 @@ const TagInput: React.FC<TagInputProps> = ({
                                     variant="ghost"
                                     size="sm"
                                     onClick={toggleExpansion}
-                                    className="h-6 px-2 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100"
+                                    className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted"
                                 >
                                     {isExpanded ? (
                                         <>
@@ -124,7 +124,7 @@ const TagInput: React.FC<TagInputProps> = ({
                             <div
                                 ref={tagsContainerRef}
                                 className={`
-                                    flex flex-wrap gap-2 p-3 bg-gray-50 rounded-lg border border-gray-200 
+                                    flex flex-wrap gap-2 p-3 bg-muted rounded-lg border border-border 
                                     transition-all duration-300 ease-in-out
                                     ${shouldShowExpandButton && !isExpanded
                                         ? 'max-h-[110px] overflow-hidden'
@@ -137,13 +137,13 @@ const TagInput: React.FC<TagInputProps> = ({
                                 <Badge
                                     key={index}
                                     variant="secondary"
-                                    className="bg-gray-100 text-gray-800 border-gray-200 hover:bg-gray-200 transition-colors pl-3 pr-1 py-1 text-sm"
+                                    className="bg-muted text-foreground border-border hover:bg-muted/80 transition-colors pl-3 pr-1 py-1 text-sm"
                                 >
                                     <span className="mr-2">{tag}</span>
                                     <Button
                                         variant="ghost"
                                         size="sm"
-                                        className="h-4 w-4 p-0 hover:bg-gray-300 hover:text-gray-900 rounded-full ml-1"
+                                        className="h-4 w-4 p-0 hover:bg-muted-foreground/20 hover:text-foreground rounded-full ml-1"
                                         onClick={() => onRemoveTag(index)}
                                     >
                                         <X className="h-3 w-3" />
@@ -156,15 +156,15 @@ const TagInput: React.FC<TagInputProps> = ({
                         {shouldShowExpandButton && !isExpanded && (
                             <>
                                 {/* 渐变遮罩 */}
-                                <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-gray-50 to-transparent pointer-events-none rounded-b-lg" />
+                                <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-muted to-transparent pointer-events-none rounded-b-lg" />
 
                                 {/* 底部可点击展开区域 */}
                                 <div
                                     onClick={toggleExpansion}
-                                    className="absolute bottom-0 left-0 right-0 h-8 flex items-center justify-center cursor-pointer hover:bg-gray-100/80 rounded-b-lg transition-colors group"
+                                    className="absolute bottom-0 left-0 right-0 h-8 flex items-center justify-center cursor-pointer hover:bg-muted/80 rounded-b-lg transition-colors group"
                                     title="点击展开查看更多模型"
                                 >
-                                    <div className="flex items-center gap-1 text-xs text-gray-500 group-hover:text-gray-700">
+                                    <div className="flex items-center gap-1 text-xs text-muted-foreground group-hover:text-foreground">
                                         <ChevronDown className="h-3 w-3" />
                                         <span>展开更多</span>
                                     </div>
@@ -174,13 +174,13 @@ const TagInput: React.FC<TagInputProps> = ({
 
                         {/* 展开状态下的收起区域 */}
                         {shouldShowExpandButton && isExpanded && (
-                            <div className="mt-2 pt-2 border-t border-gray-200">
+                            <div className="mt-2 pt-2 border-t border-border">
                                 <div
                                     onClick={toggleExpansion}
-                                    className="flex items-center justify-center cursor-pointer hover:bg-gray-100 rounded-md py-1 transition-colors group"
+                                    className="flex items-center justify-center cursor-pointer hover:bg-muted rounded-md py-1 transition-colors group"
                                     title="点击收起模型列表"
                                 >
-                                    <div className="flex items-center gap-1 text-xs text-gray-500 group-hover:text-gray-700">
+                                    <div className="flex items-center gap-1 text-xs text-muted-foreground group-hover:text-foreground">
                                         <ChevronUp className="h-3 w-3" />
                                         <span>收起</span>
                                     </div>
@@ -194,16 +194,16 @@ const TagInput: React.FC<TagInputProps> = ({
 
             {/* 输入框 */}
             <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">添加新模型</label>
+                <label className="text-sm font-medium text-foreground">添加新模型</label>
                 <Input
                     type="text"
                     value={inputValue}
                     onChange={handleChange}
                     onKeyDown={handleKeyDown}
                     placeholder={placeholder || "输入模型名称，按回车确认"}
-                    className="focus:ring-gray-500 focus:border-gray-500"
+                    className="focus:ring-primary focus:border-primary"
                 />
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-muted-foreground">
                     输入模型名称后按回车键添加，或点击标签上的 × 删除模型
                 </p>
             </div>

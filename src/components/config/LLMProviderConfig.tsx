@@ -156,10 +156,9 @@ const LLMProviderConfig: React.FC = () => {
     const addButton = useMemo(() => (
         <Button
             onClick={openNewProviderDialog}
-            className="gap-2 bg-gray-800 hover:bg-gray-900 text-white shadow-sm hover:shadow-md transition-all"
+            className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm hover:shadow-md transition-all"
         >
             <PlusCircle className="h-4 w-4" />
-            新增提供商
         </Button>
     ), [openNewProviderDialog]);
 
@@ -170,13 +169,13 @@ const LLMProviderConfig: React.FC = () => {
                 sidebar={null}
                 content={
                     <EmptyState
-                        icon={<ServerCrash className="h-8 w-8 text-gray-500" />}
+                        icon={<ServerCrash className="h-8 w-8 text-muted-foreground" />}
                         title="还没有配置提供商"
                         description="开始添加你的第一个 AI 模型提供商，享受智能助手的强大功能"
                         action={
                             <Button
                                 onClick={openNewProviderDialog}
-                                className="gap-2 bg-gray-800 hover:bg-gray-900 text-white shadow-lg hover:shadow-xl transition-all"
+                                className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg hover:shadow-xl transition-all"
                             >
                                 <PlusCircle className="h-4 w-4" />
                                 添加第一个提供商
@@ -232,7 +231,7 @@ const LLMProviderConfig: React.FC = () => {
         </div>
     ) : (
         <EmptyState
-            icon={<Settings className="h-8 w-8 text-gray-500" />}
+            icon={<Settings className="h-8 w-8 text-muted-foreground" />}
             title="选择一个提供商"
             description="从左侧列表中选择一个提供商开始配置"
         />
@@ -259,9 +258,9 @@ const LLMProviderConfig: React.FC = () => {
             >
                 <div className="space-y-5">
                     <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-700">提供商名称</label>
+                        <label className="text-sm font-medium text-foreground">提供商名称</label>
                         <input
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 transition-colors"
+                            className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring transition-colors bg-background text-foreground"
                             type="text"
                             placeholder="例如：我的 OpenAI"
                             value={providerName}
@@ -269,7 +268,7 @@ const LLMProviderConfig: React.FC = () => {
                         />
                     </div>
                     <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-700">API 调用类型</label>
+                        <label className="text-sm font-medium text-foreground">API 调用类型</label>
                         <CustomSelect
                             options={apiTypes}
                             value={formApiType}

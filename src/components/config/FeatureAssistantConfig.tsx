@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { listen, emit } from "@tauri-apps/api/event";
 import ConfigForm from "../ConfigForm";
-import { MessageSquare, Eye, FolderOpen, Settings, Wifi } from "lucide-react";
+import { MessageSquare, Eye, FolderOpen, Settings, Wifi, Monitor } from "lucide-react";
 import { toast } from 'sonner';
 import { useForm } from "react-hook-form";
 
@@ -41,6 +41,13 @@ interface FeatureItem {
 const FeatureAssistantConfig: React.FC = () => {
     // 功能列表定义
     const featureList: FeatureItem[] = [
+        {
+            id: 'display',
+            name: '显示',
+            description: '配置系统外观主题、深浅色模式和用户消息渲染方式',
+            icon: <Monitor className="h-5 w-5" />,
+            code: 'display'
+        },
         {
             id: 'conversation_summary',
             name: '对话总结',
@@ -113,6 +120,71 @@ const FeatureAssistantConfig: React.FC = () => {
         setSelectedFeature(feature);
     }, []);
 
+    // 显示配置相关
+    const themeOptions = useMemo(() => [
+        { value: 'default', label: '默认主题' }
+    ], []);
+
+    const colorModeOptions = useMemo(() => [
+        { value: 'light', label: '浅色' },
+        { value: 'dark', label: '深色' },
+        { value: 'system', label: '跟随系统' }
+    ], []);
+
+    const markdownRenderOptions = useMemo(() => [
+        { value: 'enabled', label: '开启' },
+        { value: 'disabled', label: '关闭' }
+    ], []);
+
+    const DISPLAY_FORM_CONFIG = useMemo(() => [
+        {
+            key: "theme",
+            config: {
+                type: "select" as const,
+                label: "系统外观主题",
+                options: themeOptions,
+            }
+        },
+        {
+            key: "color_mode",
+            config: {
+                type: "select" as const,
+                label: "深浅色模式",
+                options: colorModeOptions,
+            }
+        },
+        {
+            key: "user_message_markdown_render",
+            config: {
+                type: "select" as const,
+                label: "用户消息Markdown渲染",
+                options: markdownRenderOptions,
+            }
+        }
+    ], [themeOptions, colorModeOptions, markdownRenderOptions]);
+
+    const handleSaveDisplayConfig = useCallback(async () => {
+        const values = displayFormReturnData.getValues();
+        
+        try {
+            await invoke("save_feature_config", {
+                featureCode: "display",
+                config: {
+                    theme: values.theme,
+                    color_mode: values.color_mode,
+                    user_message_markdown_render: values.user_message_markdown_render,
+                }
+            });
+            
+            // 发出主题变化事件，通知其他窗口
+            await emit('theme-changed', { mode: values.color_mode });
+            
+            toast.success('显示配置保存成功');
+        } catch (e) {
+            toast.error('保存显示配置失败: ' + e);
+        }
+    }, []);
+
     // 总结相关表单
     const handleSaveSummary = useCallback(() => {
         const values = summaryFormReturnData.getValues();
@@ -175,6 +247,18 @@ const FeatureAssistantConfig: React.FC = () => {
             }
         }
     ], [modelOptions, summaryLengthOptions]);
+
+    const displayFormReturnData = useForm<{
+        theme: string;
+        color_mode: string;
+        user_message_markdown_render: string;
+    }>({
+        defaultValues: {
+            theme: featureConfig.get("display")?.get("theme") || "default",
+            color_mode: featureConfig.get("display")?.get("color_mode") || "system",
+            user_message_markdown_render: featureConfig.get("display")?.get("user_message_markdown_render") || "disabled",
+        },
+    });
 
     const summaryFormReturnData = useForm<{
         model: string;
@@ -428,6 +512,13 @@ const FeatureAssistantConfig: React.FC = () => {
 
     useEffect(() => {
         if (featureConfig.size > 0) {
+            const displayConfig = featureConfig.get("display");
+            if (displayConfig) {
+                displayFormReturnData.setValue("theme", displayConfig.get("theme") || "default");
+                displayFormReturnData.setValue("color_mode", displayConfig.get("color_mode") || "system");
+                displayFormReturnData.setValue("user_message_markdown_render", displayConfig.get("user_message_markdown_render") || "disabled");
+            }
+
             const summaryConfig = featureConfig.get("conversation_summary");
             if (summaryConfig) {
                 summaryFormReturnData.setValue("model", `${summaryConfig.get("provider_id") || ''}%%${summaryConfig.get("model_code") || ''}`);
@@ -450,7 +541,7 @@ const FeatureAssistantConfig: React.FC = () => {
                 networkConfigFormReturnData.setValue("network_proxy", networkConfig.get("network_proxy") || "");
             }
         }
-    }, [featureConfig, summaryFormReturnData, previewFormReturnData, networkConfigFormReturnData]);
+    }, [featureConfig, displayFormReturnData, summaryFormReturnData, previewFormReturnData, networkConfigFormReturnData]);
 
     // 下拉菜单选项
     const selectOptions: SelectOption[] = useMemo(() =>
@@ -471,6 +562,18 @@ const FeatureAssistantConfig: React.FC = () => {
     // 渲染对应的配置表单
     const renderConfigForm = () => {
         switch (selectedFeature.id) {
+            case 'display':
+                return (
+                    <ConfigForm
+                        title={selectedFeature.name}
+                        description={selectedFeature.description}
+                        config={DISPLAY_FORM_CONFIG}
+                        layout="default"
+                        classNames="bottom-space"
+                        useFormReturn={displayFormReturnData}
+                        onSave={handleSaveDisplayConfig}
+                    />
+                );
             case 'conversation_summary':
                 return (
                     <ConfigForm

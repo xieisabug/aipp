@@ -4,6 +4,7 @@ import ReasoningMessage from './ReasoningMessage';
 import ErrorMessage from './MessageItem/ErrorMessage';
 import MessageActionButtons from './MessageItem/MessageActionButtons';
 import ImageAttachments from './MessageItem/ImageAttachments';
+import RawTextRenderer from './RawTextRenderer';
 import { ShineBorder } from './magicui/shine-border';
 import { DEFAULT_SHINE_BORDER_CONFIG } from '@/lib/shine-config';
 import { Message, StreamEvent, MCPToolCallUpdateEvent } from '../data/Conversation';
@@ -12,6 +13,7 @@ import { useCopyHandler } from '../hooks/useCopyHandler';
 import { useCustomTagParser } from '../hooks/useCustomTagParser';
 import { useMarkdownConfig } from '../hooks/useMarkdownConfig';
 import { useMcpToolCallProcessor } from '../hooks/useMcpToolCallProcessor';
+import { useDisplayConfig } from '../hooks/useDisplayConfig';
 
 interface MessageItemProps {
     message: Message;
@@ -51,10 +53,17 @@ const MessageItem = React.memo<MessageItemProps>(({
         false,
     );
 
-    // Hooks
     const { copyIconState, handleCopy } = useCopyHandler(message.content);
     const { parseCustomTags } = useCustomTagParser();
-    const markdownConfig = useMarkdownConfig({ onCodeRun });
+    const { isUserMessageMarkdownEnabled } = useDisplayConfig();
+    
+    // 统一的 Markdown 配置，根据用户消息类型和配置决定是否禁用 Markdown 语法
+    const isUserMessage = message.message_type === 'user';
+    const markdownConfig = useMarkdownConfig({ 
+        onCodeRun,
+        disableMarkdownSyntax: isUserMessage && !isUserMessageMarkdownEnabled
+    });
+    
     const mcpProcessor = useMcpToolCallProcessor(markdownConfig, { 
         conversationId, 
         messageId: message.id,
@@ -71,11 +80,17 @@ const MessageItem = React.memo<MessageItemProps>(({
         [message.content, parseCustomTags, message.id],
     );
 
-    // 渲染 Markdown 内容
-    const markdownElement = useMemo(
+    // 渲染内容 - 根据用户消息类型和配置选择渲染方式
+    const contentElement = useMemo(
         () => measureSync(
-            `markdown-render-${message.id}`,
+            `content-render-${message.id}`,
             () => {
+                // 如果是用户消息且禁用了 Markdown 渲染，使用 RawTextRenderer
+                if (isUserMessage && !isUserMessageMarkdownEnabled) {
+                    return <RawTextRenderer content={markdownContent} />;
+                }
+
+                // 否则使用统一的 ReactMarkdown 渲染
                 const element = (
                     <ReactMarkdown
                         children={markdownContent}
@@ -90,7 +105,7 @@ const MessageItem = React.memo<MessageItemProps>(({
             },
             false,
         ),
-        [markdownContent, markdownConfig, mcpProcessor, message.id],
+        [markdownContent, markdownConfig, mcpProcessor, message.id, isUserMessage, isUserMessageMarkdownEnabled],
     );
 
     // 早期返回：reasoning 类型消息
@@ -112,13 +127,11 @@ const MessageItem = React.memo<MessageItemProps>(({
     }
 
     // 常规消息渲染
-    const isUserMessage = message.message_type === 'user';
-
     return (
         <div
-            className={`group relative py-4 px-5 rounded-2xl inline-block max-w-[65%] transition-all duration-200 ${isUserMessage
-                    ? 'self-end bg-secondary text-primary'
-                    : 'self-start bg-background text-foreground border border-border'
+            className={`group relative py-4 px-5 rounded-2xl inline-block max-w-[65%] transition-all duration-200 bg-background text-foreground border border-border ${isUserMessage
+                    ? 'self-end'
+                    : 'self-start'
                 }`}
         >
             {shouldShowShineBorder && (
@@ -129,8 +142,9 @@ const MessageItem = React.memo<MessageItemProps>(({
                 />
             )}
 
-            <div className="prose prose-sm max-w-none">
-                {markdownElement}
+            <div className="prose prose-sm max-w-none text-foreground">
+                {/* RawTextRenderer 已包含 prose 样式，条件渲染避免重复包装 */}
+                {isUserMessage && !isUserMessageMarkdownEnabled ? contentElement : <div>{contentElement}</div>}
             </div>
 
             <ImageAttachments attachments={message.attachment_list} />

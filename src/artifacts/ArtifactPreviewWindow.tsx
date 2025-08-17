@@ -14,6 +14,7 @@ import rehypeRaw from 'rehype-raw';
 import '../styles/ArtifactPreviewWIndow.css';
 import 'katex/dist/katex.min.css';
 import EnvironmentInstallDialog from '../components/EnvironmentInstallDialog';
+import { useTheme } from '../hooks/useTheme';
 
 interface LogLine {
     type: 'log' | 'error' | 'success';
@@ -27,6 +28,9 @@ interface LogLine {
  * - 显示模式：先显示日志，预览准备好后切换到全屏预览
  */
 export default function ArtifactPreviewWindow() {
+    // 集成主题系统
+    useTheme();
+
     const [logs, setLogs] = useState<LogLine[]>([]);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [isPreviewReady, setIsPreviewReady] = useState(false);
@@ -69,13 +73,19 @@ export default function ArtifactPreviewWindow() {
         currentInputStrRef.current = currentInputStr;
     }, [currentLang, currentInputStr]);
 
-    // 初始化 mermaid
+    // 初始化 mermaid - 根据主题动态配置
     useEffect(() => {
+        // 检测当前主题
+        const isDark = document.documentElement.classList.contains('dark');
+        
         mermaid.initialize({
             startOnLoad: false,
-            theme: 'default',
+            theme: isDark ? 'dark' : 'default',
             securityLevel: 'loose',
-            fontFamily: 'monospace'
+            fontFamily: 'monospace',
+            themeVariables: {
+                darkMode: isDark,
+            }
         });
     }, []);
 
@@ -477,12 +487,12 @@ export default function ArtifactPreviewWindow() {
     };
 
     return (
-        <div className="flex h-screen bg-gray-100">
-            <div className="flex flex-col flex-1 bg-white rounded-xl m-2 shadow-lg">
+        <div className="flex h-screen bg-background">
+            <div className="flex flex-col flex-1 bg-background rounded-xl m-2 shadow-lg border border-border">
                 {/* 顶部工具栏 */}
                 {isPreviewReady && (previewUrl || previewType === 'mermaid' || previewType === 'html' || previewType === 'svg' || previewType === 'xml' || previewType === 'markdown' || previewType === 'md') && (
-                    <div className="flex-shrink-0 p-4 border-b flex items-center justify-between">
-                        <div className="text-sm text-gray-600">
+                    <div className="flex-shrink-0 p-4 border-b border-border flex items-center justify-between">
+                        <div className="text-sm text-muted-foreground">
                             {currentView === 'logs' ? '日志视图' :
                                 previewType === 'mermaid' ? 'Mermaid 图表预览' :
                                     previewType === 'html' ? 'HTML 预览' :
@@ -512,7 +522,7 @@ export default function ArtifactPreviewWindow() {
                             )}
                             <button
                                 onClick={handleToggleView}
-                                className="px-6 py-2 bg-gray-800 hover:bg-gray-900 text-white shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
+                                className="px-6 py-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
                             >
                                 {currentView === 'logs' ? '查看预览' : '查看日志'}
                             </button>
@@ -525,17 +535,17 @@ export default function ArtifactPreviewWindow() {
                     {currentView === 'logs' ? (
                         /* 日志视图 - 全屏显示 */
                         <div className="flex-1 flex flex-col p-4">
-                            <h2 className="text-lg font-semibold mb-2">Artifact Preview Logs</h2>
-                            <div className="flex-1 overflow-y-auto rounded border p-2 bg-gray-50 text-sm font-mono">
+                            <h2 className="text-lg font-semibold mb-2 text-foreground">Artifact Preview Logs</h2>
+                            <div className="flex-1 overflow-y-auto rounded border border-border p-2 bg-muted text-sm font-mono">
                                 {logs.map((log, idx) => (
                                     <div
                                         key={idx}
                                         className={
                                             log.type === 'error'
-                                                ? 'text-red-600'
+                                                ? 'text-destructive'
                                                 : log.type === 'success'
-                                                    ? 'text-green-700'
-                                                    : 'text-gray-800'
+                                                    ? 'text-green-600 dark:text-green-400'
+                                                    : 'text-foreground'
                                         }
                                     >
                                         {log.message}
@@ -546,8 +556,8 @@ export default function ArtifactPreviewWindow() {
 
                             {/* 如果预览准备好了，显示提示 */}
                             {isPreviewReady && (previewUrl || previewType === 'mermaid' || previewType === 'html' || previewType === 'svg' || previewType === 'xml' || previewType === 'markdown' || previewType === 'md') && (
-                                <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded">
-                                    <p className="text-green-700 text-sm">
+                                <div className="mt-4 p-3 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded">
+                                    <p className="text-green-700 dark:text-green-400 text-sm">
                                         ✅ 预览准备完成，即将自动切换到预览视图...
                                     </p>
                                 </div>
@@ -560,19 +570,19 @@ export default function ArtifactPreviewWindow() {
                                 /* Mermaid 图表预览 */
                                 <div className="flex-1 flex flex-col p-4">
                                     <div className="flex justify-between items-center mb-2">
-                                        <div className="text-sm text-gray-600">
+                                        <div className="text-sm text-muted-foreground">
                                             缩放: {Math.round(mermaidScale * 100)}% | 提示: 滚轮缩放，空格键+拖动
                                         </div>
                                         <button
                                             onClick={resetMermaidView}
-                                            className="px-3 py-1 bg-gray-600 hover:bg-gray-700 text-white text-xs rounded transition-colors"
+                                            className="px-3 py-1 bg-secondary hover:bg-secondary/80 text-secondary-foreground text-xs rounded transition-colors"
                                         >
                                             重置视图
                                         </button>
                                     </div>
                                     <div
                                         ref={mermaidContainerRef}
-                                        className={`flex-1 bg-white border rounded-lg shadow-sm overflow-hidden relative ${
+                                        className={`flex-1 bg-background border border-border rounded-lg shadow-sm overflow-hidden relative ${
                                             isSpacePressed ? 'cursor-grab' : 'cursor-default'
                                         } ${isDragging ? 'cursor-grabbing' : ''}`}
                                         onMouseDown={handleMouseDown}
@@ -604,7 +614,7 @@ export default function ArtifactPreviewWindow() {
                                 </div>
                             ) : previewType === 'markdown' || previewType === 'md' ? (
                                 /* Markdown 预览 */
-                                <div className="flex-1 overflow-auto bg-white p-6">
+                                <div className="flex-1 overflow-auto bg-background p-6">
                                     <div className="prose prose-lg max-w-none dark:prose-invert">
                                         <ReactMarkdown
                                             remarkPlugins={[remarkMath, remarkBreaks]}
@@ -638,11 +648,10 @@ export default function ArtifactPreviewWindow() {
                                 /* HTML/SVG/XML 预览 */
                                 <iframe
                                     srcDoc={htmlContent}
-                                    className="flex-1 w-full border-0"
+                                    className="flex-1 w-full border-0 bg-background"
                                     sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation"
                                     style={{
-                                        minHeight: '400px',
-                                        backgroundColor: 'white'
+                                        minHeight: '400px'
                                     }}
                                 />
                             ) : (
