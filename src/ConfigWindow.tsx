@@ -44,7 +44,7 @@ function ConfigWindow() {
         },
         {
             id: "mcp-config",
-            name: "MCP管理",
+            name: "MCP配置",
             icon: <Blocks className="w-full h-full text-muted-foreground" />,
             iconSelected: <Blocks className="w-full h-full text-foreground" />,
         },
