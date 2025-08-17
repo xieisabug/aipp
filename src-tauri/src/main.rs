@@ -58,7 +58,7 @@ use crate::artifacts::react_preview::{
 use crate::artifacts::vue_preview::{
     close_vue_preview, create_vue_preview, create_vue_preview_for_artifact,
 };
-use crate::db::artifacts_collection_db::ArtifactsCollectionDatabase;
+use crate::db::artifacts_db::ArtifactsDatabase;
 use crate::db::assistant_db::AssistantDatabase;
 use crate::db::llm_db::LLMDatabase;
 use crate::db::mcp_db::MCPDatabase;
@@ -258,7 +258,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let conversation_db = ConversationDatabase::new(&app_handle)?;
             let plugin_db = PluginDatabase::new(&app_handle)?;
             let mcp_db = MCPDatabase::new(&app_handle)?;
-            let artifacts_collection_db = ArtifactsCollectionDatabase::new(&app_handle)?;
+            let artifacts_db = ArtifactsDatabase::new(&app_handle)?;
             
             system_db.create_tables()?;
             llm_db.create_tables()?;
@@ -266,7 +266,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             conversation_db.create_tables()?;
             plugin_db.create_tables()?;
             mcp_db.create_tables()?;
-            artifacts_collection_db.create_tables()?;
+            artifacts_db.create_tables()?;
 
             let _ = database_upgrade(
                 &app_handle,

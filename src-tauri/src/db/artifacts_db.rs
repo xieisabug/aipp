@@ -35,16 +35,16 @@ pub struct UpdateArtifactCollection {
     pub tags: Option<String>,
 }
 
-pub struct ArtifactsCollectionDatabase {
+pub struct ArtifactsDatabase {
     pub conn: Connection,
 }
 
-impl ArtifactsCollectionDatabase {
+impl ArtifactsDatabase {
     pub fn new(app_handle: &tauri::AppHandle) -> rusqlite::Result<Self> {
-        let db_path = get_db_path(app_handle, "artifacts_collection.db");
+        let db_path = get_db_path(app_handle, "artifacts.db");
         let conn = Connection::open(db_path.unwrap())?;
         
-        Ok(ArtifactsCollectionDatabase { conn })
+        Ok(ArtifactsDatabase { conn })
     }
 
     pub fn create_tables(&self) -> rusqlite::Result<()> {

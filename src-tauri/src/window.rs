@@ -1,4 +1,4 @@
-use crate::db::artifacts_collection_db::ArtifactCollection;
+use crate::db::artifacts_db::ArtifactCollection;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::Emitter;

@@ -1,5 +1,5 @@
-use crate::db::artifacts_collection_db::{
-    ArtifactCollection, ArtifactsCollectionDatabase, NewArtifactCollection, UpdateArtifactCollection,
+use crate::db::artifacts_db::{
+    ArtifactCollection, ArtifactsDatabase, NewArtifactCollection, UpdateArtifactCollection,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
@@ -48,7 +48,7 @@ pub fn save_artifact_to_collection(
     app_handle: tauri::AppHandle,
     request: SaveArtifactRequest,
 ) -> Result<i64, String> {
-    let db = ArtifactsCollectionDatabase::new(&app_handle)
+    let db = ArtifactsDatabase::new(&app_handle)
         .map_err(|e| format!("Database connection failed: {}", e))?;
 
     let new_artifact = NewArtifactCollection {
@@ -78,7 +78,7 @@ pub fn get_artifacts_collection(
     app_handle: tauri::AppHandle,
     artifact_type: Option<String>,
 ) -> Result<Vec<ArtifactCollectionItem>, String> {
-    let db = ArtifactsCollectionDatabase::new(&app_handle)
+    let db = ArtifactsDatabase::new(&app_handle)
         .map_err(|e| format!("Database connection failed: {}", e))?;
 
     let artifacts = db
@@ -109,7 +109,7 @@ pub fn get_artifact_by_id(
     app_handle: tauri::AppHandle,
     id: i64,
 ) -> Result<Option<ArtifactCollection>, String> {
-    let db = ArtifactsCollectionDatabase::new(&app_handle)
+    let db = ArtifactsDatabase::new(&app_handle)
         .map_err(|e| format!("Database connection failed: {}", e))?;
 
     let artifact = db
@@ -125,7 +125,7 @@ pub fn search_artifacts_collection(
     app_handle: tauri::AppHandle,
     query: String,
 ) -> Result<Vec<ArtifactCollectionItem>, String> {
-    let db = ArtifactsCollectionDatabase::new(&app_handle)
+    let db = ArtifactsDatabase::new(&app_handle)
         .map_err(|e| format!("Database connection failed: {}", e))?;
 
     let artifacts = db
@@ -156,7 +156,7 @@ pub fn update_artifact_collection(
     app_handle: tauri::AppHandle,
     request: UpdateArtifactRequest,
 ) -> Result<(), String> {
-    let db = ArtifactsCollectionDatabase::new(&app_handle)
+    let db = ArtifactsDatabase::new(&app_handle)
         .map_err(|e| format!("Database connection failed: {}", e))?;
 
     let update = UpdateArtifactCollection {
@@ -184,7 +184,7 @@ pub fn delete_artifact_collection(
     app_handle: tauri::AppHandle,
     id: i64,
 ) -> Result<bool, String> {
-    let db = ArtifactsCollectionDatabase::new(&app_handle)
+    let db = ArtifactsDatabase::new(&app_handle)
         .map_err(|e| format!("Database connection failed: {}", e))?;
 
     let deleted = db
@@ -207,7 +207,7 @@ pub async fn open_artifact_window(
     app_handle: tauri::AppHandle,
     artifact_id: i64,
 ) -> Result<(), String> {
-    let db = ArtifactsCollectionDatabase::new(&app_handle)
+    let db = ArtifactsDatabase::new(&app_handle)
         .map_err(|e| format!("Database connection failed: {}", e))?;
 
     // Get artifact details
@@ -229,7 +229,7 @@ pub async fn open_artifact_window(
 /// Get artifacts statistics
 #[tauri::command]
 pub fn get_artifacts_statistics(app_handle: tauri::AppHandle) -> Result<ArtifactStatistics, String> {
-    let db = ArtifactsCollectionDatabase::new(&app_handle)
+    let db = ArtifactsDatabase::new(&app_handle)
         .map_err(|e| format!("Database connection failed: {}", e))?;
 
     let (total_count, total_uses) = db
