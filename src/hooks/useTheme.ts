@@ -95,6 +95,9 @@ export const useTheme = () => {
             systemTheme
         });
 
+        // 同步到localStorage以供加载页面使用
+        localStorage.setItem('theme-mode', mode);
+
         applyTheme(resolvedTheme);
     }, [config, isLoading, detectSystemTheme, resolveTheme, applyTheme]);
 
@@ -136,6 +139,9 @@ export const useTheme = () => {
                     user_message_markdown_render: config?.user_message_markdown_render || 'enabled'
                 }
             });
+
+            // 同步到localStorage以供加载页面使用
+            localStorage.setItem('theme-mode', newMode);
 
             // 发出主题变化事件，通知其他窗口
             await emit('theme-changed', { mode: newMode });
