@@ -97,7 +97,7 @@ const AssistantCompletionList: React.FC<AssistantCompletionListProps> = ({
       return (
         <span
           key={index}
-          className={isHighlighted ? 'font-bold text-indigo-600' : ''}
+          className={isHighlighted ? 'font-bold text-primary' : ''}
         >
           {char}
         </span>
@@ -111,13 +111,13 @@ const AssistantCompletionList: React.FC<AssistantCompletionListProps> = ({
         return null;
       case 'pinyin':
         return (
-          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full ml-2">
+          <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full ml-2">
             拼音
           </span>
         );
       case 'initial':
         return (
-          <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full ml-2">
+          <span className="text-xs bg-accent text-accent-foreground px-2 py-1 rounded-full ml-2">
             首字母
           </span>
         );
@@ -143,14 +143,14 @@ const AssistantCompletionList: React.FC<AssistantCompletionListProps> = ({
   return (
     <div
       ref={listRef}
-      className="assistant-completion-list absolute z-50 bg-white border border-gray-200 rounded-lg shadow-lg max-w-xs max-h-64 overflow-y-auto"
+      className="assistant-completion-list absolute z-50 bg-background border border-border rounded-lg shadow-lg max-w-xs max-h-64 overflow-y-auto"
       style={style}
     >
       {assistants.map((assistant, index) => (
         <div
           key={assistant.id}
-          className={`assistant-completion-item px-3 py-2 cursor-pointer border-b border-gray-100 last:border-b-0 ${
-            index === selectedAssistantIndex ? 'bg-gray-100' : 'hover:bg-gray-50'
+          className={`assistant-completion-item px-3 py-2 cursor-pointer border-b border-border last:border-b-0 ${
+            index === selectedAssistantIndex ? 'bg-muted' : 'hover:bg-muted/50'
           }`}
           onClick={() => handleAssistantSelect(assistant)}
           onMouseEnter={() => {
@@ -159,11 +159,11 @@ const AssistantCompletionList: React.FC<AssistantCompletionListProps> = ({
         >
           <div className="flex items-center justify-between">
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-gray-900 truncate">
+              <div className="text-sm font-medium text-foreground truncate">
                 {renderHighlightedText(assistant.name, assistant.highlightIndices)}
               </div>
               {assistant.description && (
-                <div className="text-xs text-gray-500 truncate mt-1">
+                <div className="text-xs text-muted-foreground truncate mt-1">
                   {assistant.description}
                 </div>
               )}
