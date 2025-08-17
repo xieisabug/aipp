@@ -1,11 +1,12 @@
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import 'highlight.js/styles/github-dark.css';
 import IconButton from "./IconButton";
 import Ok from "../assets/ok.svg?react";
 import Copy from "../assets/copy.svg?react";
 import Run from "../assets/run.svg?react";
 import CodeBlockEventManager from "../utils/CodeBlockEventManager";
+import { useCodeTheme } from "../hooks/useCodeTheme";
+import { listen } from '@tauri-apps/api/event';
 
 const BUTTON_HEIGHT = 40;
 const TOP_OFFSET = 8;
@@ -19,6 +20,10 @@ const CodeBlock = React.memo(({ language, children, onCodeRun }: { language: str
     const codeRef = useRef<HTMLElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const eventManager = CodeBlockEventManager.getInstance();
+    
+    // 获取当前主题信息
+    const { currentTheme } = useCodeTheme();
+    const [forceUpdate, setForceUpdate] = useState(0);
 
     const getCodeString = useCallback(() => {
         return codeRef.current?.innerText ?? '';
@@ -104,6 +109,19 @@ const CodeBlock = React.memo(({ language, children, onCodeRun }: { language: str
         };
     }, [eventManager, handleScroll, handleMouseMove]);
 
+    // 监听主题变化事件
+    useEffect(() => {
+        const unlistenThemeChange = listen('theme-changed', async (event) => {
+            console.log('CodeBlock: Theme change event received:', event.payload);
+            // 强制重新渲染以应用新主题
+            setForceUpdate(prev => prev + 1);
+        });
+
+        return () => {
+            unlistenThemeChange.then(f => f());
+        };
+    }, []);
+
     // 不再在客户端动态高亮，直接渲染 rehype-highlight 生成的元素
     
     const ButtonGroup = () => (
@@ -120,6 +138,8 @@ const CodeBlock = React.memo(({ language, children, onCodeRun }: { language: str
         <div 
             ref={containerRef}
             className="relative rounded-lg overflow-hidden group/codeblock prose-code:text-sm"
+            data-theme={currentTheme}
+            data-force-update={forceUpdate}
         >
             {/* 普通状态下的按钮 */}
             <div className="absolute right-2 top-2 z-10">

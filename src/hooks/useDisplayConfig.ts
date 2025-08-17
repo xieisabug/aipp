@@ -5,6 +5,8 @@ interface DisplayConfig {
     theme: string;
     color_mode: string;
     user_message_markdown_render: string;
+    code_theme_light: string;
+    code_theme_dark: string;
 }
 
 interface DisplayConfigState {
@@ -16,7 +18,9 @@ interface DisplayConfigState {
 const DEFAULT_CONFIG: DisplayConfig = {
     theme: 'default',
     color_mode: 'system',
-    user_message_markdown_render: 'enabled'
+    user_message_markdown_render: 'enabled',
+    code_theme_light: 'github',
+    code_theme_dark: 'github-dark'
 };
 
 export const useDisplayConfig = () => {
@@ -49,6 +53,8 @@ export const useDisplayConfig = () => {
                 theme: displayConfigMap.get('theme') || DEFAULT_CONFIG.theme,
                 color_mode: displayConfigMap.get('color_mode') || DEFAULT_CONFIG.color_mode,
                 user_message_markdown_render: displayConfigMap.get('user_message_markdown_render') || DEFAULT_CONFIG.user_message_markdown_render,
+                code_theme_light: displayConfigMap.get('code_theme_light') || DEFAULT_CONFIG.code_theme_light,
+                code_theme_dark: displayConfigMap.get('code_theme_dark') || DEFAULT_CONFIG.code_theme_dark,
             };
             
             setState({

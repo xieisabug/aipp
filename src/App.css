@@ -259,13 +259,13 @@ body {
 }
 
 .prose pre {
-    @apply text-foreground bg-muted p-4 rounded-lg overflow-x-auto;
+    @apply p-4 rounded-lg overflow-x-auto;
     margin-top: 1.5em;
     margin-bottom: 1.5em;
 }
 
 .prose pre code {
-    @apply bg-transparent p-0;
+    @apply p-0;
 }
 
 .prose a {

@@ -5,6 +5,7 @@ import ConfigForm from "../ConfigForm";
 import { MessageSquare, Eye, FolderOpen, Settings, Wifi, Monitor } from "lucide-react";
 import { toast } from 'sonner';
 import { useForm } from "react-hook-form";
+import { AVAILABLE_CODE_THEMES } from "../../hooks/useCodeTheme";
 
 // 导入公共组件
 import {
@@ -136,6 +137,19 @@ const FeatureAssistantConfig: React.FC = () => {
         { value: 'disabled', label: '关闭' }
     ], []);
 
+    // 代码主题选项
+    const lightCodeThemeOptions = useMemo(() => 
+        AVAILABLE_CODE_THEMES
+            .filter(theme => theme.category === 'light')
+            .map(theme => ({ value: theme.id, label: theme.name }))
+    , []);
+
+    const darkCodeThemeOptions = useMemo(() => 
+        AVAILABLE_CODE_THEMES
+            .filter(theme => theme.category === 'dark')
+            .map(theme => ({ value: theme.id, label: theme.name }))
+    , []);
+
     const DISPLAY_FORM_CONFIG = useMemo(() => [
         {
             key: "theme",
@@ -160,8 +174,24 @@ const FeatureAssistantConfig: React.FC = () => {
                 label: "用户消息Markdown渲染",
                 options: markdownRenderOptions,
             }
+        },
+        {
+            key: "code_theme_light",
+            config: {
+                type: "select" as const,
+                label: "浅色模式代码主题",
+                options: lightCodeThemeOptions,
+            }
+        },
+        {
+            key: "code_theme_dark",
+            config: {
+                type: "select" as const,
+                label: "深色模式代码主题",
+                options: darkCodeThemeOptions,
+            }
         }
-    ], [themeOptions, colorModeOptions, markdownRenderOptions]);
+    ], [themeOptions, colorModeOptions, markdownRenderOptions, lightCodeThemeOptions, darkCodeThemeOptions]);
 
     const handleSaveDisplayConfig = useCallback(async () => {
         const values = displayFormReturnData.getValues();
@@ -173,11 +203,17 @@ const FeatureAssistantConfig: React.FC = () => {
                     theme: values.theme,
                     color_mode: values.color_mode,
                     user_message_markdown_render: values.user_message_markdown_render,
+                    code_theme_light: values.code_theme_light,
+                    code_theme_dark: values.code_theme_dark,
                 }
             });
             
-            // 发出主题变化事件，通知其他窗口
-            await emit('theme-changed', { mode: values.color_mode });
+            // 发出主题变化事件，通知其他窗口和组件
+            await emit('theme-changed', { 
+                mode: values.color_mode,
+                code_theme_light: values.code_theme_light,
+                code_theme_dark: values.code_theme_dark
+            });
             
             toast.success('显示配置保存成功');
         } catch (e) {
@@ -252,11 +288,15 @@ const FeatureAssistantConfig: React.FC = () => {
         theme: string;
         color_mode: string;
         user_message_markdown_render: string;
+        code_theme_light: string;
+        code_theme_dark: string;
     }>({
         defaultValues: {
             theme: featureConfig.get("display")?.get("theme") || "default",
             color_mode: featureConfig.get("display")?.get("color_mode") || "system",
             user_message_markdown_render: featureConfig.get("display")?.get("user_message_markdown_render") || "disabled",
+            code_theme_light: featureConfig.get("display")?.get("code_theme_light") || "github",
+            code_theme_dark: featureConfig.get("display")?.get("code_theme_dark") || "github-dark",
         },
     });
 
@@ -517,6 +557,8 @@ const FeatureAssistantConfig: React.FC = () => {
                 displayFormReturnData.setValue("theme", displayConfig.get("theme") || "default");
                 displayFormReturnData.setValue("color_mode", displayConfig.get("color_mode") || "system");
                 displayFormReturnData.setValue("user_message_markdown_render", displayConfig.get("user_message_markdown_render") || "disabled");
+                displayFormReturnData.setValue("code_theme_light", displayConfig.get("code_theme_light") || "github");
+                displayFormReturnData.setValue("code_theme_dark", displayConfig.get("code_theme_dark") || "github-dark");
             }
 
             const summaryConfig = featureConfig.get("conversation_summary");

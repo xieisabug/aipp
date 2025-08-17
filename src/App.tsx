@@ -7,6 +7,7 @@ import ArtifactPreviewWindow from './artifacts/ArtifactPreviewWindow.tsx';
 import PluginWindow from './PluginWindow.tsx';
 import ArtifactCollectionsWindow from './windows/ArtifactCollectionsWindow.tsx';
 import ArtifactWindow from './windows/ArtifactWindow.tsx';
+import CodeThemeLoader from './components/CodeThemeLoader.tsx';
 import { Toaster } from './components/ui/sonner.tsx';
 
 const windowsMap: Record<string, typeof AskWindow> = {
@@ -30,10 +31,12 @@ function App() {
     let win = getCurrentWebviewWindow();
     const WindowComponent = getWindowComponent(win.label);
 
-    return <>
-        {WindowComponent ? WindowComponent() : <div>未知窗口类型: {win.label}</div>}
-        <Toaster richColors />
-    </>
+    return (
+        <CodeThemeLoader>
+            {WindowComponent ? WindowComponent() : <div>未知窗口类型: {win.label}</div>}
+            <Toaster richColors />
+        </CodeThemeLoader>
+    );
 }
 
 export default App;
