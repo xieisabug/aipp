@@ -1,9 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { invoke } from "@tauri-apps/api/core";
 import { Button } from "../ui/button";
-import { Settings, Server, Wrench, AlertCircle } from "lucide-react";
+import { Settings } from "lucide-react";
 import AssistantMCPConfigDialog from './AssistantMCPConfigDialog';
-import { divide } from 'lodash';
 
 interface AssistantMCPFieldDisplayProps {
     assistantId: number;
