@@ -130,16 +130,6 @@ pub async fn run_artifacts(
         .map(|c| c.to_owned())
         .unwrap_or_else(HashMap::new);
 
-    let nextjs_port = preview_config
-        .get("nextjs_port")
-        .and_then(|config| config.value.parse::<u16>().ok())
-        .unwrap_or(3001); // 默认端口如果解析失败
-
-    let nuxtjs_port = preview_config
-        .get("nuxtjs_port")
-        .and_then(|config| config.value.parse::<u16>().ok())
-        .unwrap_or(3002); // 默认端口如果解析失败
-
     match lang {
         "powershell" => {
             if let Some(window) = app_handle.get_webview_window("artifact_preview") {
@@ -172,6 +162,10 @@ pub async fn run_artifacts(
             
             // 发送 mermaid 内容到前端
             if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                let _ = window.emit("artifact-data", serde_json::json!({
+                    "type": "mermaid",
+                    "original_code": input_str,
+                }));
                 let _ = window.emit("artifact-log", format!("mermaid content: {}", input_str));
                 let _ = window.emit("artifact-success", "Mermaid 图表预览已准备完成");
             }
@@ -179,10 +173,10 @@ pub async fn run_artifacts(
         "xml" | "svg" | "html" | "markdown" | "md" => {
             if let Some(window) = app_handle.get_webview_window("artifact_preview") {
                 let _ = window.emit("artifact-log", format!("准备预览 {} 内容...", lang));
-            }
-            
-            // 发送 HTML/SVG/XML/Markdown 内容到前端
-            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                let _ = window.emit("artifact-data", serde_json::json!({
+                    "type": lang,
+                    "original_code": input_str,
+                }));
                 let _ = window.emit("artifact-log", format!("{} content: {}", lang, input_str));
                 let _ = window.emit("artifact-success", format!("{} 预览已准备完成", lang.to_uppercase()));
             }
@@ -215,6 +209,12 @@ pub async fn run_artifacts(
                     "UserComponent".to_string()
                 });
                 println!("🎯 [Artifacts] 组件名称: {}", component_name);
+                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                    let _ = window.emit("artifact-data", serde_json::json!({
+                        "type": "react",
+                        "original_code": input_str,
+                    }));
+                }
 
                 let preview_id = create_react_preview_for_artifact(
                     app_handle.clone(),
@@ -235,28 +235,8 @@ pub async fn run_artifacts(
 
                 return Ok(success_msg);
             } else {
-                println!("🎯 [Artifacts] 检测到代码片段，使用旧预览方式");
                 if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                    let _ = window.emit("artifact-log", "检测到代码片段，使用传统预览方式...");
-                }
-
-                // 使用旧的预览方式（代码片段）
-                let _ = open_preview_react_window(
-                    app_handle.clone(),
-                    input_str.to_string(),
-                    nextjs_port,
-                )
-                .await;
-                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                    let _ = window.emit("artifact-success", "React 代码片段预览已准备完成");
-                }
-                // 发送跳转事件
-                let preview_url = format!(
-                    "http://preview.teafakedomain.com:{}/previews/react",
-                    nextjs_port
-                );
-                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                    let _ = window.emit("artifact-redirect", preview_url);
+                    let _ = window.emit("artifact-error", "React 代码片段预览暂不支持，请提供完整的 React 组件代码。");
                 }
             }
         }
@@ -288,7 +268,12 @@ pub async fn run_artifacts(
                     "UserComponent".to_string()
                 });
                 println!("🎯 [Artifacts] 组件名称: {}", component_name);
-
+                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                    let _ = window.emit("artifact-data", serde_json::json!({
+                        "type": "vue",
+                        "original_code": input_str,
+                    }));
+                }
                 let preview_id = create_vue_preview_for_artifact(
                     app_handle.clone(),
                     input_str.to_string(),
@@ -308,24 +293,8 @@ pub async fn run_artifacts(
 
                 return Ok(success_msg);
             } else {
-                println!("🎯 [Artifacts] 检测到代码片段，使用旧预览方式");
                 if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                    let _ = window.emit("artifact-log", "检测到Vue代码片段，使用传统预览方式...");
-                }
-
-                // 使用旧的预览方式（代码片段）
-                let _ = open_preview_vue_window(app_handle.clone(), input_str.to_string(), nuxtjs_port)
-                    .await;
-                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                    let _ = window.emit("artifact-success", "Vue 代码片段预览已准备完成");
-                }
-                // 发送跳转事件
-                let preview_url = format!(
-                    "http://preview.teafakedomain.com:{}/previews/vue",
-                    nuxtjs_port
-                );
-                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                    let _ = window.emit("artifact-redirect", preview_url);
+                    let _ = window.emit("artifact-error", "Vue 代码片段预览暂不支持，请提供完整的 Vue 组件代码。");
                 }
             }
         }

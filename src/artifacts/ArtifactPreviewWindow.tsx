@@ -265,54 +265,46 @@ export default function ArtifactPreviewWindow() {
             const addLog = (type: LogLine['type']) => (event: { payload: any }) => {
                 const message = event.payload as string;
                 setLogs(prev => [...prev, { type, message }]);
+            };
 
-                // 根据日志内容检测预览类型
-                if (message.includes('Vue') || message.includes('vue')) {
-                    setPreviewType('vue');
-                } else if (message.includes('React') || message.includes('react')) {
-                    setPreviewType('react');
-                } else if (message.includes('Mermaid') || message.includes('mermaid')) {
-                    setPreviewType('mermaid');
-                    // 如果是 mermaid，从日志中提取内容
-                    const mermaidMatch = message.match(/mermaid content: ([\s\S]+)/);
-                    if (mermaidMatch && mermaidMatch[1]) {
-                        setMermaidContent(mermaidMatch[1]);
-                        setOriginalCode(mermaidMatch[1]); // 保存原始代码
-                        setIsPreviewReady(true);
+            const handleArtifactData = (event: { payload: any }) => {
+                const data = event.payload;
+                if (data.original_code && data.type) {
+                    switch (data.type) {
+                        case 'vue':
+                        case 'react':
+                            setPreviewType(data.type);
+                            break;
+                        case 'mermaid':
+                            setPreviewType('mermaid');
+                            setMermaidContent(data.original_code);
+                            setIsPreviewReady(true);
+                            break;
+                        case 'html':
+                            setPreviewType('html');
+                            setHtmlContent(data.original_code);
+                            setIsPreviewReady(true);
+                            break;
+                        case 'svg':
+                            setPreviewType('svg');
+                            setHtmlContent(data.original_code);
+                            setIsPreviewReady(true);
+                            break;
+                        case 'xml':
+                            setPreviewType('xml');
+                            setHtmlContent(data.original_code);
+                            setIsPreviewReady(true);
+                            break;
+                        case 'markdown':
+                        case 'md':
+                            setPreviewType(data.type);
+                            setMarkdownContent(data.original_code);
+                            setIsPreviewReady(true);
+                            break;
+                        default:
+                            break;
                     }
-                } else if (message.includes('html content:')) {
-                    setPreviewType('html');
-                    const htmlMatch = message.match(/html content: ([\s\S]+)/);
-                    if (htmlMatch && htmlMatch[1]) {
-                        setHtmlContent(htmlMatch[1]);
-                        setOriginalCode(htmlMatch[1]); // 保存原始代码
-                        setIsPreviewReady(true);
-                    }
-                } else if (message.includes('svg content:')) {
-                    setPreviewType('svg');
-                    const svgMatch = message.match(/svg content: ([\s\S]+)/);
-                    if (svgMatch && svgMatch[1]) {
-                        setHtmlContent(svgMatch[1]);
-                        setOriginalCode(svgMatch[1]); // 保存原始代码
-                        setIsPreviewReady(true);
-                    }
-                } else if (message.includes('xml content:')) {
-                    setPreviewType('xml');
-                    const xmlMatch = message.match(/xml content: ([\s\S]+)/);
-                    if (xmlMatch && xmlMatch[1]) {
-                        setHtmlContent(xmlMatch[1]);
-                        setOriginalCode(xmlMatch[1]); // 保存原始代码
-                        setIsPreviewReady(true);
-                    }
-                } else if (message.includes('markdown content:') || message.includes('md content:')) {
-                    const type = message.includes('markdown content:') ? 'markdown' : 'md';
-                    setPreviewType(type);
-                    const contentMatch = message.match(/(markdown|md) content: ([\s\S]+)/);
-                    if (contentMatch && contentMatch[2]) {
-                        setMarkdownContent(contentMatch[2]);
-                        setOriginalCode(contentMatch[2]); // 保存原始代码
-                        setIsPreviewReady(true);
-                    }
+                    setOriginalCode(data.original_code);
                 }
             };
 
@@ -383,6 +375,7 @@ export default function ArtifactPreviewWindow() {
 
             try {
                 const unlisteners = await Promise.all([
+                    listen('artifact-data', handleArtifactData),
                     listen('artifact-log', addLog('log')),
                     listen('artifact-error', addLog('error')),
                     listen('artifact-success', addLog('success')),
