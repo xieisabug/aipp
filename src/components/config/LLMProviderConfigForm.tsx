@@ -13,7 +13,7 @@ import {
     CollapsibleContent,
     CollapsibleTrigger,
 } from "../ui/collapsible";
-import { Trash2, ChevronDown } from "lucide-react";
+import { Trash2, ChevronDown, Share } from "lucide-react";
 
 interface LLMProviderConfig {
     name: string;
@@ -49,6 +49,7 @@ interface LLMProviderConfigFormProps {
     enabled: boolean;
     onToggleEnabled: any;
     onDelete: any;
+    onShare?: () => void;
 }
 
 const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
@@ -61,6 +62,7 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
     enabled,
     onDelete,
     onToggleEnabled,
+    onShare,
 }) => {
     useEffect(() => {
         console.log("Current Props:", {
@@ -333,6 +335,21 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
                         onCheckedChange={() => onToggleEnabled(index)}
                     />
                 </div>
+                {onShare && (
+                    <div className="flex items-center gap-1">
+                        {onShare && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={onShare}
+                                className="gap-1 text-xs px-2 py-1 h-7"
+                            >
+                                <Share className="h-3 w-3" />
+                            </Button>
+                        )}
+                    </div>
+                )}
+                
                 {!isOffical && (
                     <Button
                         variant="ghost"
@@ -345,7 +362,7 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
                 )}
             </div>
         ),
-        [enabled, onToggleEnabled, index, isOffical, onDelete],
+        [enabled, onToggleEnabled, index, isOffical, onDelete, onShare],
     );
 
     // 表单部分结束
