@@ -202,7 +202,7 @@ export default function SaveArtifactDialog({
                         <Label className="text-right">类型</Label>
                         <div className="col-span-3">
                             <Badge variant="secondary" className="text-sm">
-                                {artifactType.toUpperCase()}
+                                {artifactType}
                             </Badge>
                         </div>
                     </div>
@@ -212,7 +212,7 @@ export default function SaveArtifactDialog({
                         <Label className="text-right pt-2">代码预览</Label>
                         <div className="col-span-3">
                             <pre className="bg-muted p-3 rounded text-xs max-h-32 overflow-y-auto">
-                                {code.length > 500 ? code.substring(0, 500) + '...' : code}
+                                {code}
                             </pre>
                         </div>
                     </div>
