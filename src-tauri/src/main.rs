@@ -29,6 +29,7 @@ use crate::api::assistant_api::{
     add_assistant, copy_assistant, delete_assistant, get_assistant, get_assistant_field_value,
     get_assistants, save_assistant, get_assistant_mcp_servers_with_tools, update_assistant_mcp_config, 
     update_assistant_mcp_tool_config, bulk_update_assistant_mcp_tools, update_assistant_model_config_value,
+    export_assistant, import_assistant,
 };
 use crate::api::attachment_api::{add_attachment, open_attachment_with_default_app};
 use crate::api::conversation_api::{
@@ -39,6 +40,7 @@ use crate::api::llm_api::{
     add_llm_model, add_llm_provider, delete_llm_model, delete_llm_provider, fetch_model_list,
     get_llm_models, get_llm_provider_config, get_llm_providers, get_models_for_select,
     preview_model_list, update_llm_provider, update_llm_provider_config, update_selected_models,
+    export_llm_provider, import_llm_provider,
 };
 use crate::api::mcp_api::{
     add_mcp_server, delete_mcp_server, get_mcp_server, get_mcp_server_resources,
@@ -319,6 +321,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             get_models_for_select,
             add_llm_model,
             delete_llm_model,
+            export_llm_provider,
+            import_llm_provider,
             add_attachment,
             open_attachment_with_default_app,
             get_assistants,
@@ -328,6 +332,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             add_assistant,
             delete_assistant,
             copy_assistant,
+            export_assistant,
+            import_assistant,
             list_conversations,
             get_conversation_with_messages,
             delete_conversation,

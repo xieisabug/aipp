@@ -1,5 +1,9 @@
 use crate::api::genai_client;
 use crate::db::llm_db::LLMDatabase;
+use crate::utils::share_utils::{
+    ProviderShareData, 
+    encrypt_provider_data, decrypt_provider_data
+};
 use genai::Modality;
 use serde::{Deserialize, Serialize};
 
@@ -391,4 +395,105 @@ pub async fn update_selected_models(
     }
     
     Ok(())
+}
+
+// Share and Import LLM Provider Commands
+
+#[tauri::command]
+pub async fn export_llm_provider(
+    app_handle: tauri::AppHandle,
+    provider_id: i64,
+    password: String,
+) -> Result<String, String> {
+    let db = LLMDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+    
+    // Get provider information
+    let provider = db.get_llm_provider(provider_id).map_err(|e| e.to_string())?;
+    let configs = db.get_llm_provider_config(provider_id).map_err(|e| e.to_string())?;
+    
+    // Extract endpoint and api_key from configs
+    let mut endpoint = None;
+    let mut api_key = String::new();
+    
+    for config in configs {
+        match config.name.as_str() {
+            "endpoint" | "base_url" => endpoint = Some(config.value),
+            "api_key" => api_key = config.value,
+            _ => {}
+        }
+    }
+    
+    if api_key.is_empty() {
+        return Err("API Key is required for export".to_string());
+    }
+    
+    // Create share data
+    let share_data = ProviderShareData {
+        name: provider.name,
+        api_type: provider.api_type,
+        endpoint,
+        api_key,
+    };
+    
+    // Encrypt with password
+    let encrypted_data = encrypt_provider_data(&share_data, &password).map_err(|e| e.to_string())?;
+    
+    // Return the base64 encoded string directly
+    Ok(encrypted_data)
+}
+
+#[tauri::command]
+pub async fn import_llm_provider(
+    app_handle: tauri::AppHandle,
+    share_code: String,
+    password: String,
+    new_name: Option<String>,
+) -> Result<LlmProvider, String> {
+    // Decrypt data directly from share code
+    let provider_data = decrypt_provider_data(&share_code, &password)
+        .map_err(|e| format!("Decryption failed: {}", e))?;
+    
+    let db = LLMDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+    
+    // Use provided name or original name with suffix
+    let provider_name = new_name.unwrap_or_else(|| {
+        format!("{} (导入)", provider_data.name)
+    });
+    
+    // Create new provider
+    db.add_llm_provider(
+        &provider_name,
+        &provider_data.api_type,
+        "Imported provider",
+        false,
+        true,
+    ).map_err(|e| e.to_string())?;
+    
+    // Get the newly created provider ID
+    let providers = db.get_llm_providers().map_err(|e| e.to_string())?;
+    let new_provider = providers.iter()
+        .find(|(_, name, _, _, _, _)| name == &provider_name)
+        .ok_or("Failed to find newly created provider")?;
+    
+    let provider_id = new_provider.0;
+    
+    // Add endpoint config if provided
+    if let Some(endpoint) = provider_data.endpoint {
+        db.add_llm_provider_config(provider_id, "endpoint", &endpoint, "header", false)
+            .map_err(|e| e.to_string())?;
+    }
+    
+    // Add API key config
+    db.add_llm_provider_config(provider_id, "api_key", &provider_data.api_key, "header", false)
+        .map_err(|e| e.to_string())?;
+    
+    // Return the created provider
+    Ok(LlmProvider {
+        id: provider_id,
+        name: provider_name,
+        api_type: provider_data.api_type,
+        description: "Imported provider".to_string(),
+        is_official: false,
+        is_enabled: true,
+    })
 }

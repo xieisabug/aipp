@@ -225,6 +225,21 @@ impl LLMDatabase {
         Ok(())
     }
 
+    pub fn add_llm_provider_config(
+        &self,
+        llm_provider_id: i64,
+        name: &str,
+        value: &str,
+        append_location: &str,
+        is_addition: bool,
+    ) -> rusqlite::Result<()> {
+        self.conn.execute(
+            "INSERT INTO llm_provider_config (name, llm_provider_id, value, append_location, is_addition) VALUES (?, ?, ?, ?, ?)",
+            params![name, llm_provider_id, value, append_location, is_addition],
+        )?;
+        Ok(())
+    }
+
     pub fn add_llm_model(
         &self,
         name: &str,

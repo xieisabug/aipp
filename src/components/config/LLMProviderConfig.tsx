@@ -4,8 +4,11 @@ import LLMProviderConfigForm from "./LLMProviderConfigForm";
 import FormDialog from "../FormDialog";
 import CustomSelect from "../CustomSelect";
 import ConfirmDialog from "../ConfirmDialog";
+import ShareDialog from "../ShareDialog";
+import ImportDialog from "../ImportDialog";
+import PasswordDialog from "../PasswordDialog";
 import { Button } from "../ui/button";
-import { PlusCircle, Zap, Settings, ServerCrash } from "lucide-react";
+import { PlusCircle, Zap, Settings, ServerCrash, Download } from "lucide-react";
 import { toast } from 'sonner';
 
 // 导入公共组件
@@ -131,6 +134,71 @@ const LLMProviderConfig: React.FC = () => {
         setConfirmDialogIsOpen(false)
     }, []);
 
+    // 分享和导入相关状态
+    const [shareDialogOpen, setShareDialogOpen] = useState(false);
+    const [importDialogOpen, setImportDialogOpen] = useState(false);
+    const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+    const [shareCode, setShareCode] = useState('');
+
+    // 分享提供商
+    const handleShareProvider = useCallback(async () => {
+        if (!selectedProvider) return;
+        setPasswordDialogOpen(true);
+    }, [selectedProvider]);
+
+    // 确认导出（设置密码后）
+    const handleConfirmExport = useCallback(async (password: string) => {
+        if (!selectedProvider) return;
+        
+        try {
+            const code = await invoke<string>('export_llm_provider', { 
+                providerId: selectedProvider.id,
+                password
+            });
+            setShareCode(code);
+            setShareDialogOpen(true);
+        } catch (error) {
+            toast.error('分享失败: ' + error);
+            throw error; // 重新抛出错误给PasswordDialog处理
+        }
+    }, [selectedProvider]);
+
+    // 导入提供商
+    const handleImportProvider = useCallback(async (
+        shareCode: string, 
+        password?: string, 
+        newName?: string
+    ) => {
+        if (!password) {
+            throw new Error('请输入密码');
+        }
+        
+        await invoke('import_llm_provider', {
+            shareCode,
+            password,
+            newName
+        });
+        
+        // 导入成功后重新获取提供商列表
+        getLLMProviderList();
+    }, [getLLMProviderList]);
+
+    // 关闭分享对话框
+    const closeShareDialog = useCallback(() => {
+        setShareDialogOpen(false);
+        setShareCode('');
+    }, []);
+
+    // 关闭导入对话框
+    const closeImportDialog = useCallback(() => {
+        setImportDialogOpen(false);
+    }, []);
+
+    // 关闭密码对话框
+    const closePasswordDialog = useCallback(() => {
+        setPasswordDialogOpen(false);
+    }, []);
+
     // 选择提供商
     const handleSelectProvider = useCallback((provider: LLMProvider) => {
         setSelectedProvider(provider);
@@ -154,36 +222,67 @@ const LLMProviderConfig: React.FC = () => {
 
     // 新增按钮组件
     const addButton = useMemo(() => (
-        <Button
-            onClick={openNewProviderDialog}
-            className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm hover:shadow-md transition-all"
-        >
-            <PlusCircle className="h-4 w-4" />
-        </Button>
+        <div className="flex gap-2">
+            <Button
+                onClick={openNewProviderDialog}
+                className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm hover:shadow-md transition-all"
+            >
+                <PlusCircle className="h-4 w-4" />
+            </Button>
+            <Button
+                variant="outline"
+                onClick={() => setImportDialogOpen(true)}
+                className="shadow-sm hover:shadow-md transition-all"
+            >
+                <Download className="h-4 w-4" />
+            </Button>
+        </div>
     ), [openNewProviderDialog]);
 
     // 空状态
     if (LLMProviders.length === 0) {
         return (
-            <ConfigPageLayout
-                sidebar={null}
-                content={
-                    <EmptyState
-                        icon={<ServerCrash className="h-8 w-8 text-muted-foreground" />}
-                        title="还没有配置提供商"
-                        description="开始添加你的第一个 AI 模型提供商，享受智能助手的强大功能"
-                        action={
-                            <Button
-                                onClick={openNewProviderDialog}
-                                className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg hover:shadow-xl transition-all"
-                            >
-                                <PlusCircle className="h-4 w-4" />
-                                添加第一个提供商
-                            </Button>
-                        }
-                    />
-                }
-            />
+            <>
+                <ConfigPageLayout
+                    sidebar={null}
+                    content={
+                        <EmptyState
+                            icon={<ServerCrash className="h-8 w-8 text-muted-foreground" />}
+                            title="还没有配置提供商"
+                            description="开始添加你的第一个 AI 模型提供商，享受智能助手的强大功能"
+                            action={
+                                <div className="flex flex-col gap-3">
+                                    <div className="flex gap-2 justify-center">
+                                        <Button
+                                            onClick={openNewProviderDialog}
+                                            className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg hover:shadow-xl transition-all"
+                                        >
+                                            <PlusCircle className="h-4 w-4" />
+                                            添加第一个提供商
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => setImportDialogOpen(true)}
+                                            className="shadow-lg hover:shadow-xl transition-all"
+                                        >
+                                            <Download className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                </div>
+                            }
+                        />
+                    }
+                />
+                
+                {/* 导入对话框 */}
+                <ImportDialog
+                    title="提供商配置"
+                    isOpen={importDialogOpen}
+                    requiresPassword={true}
+                    onClose={closeImportDialog}
+                    onImport={handleImportProvider}
+                />
+            </>
         );
     }
 
@@ -227,6 +326,7 @@ const LLMProviderConfig: React.FC = () => {
                 enabled={selectedProvider.is_enabled}
                 onToggleEnabled={handleToggle}
                 onDelete={() => openConfirmDialog(selectedProvider.id)}
+                onShare={handleShareProvider}
             />
         </div>
     ) : (
@@ -285,6 +385,31 @@ const LLMProviderConfig: React.FC = () => {
                 confirmText='确定要删除这个提供商吗？删除后相关配置将无法恢复。'
                 onConfirm={onConfirmDeleteProvider}
                 onCancel={closeConfirmDialog}
+            />
+
+            {/* 密码设置对话框 */}
+            <PasswordDialog
+                title={selectedProvider?.name || "提供商"}
+                isOpen={passwordDialogOpen}
+                onClose={closePasswordDialog}
+                onConfirm={handleConfirmExport}
+            />
+
+            {/* 分享对话框 */}
+            <ShareDialog
+                title="提供商配置"
+                shareCode={shareCode}
+                isOpen={shareDialogOpen}
+                onClose={closeShareDialog}
+            />
+
+            {/* 导入对话框 */}
+            <ImportDialog
+                title="提供商配置"
+                isOpen={importDialogOpen}
+                requiresPassword={true}
+                onClose={closeImportDialog}
+                onImport={handleImportProvider}
             />
         </>
     );

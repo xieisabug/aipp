@@ -6,6 +6,10 @@ use crate::{
         },
         conversation_db::ConversationDatabase,
     },
+    utils::share_utils::{
+        SharedAssistant, AssistantShareData, ModelConfigShare,
+        compress_assistant_data, decompress_assistant_data
+    },
     NameCacheState,
 };
 use tauri::Emitter;
@@ -726,4 +730,99 @@ pub async fn update_assistant_model_config_value(
     }
 
     Ok(())
+}
+
+// Share and Import Assistant Commands
+
+#[tauri::command]
+pub async fn export_assistant(
+    app_handle: tauri::AppHandle,
+    assistant_id: i64,
+) -> Result<String, String> {
+    let assistant_detail = get_assistant(app_handle, assistant_id)?;
+    
+    // Convert to share format (exclude model information)
+    let share_data = AssistantShareData {
+        name: assistant_detail.assistant.name.clone(),
+        description: assistant_detail.assistant.description.clone(),
+        assistant_type: assistant_detail.assistant.assistant_type.unwrap_or(0),
+        prompt: assistant_detail.prompts.first()
+            .map(|p| p.prompt.clone())
+            .unwrap_or_default(),
+        model_configs: assistant_detail.model_configs.iter()
+            .map(|config| ModelConfigShare {
+                name: config.name.clone(),
+                value: config.value.clone().unwrap_or_default(),
+                value_type: config.value_type.clone(),
+            })
+            .collect(),
+    };
+    
+    let shared_assistant = SharedAssistant {
+        version: "1.0".to_string(),
+        data_type: "assistant".to_string(),
+        data: share_data,
+    };
+    
+    compress_assistant_data(&shared_assistant).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn import_assistant(
+    app_handle: tauri::AppHandle,
+    share_code: String,
+    new_name: Option<String>,
+) -> Result<AssistantDetail, String> {
+    // Decompress and validate share code
+    let shared_assistant = decompress_assistant_data(&share_code).map_err(|e| e.to_string())?;
+    
+    if shared_assistant.data_type != "assistant" {
+        return Err("Invalid share code: not an assistant".to_string());
+    }
+    
+    let assistant_db = AssistantDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+    
+    // Use provided name or original name with suffix
+    let assistant_name = new_name.unwrap_or_else(|| {
+        format!("{} (导入)", shared_assistant.data.name)
+    });
+    
+    // Create new assistant
+    let new_assistant_id = assistant_db
+        .add_assistant(
+            &assistant_name,
+            &shared_assistant.data.description.unwrap_or_default(),
+            Some(shared_assistant.data.assistant_type),
+            false,
+        )
+        .map_err(|e| e.to_string())?;
+    
+    // Add prompt
+    assistant_db
+        .add_assistant_prompt(new_assistant_id, &shared_assistant.data.prompt)
+        .map_err(|e| e.to_string())?;
+    
+    // Add default model (will need to be configured by user)
+    let model_id = assistant_db
+        .add_assistant_model(new_assistant_id, 0, "", "")
+        .map_err(|e| e.to_string())?;
+    
+    // Add model configs
+    for config in shared_assistant.data.model_configs {
+        assistant_db
+            .add_assistant_model_config(
+                new_assistant_id,
+                model_id,
+                &config.name,
+                &config.value,
+                &config.value_type,
+            )
+            .map_err(|e| e.to_string())?;
+    }
+    
+    // Broadcast assistant list update
+    let _ = app_handle.emit("assistant_list_changed", ());
+    
+    // Return the created assistant detail
+    get_assistant(app_handle, new_assistant_id)
 }

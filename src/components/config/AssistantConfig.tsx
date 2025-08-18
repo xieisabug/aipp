@@ -8,9 +8,12 @@ import ConfirmDialog from "../ConfirmDialog";
 import AddAssistantDialog from "./AddAssistantDialog";
 import EditAssistantDialog from "./EditAssistantDialog";
 import AssistantMCPFieldDisplay from "./AssistantMCPFieldDisplay";
+import ShareDialog from "../ShareDialog";
+import ImportDialog from "../ImportDialog";
 import { AssistantType } from "../../types/assistant";
 import { validateConfig } from "../../utils/validate";
-import { Bot, Settings, User } from "lucide-react";
+import { Bot, Settings, User, Share, Download } from "lucide-react";
+import { Button } from "../ui/button";
 
 // 导入公共组件
 import {
@@ -508,6 +511,50 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
         setUpdateFormDialogIsOpen(false);
     }, []);
 
+    // 分享和导入相关状态
+    const [shareDialogOpen, setShareDialogOpen] = useState(false);
+    const [importDialogOpen, setImportDialogOpen] = useState(false);
+    const [shareCode, setShareCode] = useState('');
+
+    // 分享助手
+    const handleShareAssistant = useCallback(async () => {
+        if (!currentAssistant) return;
+        
+        try {
+            const code = await invoke<string>('export_assistant', { 
+                assistantId: currentAssistant.assistant.id 
+            });
+            setShareCode(code);
+            setShareDialogOpen(true);
+        } catch (error) {
+            toast.error('分享失败: ' + error);
+        }
+    }, [currentAssistant]);
+
+    // 导入助手
+    const handleImportAssistant = useCallback(async (
+        shareCode: string, 
+        _password?: string, 
+        newName?: string
+    ) => {
+        await invoke('import_assistant', {
+            shareCode,
+            newName
+        });
+        // 导入成功后会自动触发助手列表更新事件
+    }, []);
+
+    // 关闭分享对话框
+    const closeShareDialog = useCallback(() => {
+        setShareDialogOpen(false);
+        setShareCode('');
+    }, []);
+
+    // 关闭导入对话框
+    const closeImportDialog = useCallback(() => {
+        setImportDialogOpen(false);
+    }, []);
+
     const handleAssistantUpdated = useCallback(
         (updatedAssistant: AssistantDetail) => {
             setCurrentAssistant(updatedAssistant);
@@ -772,34 +819,65 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
 
     // 新增按钮组件
     const addButton = useMemo(() => (
-        <AddAssistantDialog
-            assistantTypes={assistantTypes}
-            onAssistantAdded={handleAssistantAdded}
-            triggerButtonProps={{
-                className: "gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm hover:shadow-md transition-all"
-            }}
-        />
+        <div className="flex gap-2">
+            <AddAssistantDialog
+                assistantTypes={assistantTypes}
+                onAssistantAdded={handleAssistantAdded}
+                triggerButtonProps={{
+                    className: "gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm hover:shadow-md transition-all"
+                }}
+            />
+            <Button
+                variant="outline"
+                onClick={() => setImportDialogOpen(true)}
+                className="shadow-sm hover:shadow-md transition-all"
+            >
+                <Download className="h-4 w-4" />
+            </Button>
+        </div>
     ), [assistantTypes, handleAssistantAdded]);
 
     // 空状态
     if (assistants.length === 0) {
         return (
-            <ConfigPageLayout
-                sidebar={null}
-                content={
-                    <EmptyState
-                        icon={<Bot className="h-8 w-8 text-muted-foreground" />}
-                        title="还没有配置助手"
-                        description="创建你的第一个AI助手，开始享受个性化的智能对话体验"
-                        action={
-                            <AddAssistantDialog
-                                assistantTypes={assistantTypes}
-                                onAssistantAdded={handleAssistantAdded}
-                            />
-                        }
-                    />
-                }
-            />
+            <>
+                <ConfigPageLayout
+                    sidebar={null}
+                    content={
+                        <EmptyState
+                            icon={<Bot className="h-8 w-8 text-muted-foreground" />}
+                            title="还没有配置助手"
+                            description="创建你的第一个AI助手，开始享受个性化的智能对话体验"
+                            action={
+                                <div className="flex flex-col gap-3">
+                                    <div className="flex gap-2 justify-center">
+                                        <AddAssistantDialog
+                                            assistantTypes={assistantTypes}
+                                            onAssistantAdded={handleAssistantAdded}
+                                        />
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => setImportDialogOpen(true)}
+                                            className="shadow-lg hover:shadow-xl transition-all"
+                                        >
+                                            <Download className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                </div>
+                            }
+                        />
+                    }
+                />
+                
+                {/* 导入对话框 */}
+                <ImportDialog
+                    title="助手配置"
+                    isOpen={importDialogOpen}
+                    requiresPassword={false}
+                    onClose={closeImportDialog}
+                    onImport={handleImportAssistant}
+                />
+            </>
         );
     }
 
@@ -837,6 +915,18 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
             onDelete={currentAssistant.assistant.id === 1 ? undefined : openConfirmDeleteDialog}
             onEdit={openUpdateFormDialog}
             useFormReturn={form}
+            extraButtons={
+                <div className="flex gap-2">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleShareAssistant}
+                        className="gap-2"
+                    >
+                        <Share className="h-4 w-4" />
+                    </Button>
+                </div>
+            }
         />
     ) : (
         <EmptyState
@@ -873,6 +963,23 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                 currentAssistant={currentAssistant}
                 onSave={onSave}
                 onAssistantUpdated={handleAssistantUpdated}
+            />
+
+            {/* 分享对话框 */}
+            <ShareDialog
+                title="助手配置"
+                shareCode={shareCode}
+                isOpen={shareDialogOpen}
+                onClose={closeShareDialog}
+            />
+
+            {/* 导入对话框 */}
+            <ImportDialog
+                title="助手配置"
+                isOpen={importDialogOpen}
+                requiresPassword={false}
+                onClose={closeImportDialog}
+                onImport={handleImportAssistant}
             />
         </>
     );
