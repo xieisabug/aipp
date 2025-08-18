@@ -3,7 +3,7 @@ import './App.css';
 import AskWindow from "./AskWindow.tsx";
 import ConfigWindow from "./ConfigWindow.tsx";
 import ChatUIWindow from './ChatUIWindow.tsx';
-import ArtifactPreviewWindow from './artifacts/ArtifactPreviewWindow.tsx';
+import ArtifactPreviewWindow from './windows/ArtifactPreviewWindow.tsx';
 import PluginWindow from './PluginWindow.tsx';
 import ArtifactCollectionsWindow from './windows/ArtifactCollectionsWindow.tsx';
 import ArtifactWindow from './windows/ArtifactWindow.tsx';

@@ -16,7 +16,7 @@ mod window;
 use crate::api::ai_api::{ask_ai, cancel_ai, regenerate_ai, regenerate_conversation_title, tool_result_continue_ask_ai};
 use crate::api::artifacts_api::{
     check_bun_version, check_uv_version, confirm_environment_install, install_bun, install_uv,
-    open_react_component_preview, preview_react_component, retry_preview_after_install,
+    preview_react_component, retry_preview_after_install,
     run_artifacts,
 };
 use crate::api::artifacts_collection_api::{
@@ -67,7 +67,7 @@ use crate::db::mcp_db::MCPDatabase;
 use crate::db::system_db::SystemDatabase;
 use crate::window::{
     awaken_aipp, create_ask_window, handle_open_ask_window, open_artifact_preview_window,
-    open_chat_ui_window, open_config_window, open_plugin_window, open_preview_frontend_window,
+    open_chat_ui_window, open_config_window, open_plugin_window,
     open_artifact_collections_window,
 };
 use chrono::Local;
@@ -301,7 +301,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             open_config_window,
             open_chat_ui_window,
             open_plugin_window,
-            open_preview_frontend_window,
             open_artifact_preview_window,
             save_config,
             get_config,
@@ -356,7 +355,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             check_uv_version,
             install_bun,
             install_uv,
-            open_react_component_preview,
             preview_react_component,
             create_react_preview,
             create_react_preview_for_artifact,
