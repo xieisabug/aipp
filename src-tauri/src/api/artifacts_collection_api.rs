@@ -254,8 +254,16 @@ pub async fn open_artifact_window(
                     let _ = window.emit(
                         "artifact-data",
                         serde_json::json!({
+                            "id": artifact.id,
+                            "name": artifact.name,
+                            "icon": artifact.icon,
+                            "description": artifact.description,
                             "type": "react",
                             "original_code": artifact.code.as_str(),
+                            "tags": artifact.tags,
+                            "created_time": artifact.created_time,
+                            "last_used_time": artifact.last_used_time,
+                            "use_count": artifact.use_count,
                         }),
                     );
                 }
@@ -323,8 +331,16 @@ pub async fn open_artifact_window(
                     let _ = window.emit(
                         "artifact-data",
                         serde_json::json!({
+                            "id": artifact.id,
+                            "name": artifact.name,
+                            "icon": artifact.icon,
+                            "description": artifact.description,
                             "type": "vue",
                             "original_code": artifact.code.as_str(),
+                            "tags": artifact.tags,
+                            "created_time": artifact.created_time,
+                            "last_used_time": artifact.last_used_time,
+                            "use_count": artifact.use_count,
                         }),
                     );
                 }
@@ -360,8 +376,16 @@ pub async fn open_artifact_window(
                 let _ = window.emit(
                     "artifact-data",
                     serde_json::json!({
+                        "id": artifact.id,
+                        "name": artifact.name,
+                        "icon": artifact.icon,
+                        "description": artifact.description,
                         "type": "html",
                         "original_code": artifact.code.as_str(),
+                        "tags": artifact.tags,
+                        "created_time": artifact.created_time,
+                        "last_used_time": artifact.last_used_time,
+                        "use_count": artifact.use_count,
                     }),
                 );
                 let _ = window.emit("artifact-log", format!("html content: {}", artifact.code.as_str()));
