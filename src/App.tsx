@@ -17,13 +17,10 @@ const windowsMap: Record<string, typeof AskWindow> = {
     artifact_preview: ArtifactPreviewWindow,
     plugin: PluginWindow,
     artifact_collections: ArtifactCollectionsWindow,
+    artifact: ArtifactWindow,
 }
 
-// 处理动态 artifact 窗口（artifact_1, artifact_2 等）
 function getWindowComponent(label: string) {
-    if (label.startsWith('artifact_') && label !== 'artifact_preview' && label !== 'artifact_collections') {
-        return ArtifactWindow;
-    }
     return windowsMap[label];
 }
 

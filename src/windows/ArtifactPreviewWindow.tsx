@@ -375,16 +375,18 @@ export default function ArtifactPreviewWindow() {
 
             try {
                 const unlisteners = await Promise.all([
-                    listen('artifact-data', handleArtifactData),
-                    listen('artifact-log', addLog('log')),
-                    listen('artifact-error', addLog('error')),
-                    listen('artifact-success', addLog('success')),
-                    listen('artifact-redirect', handleRedirect),
+                    listen('artifact-preview-data', handleArtifactData),
+                    listen('artifact-preview-log', addLog('log')),
+                    listen('artifact-preview-error', addLog('error')),
+                    listen('artifact-preview-success', addLog('success')),
+                    listen('artifact-preview-redirect', handleRedirect),
                     listen('environment-check', handleEnvironmentCheck),
                     listen('environment-install-started', handleEnvironmentInstallStarted),
                     listen('bun-install-finished', handleBunInstallFinished),
                     listen('uv-install-finished', handleUvInstallFinished)
                 ]);
+
+                console.log("🔧 [ArtifactPreviewWindow] 监听器注册成功");
 
                 // 检查是否已被取消
                 if (isCancelled) {

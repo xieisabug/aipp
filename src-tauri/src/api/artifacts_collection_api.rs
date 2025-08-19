@@ -1,5 +1,15 @@
-use crate::db::artifacts_db::{
-    ArtifactCollection, ArtifactsDatabase, NewArtifactCollection, UpdateArtifactCollection,
+use crate::{
+    api::artifacts_api::{
+        is_react_component, extract_component_name, is_vue_component, extract_vue_component_name
+    },
+    artifacts::{
+        react_preview::create_react_preview_for_artifact,
+        vue_preview::create_vue_preview_for_artifact,
+    },
+    db::artifacts_db::{
+        ArtifactCollection, ArtifactsDatabase, NewArtifactCollection, UpdateArtifactCollection,
+    }, 
+    utils::bun_utils::BunUtils
 };
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
@@ -221,7 +231,149 @@ pub async fn open_artifact_window(
         .map_err(|e| format!("Failed to increment use count: {}", e))?;
 
     // Open artifact window
-    crate::window::open_artifact_window(app_handle, artifact).await?;
+    crate::window::open_artifact_window(app_handle.clone(), artifact.clone()).await?;
+
+    // 等待窗口加载（延长到 1 秒，避免日志在窗口完成加载前发送导致丢失）
+    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+
+    match artifact.artifact_type.as_str() {
+        "react" | "jsx" => {
+            println!("🎯 [Artifacts] 处理 React/JSX 代码");
+
+            // 检查是否是完整的组件代码
+            if is_react_component(artifact.code.as_str()) {
+                println!("🎯 [Artifacts] 检测到完整的 React 组件，使用新预览");
+
+                // 使用新的 React Component Preview
+                let component_name = extract_component_name(artifact.code.as_str()).unwrap_or_else(|| {
+                    println!("🎯 [Artifacts] 无法提取组件名称，使用默认名称");
+                    "UserComponent".to_string()
+                });
+                println!("🎯 [Artifacts] 组件名称: {}", component_name);
+                if let Some(window) = app_handle.get_webview_window("artifact") {
+                    let _ = window.emit(
+                        "artifact-data",
+                        serde_json::json!({
+                            "type": "react",
+                            "original_code": artifact.code.as_str(),
+                        }),
+                    );
+                }
+
+                let preview_id = create_react_preview_for_artifact(
+                    app_handle.clone(),
+                    artifact.code.as_str().to_string(),
+                    component_name,
+                )
+                .await
+                .map_err(|e| {
+                    println!("❌ [Artifacts] React 组件预览失败: {}", e);
+                    let error_msg = format!("React 组件预览失败: {}", e);
+                    if let Some(window) = app_handle.get_webview_window("artifact") {
+                        let _ = window.emit("artifact-error", &error_msg);
+                    }
+                    error_msg
+                })?;
+
+                println!("✅ React 组件预览已启动，预览 ID: {}", preview_id);
+            } else {
+                if let Some(window) = app_handle.get_webview_window("artifact") {
+                    let _ = window.emit(
+                        "artifact-error",
+                        "React 代码片段预览暂不支持，请提供完整的 React 组件代码。",
+                    );
+                }
+            }
+        }
+        "vue" => {
+            println!("🎯 [Artifacts] 处理 Vue 代码");
+
+            // 检查是否需要 bun 环境
+            let bun_version = BunUtils::get_bun_version(&app_handle);
+            if bun_version.is_err()
+                || bun_version
+                    .as_ref()
+                    .unwrap_or(&String::new())
+                    .contains("Not Installed")
+            {
+                println!("🎯 [Artifacts] 检测到需要 bun 环境但未安装");
+                if let Some(window) = app_handle.get_webview_window("artifact") {
+                    let _ = window.emit("environment-check", serde_json::json!({
+                        "tool": "bun",
+                        "message": "Vue 预览需要 bun 环境，但系统中未安装 bun。是否要自动安装？",
+                        "lang": "vue",
+                        "input_str": artifact.code.as_str()
+                    }));
+                }
+                return Ok(());
+            }
+
+            // 检查是否是完整的组件代码
+            if is_vue_component(artifact.code.as_str()) {
+                println!("🎯 [Artifacts] 检测到完整的 Vue 组件，使用新预览");
+
+                // 使用新的 Vue Component Preview
+                let component_name = extract_vue_component_name(artifact.code.as_str()).unwrap_or_else(|| {
+                    println!("🎯 [Artifacts] 无法提取组件名称，使用默认名称");
+                    "UserComponent".to_string()
+                });
+                println!("🎯 [Artifacts] 组件名称: {}", component_name);
+                if let Some(window) = app_handle.get_webview_window("artifact") {
+                    let _ = window.emit(
+                        "artifact-data",
+                        serde_json::json!({
+                            "type": "vue",
+                            "original_code": artifact.code.as_str(),
+                        }),
+                    );
+                }
+                let preview_id = create_vue_preview_for_artifact(
+                    app_handle.clone(),
+                    artifact.code.as_str().to_string(),
+                    component_name,
+                )
+                .await
+                .map_err(|e| {
+                    println!("❌ [Artifacts] Vue 组件预览失败: {}", e);
+                    let error_msg = format!("Vue 组件预览失败: {}", e);
+                    if let Some(window) = app_handle.get_webview_window("artifact") {
+                        let _ = window.emit("artifact-error", &error_msg);
+                    }
+                    error_msg
+                })?;
+
+                println!("✅ Vue 组件预览已启动，预览 ID: {}", preview_id);
+            } else {
+                if let Some(window) = app_handle.get_webview_window("artifact") {
+                    let _ = window.emit(
+                        "artifact-error",
+                        "Vue 代码片段预览暂不支持，请提供完整的 Vue 组件代码。",
+                    );
+                }
+            }
+        }
+        "html" => {
+            if let Some(window) = app_handle.get_webview_window("artifact") {
+                let _ = window.emit("artifact-log", format!("准备预览 {} 内容...", "html"));
+                let _ = window.emit(
+                    "artifact-data",
+                    serde_json::json!({
+                        "type": "html",
+                        "original_code": artifact.code.as_str(),
+                    }),
+                );
+                let _ = window.emit("artifact-log", format!("html content: {}", artifact.code.as_str()));
+                let _ = window.emit(
+                    "artifact-success",
+                    format!("{} 预览已准备完成", "HTML"),
+                );
+            }
+        }
+        _ => {
+            // Handle other artifact types if needed, or do nothing
+        }
+    }
+
 
     Ok(())
 }

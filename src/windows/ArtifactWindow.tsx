@@ -264,6 +264,7 @@ export default function ArtifactWindow() {
 
             const addLog = (type: LogLine['type']) => (event: { payload: any }) => {
                 const message = event.payload as string;
+                console.log("[ArtifactWindow] 接收消息：", message);
                 setLogs(prev => [...prev, { type, message }]);
 
                 // 根据日志内容检测预览类型
@@ -566,7 +567,7 @@ export default function ArtifactWindow() {
                     {currentView === 'logs' ? (
                         /* 日志视图 - 全屏显示 */
                         <div className="flex-1 flex flex-col p-4">
-                            <h2 className="text-lg font-semibold mb-2 text-foreground">Artifact Preview Logs</h2>
+                            <h2 className="text-lg font-semibold mb-2 text-foreground">Artifact</h2>
                             <div className="flex-1 overflow-y-auto rounded border border-border p-2 bg-muted text-sm font-mono">
                                 {logs.map((log, idx) => (
                                     <div

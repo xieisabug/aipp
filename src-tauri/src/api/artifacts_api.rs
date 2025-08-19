@@ -5,7 +5,6 @@ use tauri::Manager;
 
 use crate::utils::bun_utils::BunUtils;
 use crate::utils::uv_utils::UvUtils;
-use crate::FeatureConfigState;
 
 use crate::{
     artifacts::{
@@ -18,7 +17,7 @@ use crate::{
 };
 
 // 检查是否是完整的 React 组件代码
-fn is_react_component(code: &str) -> bool {
+pub fn is_react_component(code: &str) -> bool {
     // 检查代码是否包含 React 组件的特征
     let has_import = code.contains("import") && (code.contains("react") || code.contains("React"));
     let has_function_component = code.contains("function ") && code.contains("return");
@@ -33,7 +32,7 @@ fn is_react_component(code: &str) -> bool {
 }
 
 // 从代码中提取组件名称
-fn extract_component_name(code: &str) -> Option<String> {
+pub fn extract_component_name(code: &str) -> Option<String> {
     use regex::Regex;
 
     // 尝试匹配函数组件名称
@@ -67,7 +66,7 @@ fn extract_component_name(code: &str) -> Option<String> {
 }
 
 // 检查是否是完整的 Vue 组件代码
-fn is_vue_component(code: &str) -> bool {
+pub fn is_vue_component(code: &str) -> bool {
     // 检查代码是否包含 Vue 组件的特征
     let has_template = code.contains("<template>");
     let has_script = code.contains("<script");
@@ -82,7 +81,7 @@ fn is_vue_component(code: &str) -> bool {
 }
 
 // 从 Vue 组件代码中提取组件名称
-fn extract_vue_component_name(code: &str) -> Option<String> {
+pub fn extract_vue_component_name(code: &str) -> Option<String> {
     use regex::Regex;
 
     // 尝试匹配 export default 中的 name 属性
@@ -126,59 +125,59 @@ pub async fn run_artifacts(
     match lang {
         "powershell" => {
             if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-log", "执行 PowerShell 脚本...");
+                let _ = window.emit("artifact-preview-log", "执行 PowerShell 脚本...");
             }
             return Ok(run_powershell(input_str).map_err(|e| {
                 let error_msg = "PowerShell 脚本执行失败:".to_owned() + &e.to_string();
                 if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                    let _ = window.emit("artifact-error", &error_msg);
+                    let _ = window.emit("artifact-preview-error", &error_msg);
                 }
                 AppError::RunCodeError(error_msg)
             })?);
         }
         "applescript" => {
             if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-log", "执行 AppleScript 脚本...");
+                let _ = window.emit("artifact-preview-log", "执行 AppleScript 脚本...");
             }
             return Ok(run_applescript(input_str).map_err(|e| {
                 let error_msg = "AppleScript 脚本执行失败:".to_owned() + &e.to_string();
                 if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                    let _ = window.emit("artifact-error", &error_msg);
+                    let _ = window.emit("artifact-preview-error", &error_msg);
                 }
                 AppError::RunCodeError(error_msg)
             })?);
         }
         "mermaid" => {
             if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-log", "准备预览 Mermaid 图表...");
+                let _ = window.emit("artifact-preview-log", "准备预览 Mermaid 图表...");
             }
 
             // 发送 mermaid 内容到前端
             if let Some(window) = app_handle.get_webview_window("artifact_preview") {
                 let _ = window.emit(
-                    "artifact-data",
+                    "artifact-preview-data",
                     serde_json::json!({
                         "type": "mermaid",
                         "original_code": input_str,
                     }),
                 );
-                let _ = window.emit("artifact-log", format!("mermaid content: {}", input_str));
-                let _ = window.emit("artifact-success", "Mermaid 图表预览已准备完成");
+                let _ = window.emit("artifact-preview-log", format!("mermaid content: {}", input_str));
+                let _ = window.emit("artifact-preview-success", "Mermaid 图表预览已准备完成");
             }
         }
         "xml" | "svg" | "html" | "markdown" | "md" => {
             if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-log", format!("准备预览 {} 内容...", lang));
+                let _ = window.emit("artifact-preview-log", format!("准备预览 {} 内容...", lang));
                 let _ = window.emit(
-                    "artifact-data",
+                    "artifact-preview-data",
                     serde_json::json!({
                         "type": lang,
                         "original_code": input_str,
                     }),
                 );
-                let _ = window.emit("artifact-log", format!("{} content: {}", lang, input_str));
+                let _ = window.emit("artifact-preview-log", format!("{} content: {}", lang, input_str));
                 let _ = window.emit(
-                    "artifact-success",
+                    "artifact-preview-success",
                     format!("{} 预览已准备完成", lang.to_uppercase()),
                 );
             }
@@ -218,7 +217,7 @@ pub async fn run_artifacts(
                 println!("🎯 [Artifacts] 组件名称: {}", component_name);
                 if let Some(window) = app_handle.get_webview_window("artifact_preview") {
                     let _ = window.emit(
-                        "artifact-data",
+                        "artifact-preview-data",
                         serde_json::json!({
                             "type": "react",
                             "original_code": input_str,
@@ -236,7 +235,7 @@ pub async fn run_artifacts(
                     println!("❌ [Artifacts] React 组件预览失败: {}", e);
                     let error_msg = format!("React 组件预览失败: {}", e);
                     if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                        let _ = window.emit("artifact-error", &error_msg);
+                        let _ = window.emit("artifact-preview-error", &error_msg);
                     }
                     AppError::RunCodeError(error_msg)
                 })?;
@@ -247,7 +246,7 @@ pub async fn run_artifacts(
             } else {
                 if let Some(window) = app_handle.get_webview_window("artifact_preview") {
                     let _ = window.emit(
-                        "artifact-error",
+                        "artifact-preview-error",
                         "React 代码片段预览暂不支持，请提供完整的 React 组件代码。",
                     );
                 }
@@ -288,7 +287,7 @@ pub async fn run_artifacts(
                 println!("🎯 [Artifacts] 组件名称: {}", component_name);
                 if let Some(window) = app_handle.get_webview_window("artifact_preview") {
                     let _ = window.emit(
-                        "artifact-data",
+                        "artifact-preview-data",
                         serde_json::json!({
                             "type": "vue",
                             "original_code": input_str,
@@ -305,7 +304,7 @@ pub async fn run_artifacts(
                     println!("❌ [Artifacts] Vue 组件预览失败: {}", e);
                     let error_msg = format!("Vue 组件预览失败: {}", e);
                     if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                        let _ = window.emit("artifact-error", &error_msg);
+                        let _ = window.emit("artifact-preview-error", &error_msg);
                     }
                     AppError::RunCodeError(error_msg)
                 })?;
@@ -316,7 +315,7 @@ pub async fn run_artifacts(
             } else {
                 if let Some(window) = app_handle.get_webview_window("artifact_preview") {
                     let _ = window.emit(
-                        "artifact-error",
+                        "artifact-preview-error",
                         "Vue 代码片段预览暂不支持，请提供完整的 Vue 组件代码。",
                     );
                 }
@@ -326,7 +325,7 @@ pub async fn run_artifacts(
             // Handle other languages here
             let error_msg = "暂不支持该语言的代码执行".to_owned();
             if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-error", &error_msg);
+                let _ = window.emit("artifact-preview-error", &error_msg);
             }
             return Err(AppError::RunCodeError(error_msg));
         }
@@ -726,14 +725,14 @@ pub async fn confirm_environment_install(
     if !confirmed {
         // 用户选择取消，停止预览
         if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-            let _ = window.emit("artifact-error", "用户取消了环境安装，预览已停止");
+            let _ = window.emit("artifact-preview-error", "用户取消了环境安装，预览已停止");
         }
         return Ok("用户取消安装".to_string());
     }
 
     // 用户确认安装，开始安装过程
     if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-        let _ = window.emit("artifact-log", format!("开始安装 {} 环境...", tool));
+        let _ = window.emit("artifact-preview-log", format!("开始安装 {} 环境...", tool));
 
         if tool == "bun" {
             let _ = install_bun(app_handle.clone(), Some("artifact_preview".to_string()));

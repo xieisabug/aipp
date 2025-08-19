@@ -280,40 +280,6 @@ pub async fn open_artifact_preview_window(app_handle: AppHandle) -> Result<(), S
     Ok(())
 }
 
-pub fn create_preview_frontend_window(app: &AppHandle) {
-    let (window_size, window_position) =
-        get_window_size_and_position(app, 1200.0, 900.0, &["ask", "chat_ui"]);
-
-    let mut window_builder =
-        WebviewWindowBuilder::new(app, "preview_frontend", WebviewUrl::App("index.html".into()))
-            .title("Component Preview - Aipp")
-            .inner_size(window_size.width, window_size.height)
-            .fullscreen(false)
-            .resizable(true)
-            .decorations(true);
-
-    if let Some(position) = window_position {
-        window_builder = window_builder.position(position.x, position.y);
-    } else {
-        window_builder = window_builder.center();
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    let window_builder = window_builder.transparent(false);
-
-    match window_builder.build() {
-        Ok(window) => {
-            let window_clone = window.clone();
-            window.on_window_event(move |event| {
-                if let WindowEvent::CloseRequested { .. } = event {
-                    window_clone.hide().unwrap();
-                }
-            });
-        }
-        Err(e) => eprintln!("Failed to build window: {}", e),
-    }
-}
-
 #[tauri::command]
 pub async fn open_config_window(app_handle: AppHandle) -> Result<(), String> {
     if app_handle.get_webview_window("config").is_none() {
@@ -490,21 +456,21 @@ fn create_artifact_collections_window(app_handle: &AppHandle) {
 
 // Create artifact window to display a single artifact
 fn create_artifact_window(app_handle: &AppHandle, artifact: &ArtifactCollection) {
-    let window_label = format!("artifact_{}", artifact.id);
+    let window_label = "artifact";
     
     let (window_size, window_position) = get_window_size_and_position(
         app_handle,
         1000.0,
         700.0,
-        &["chat_ui", "ask", "artifact_collections"],
+        &["artifact_collections", "ask", "chat_ui"],
     );
 
     let builder = WebviewWindowBuilder::new(
         app_handle,
-        &window_label,
+        window_label,
         WebviewUrl::App("index.html".into()),
     )
-    .title(&format!("{} - {}", artifact.name, artifact.artifact_type.to_uppercase()))
+    .title(artifact.name.clone())
     .inner_size(window_size.width, window_size.height)
     .resizable(true)
     .minimizable(true)
@@ -550,8 +516,7 @@ pub async fn open_artifact_window(
     app_handle: AppHandle,
     artifact: ArtifactCollection,
 ) -> Result<(), String> {
-    let window_label = format!("artifact_{}", artifact.id);
-    
+    let window_label = "artifact";
     if app_handle.get_webview_window(&window_label).is_none() {
         println!("Creating artifact window: {}", window_label);
         create_artifact_window(&app_handle, &artifact);
@@ -562,10 +527,6 @@ pub async fn open_artifact_window(
         }
         window.show().unwrap();
         window.set_focus().unwrap();
-        
-        // Update the artifact data in case it has changed
-        println!("Sending updated artifact data to existing window: {}", window_label);
-        let _ = window.emit("artifact-data", &artifact);
     }
     Ok(())
 }
