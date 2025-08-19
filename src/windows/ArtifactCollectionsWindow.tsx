@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+// form removed here; using a dedicated dialog component
 import {
     Card,
     CardContent,
@@ -28,8 +29,8 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { useTheme } from '@/hooks/useTheme';
 import { formatIconDisplay } from '@/utils/emoji-utils';
-import EmojiPicker from '@/components/ui/emoji-picker';
 import { Search, MoreVertical, Folder, Grid, List } from 'lucide-react';
+import EditArtifactDialog from '@/components/EditArtifactDialog';
 
 interface ArtifactCollection {
     id: number;
@@ -43,13 +44,7 @@ interface ArtifactCollection {
     use_count: number;
 }
 
-interface EditArtifactData {
-    id: number;
-    name: string;
-    icon: string;
-    description: string;
-    tags: string;
-}
+// (removed old EditArtifactData; replaced by using ArtifactCollection directly)
 
 export default function ArtifactCollectionsWindow() {
     useTheme();
@@ -61,10 +56,11 @@ export default function ArtifactCollectionsWindow() {
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
     const [isLoading, setIsLoading] = useState(true);
     const [showEditDialog, setShowEditDialog] = useState(false);
-    const [editingArtifact, setEditingArtifact] = useState<EditArtifactData | null>(null);
+    const [editingArtifact, setEditingArtifact] = useState<ArtifactCollection | null>(null);
     const [showDeleteDialog, setShowDeleteDialog] = useState(false);
     const [deletingArtifact, setDeletingArtifact] = useState<ArtifactCollection | null>(null);
     const { toast } = useToast();
+
 
     // 加载所有 artifacts
     const loadArtifacts = async () => {
@@ -145,48 +141,12 @@ export default function ArtifactCollectionsWindow() {
 
     // 编辑 artifact
     const handleEdit = (artifact: ArtifactCollection) => {
-        setEditingArtifact({
-            id: artifact.id,
-            name: artifact.name,
-            icon: artifact.icon,
-            description: artifact.description,
-            tags: artifact.tags || '',
-        });
+        setEditingArtifact(artifact);
         setShowEditDialog(true);
     };
 
     // 保存编辑
-    const handleSaveEdit = async () => {
-        if (!editingArtifact) return;
-
-        try {
-            await invoke('update_artifact_collection', {
-                request: {
-                    id: editingArtifact.id,
-                    name: editingArtifact.name.trim() || null,
-                    icon: editingArtifact.icon || null,
-                    description: editingArtifact.description.trim() || null,
-                    tags: editingArtifact.tags.trim() || null,
-                }
-            });
-
-            toast({
-                title: '更新成功',
-                description: 'Artifact 信息已更新',
-            });
-
-            setShowEditDialog(false);
-            setEditingArtifact(null);
-            loadArtifacts();
-        } catch (error) {
-            console.error('更新失败:', error);
-            toast({
-                title: '更新失败',
-                description: error as string,
-                variant: 'destructive',
-            });
-        }
-    };
+    // save handled inside the dialog component
 
     // 删除 artifact
     const handleDelete = (artifact: ArtifactCollection) => {
@@ -382,69 +342,15 @@ export default function ArtifactCollectionsWindow() {
             </div>
 
             {/* 编辑对话框 */}
-            <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>编辑 Artifact</DialogTitle>
-                        <DialogDescription>
-                            修改 artifact 的基本信息
-                        </DialogDescription>
-                    </DialogHeader>
-                    {editingArtifact && (
-                        <div className="grid gap-4 py-4">
-                            <EmojiPicker 
-                                value={editingArtifact.icon}
-                                onChange={(value) => setEditingArtifact({
-                                    ...editingArtifact,
-                                    icon: value
-                                })}
-                            />
-                            <div className="grid grid-cols-4 items-center gap-4">
-                                <label className="text-right text-sm">名称</label>
-                                <Input
-                                    value={editingArtifact.name}
-                                    onChange={(e) => setEditingArtifact({
-                                        ...editingArtifact,
-                                        name: e.target.value
-                                    })}
-                                    className="col-span-3"
-                                />
-                            </div>
-                            <div className="grid grid-cols-4 items-center gap-4">
-                                <label className="text-right text-sm">描述</label>
-                                <Input
-                                    value={editingArtifact.description}
-                                    onChange={(e) => setEditingArtifact({
-                                        ...editingArtifact,
-                                        description: e.target.value
-                                    })}
-                                    className="col-span-3"
-                                />
-                            </div>
-                            <div className="grid grid-cols-4 items-center gap-4">
-                                <label className="text-right text-sm">标签</label>
-                                <Input
-                                    value={editingArtifact.tags}
-                                    onChange={(e) => setEditingArtifact({
-                                        ...editingArtifact,
-                                        tags: e.target.value
-                                    })}
-                                    className="col-span-3"
-                                    placeholder="用逗号分隔"
-                                />
-                            </div>
-                        </div>
-                    )}
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setShowEditDialog(false)}>
-                            取消
-                        </Button>
-                        <Button onClick={handleSaveEdit}>
-                            保存
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+            <EditArtifactDialog
+                isOpen={showEditDialog}
+                artifact={editingArtifact}
+                onClose={() => {
+                    setShowEditDialog(false);
+                    setEditingArtifact(null);
+                }}
+                onUpdated={loadArtifacts}
+            />
 
             {/* 删除确认对话框 */}
             <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
