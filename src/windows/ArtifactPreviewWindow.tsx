@@ -16,6 +16,7 @@ import 'katex/dist/katex.min.css';
 import EnvironmentInstallDialog from '../components/EnvironmentInstallDialog';
 import SaveArtifactDialog from '../components/SaveArtifactDialog';
 import { useTheme } from '../hooks/useTheme';
+import { Button } from '@/components/ui/button';
 
 interface LogLine {
     type: 'log' | 'error' | 'success';
@@ -520,38 +521,42 @@ export default function ArtifactPreviewWindow() {
                         <div className="flex gap-2">
                             {/* 保存按钮 - 仅在预览模式且可保存时显示 */}
                             {currentView === 'preview' && canSave && (
-                                <button
+                                <Button
                                     onClick={handleSaveArtifact}
-                                    className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
+                                    variant="default"
+                                    size="sm"
                                     title="保存到合集"
                                 >
                                     保存
-                                </button>
+                                </Button>
                             )}
                             {previewType !== 'mermaid' && previewType !== 'html' && previewType !== 'svg' && previewType !== 'xml' && previewType !== 'markdown' && previewType !== 'md' && (
                                 <>
-                                    <button
+                                    <Button
                                         onClick={handleRefresh}
-                                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
+                                        variant="outline"
+                                        size="sm"
                                         title="刷新预览"
                                     >
                                         刷新
-                                    </button>
-                                    <button
+                                    </Button>
+                                    <Button
                                         onClick={handleOpenInBrowser}
-                                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
+                                        variant="outline"
+                                        size="sm"
                                         title="在浏览器中打开"
                                     >
                                         打开浏览器
-                                    </button>
+                                    </Button>
                                 </>
                             )}
-                            <button
+                            <Button
                                 onClick={handleToggleView}
-                                className="px-6 py-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
+                                variant="default"
+                                size="sm"
                             >
                                 {currentView === 'logs' ? '查看预览' : '查看日志'}
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 )}
@@ -599,12 +604,13 @@ export default function ArtifactPreviewWindow() {
                                         <div className="text-sm text-muted-foreground">
                                             缩放: {Math.round(mermaidScale * 100)}% | 提示: 滚轮缩放，空格键+拖动
                                         </div>
-                                        <button
+                                        <Button
                                             onClick={resetMermaidView}
-                                            className="px-3 py-1 bg-secondary hover:bg-secondary/80 text-secondary-foreground text-xs rounded transition-colors"
+                                            variant="ghost"
+                                            size="sm"
                                         >
                                             重置视图
-                                        </button>
+                                        </Button>
                                     </div>
                                     <div
                                         ref={mermaidContainerRef}
