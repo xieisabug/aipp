@@ -27,6 +27,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
 import { useTheme } from '@/hooks/useTheme';
+import { formatIconDisplay } from '@/utils/emoji-utils';
+import EmojiPicker from '@/components/ui/emoji-picker';
 import { Search, MoreVertical, Folder, Grid, List } from 'lucide-react';
 
 interface ArtifactCollection {
@@ -308,7 +310,18 @@ export default function ArtifactCollectionsWindow() {
                                 <CardHeader className="pb-3">
                                     <div className="flex items-start justify-between">
                                         <div className="flex items-center gap-2">
-                                            <span className="text-2xl">{artifact.icon}</span>
+                                            {(() => {
+                                                const iconDisplay = formatIconDisplay(artifact.icon);
+                                                return iconDisplay.isImage ? (
+                                                    <img 
+                                                        src={iconDisplay.display} 
+                                                        alt={`Icon for ${artifact.name}`} 
+                                                        className="w-6 h-6 object-cover rounded border"
+                                                    />
+                                                ) : (
+                                                    <span className="text-2xl">{iconDisplay.display}</span>
+                                                );
+                                            })()}
                                             <div className="flex-1">
                                                 <CardTitle className="text-sm font-medium truncate">
                                                     {artifact.name}
@@ -379,17 +392,13 @@ export default function ArtifactCollectionsWindow() {
                     </DialogHeader>
                     {editingArtifact && (
                         <div className="grid gap-4 py-4">
-                            <div className="grid grid-cols-4 items-center gap-4">
-                                <label className="text-right text-sm">图标</label>
-                                <Input
-                                    value={editingArtifact.icon}
-                                    onChange={(e) => setEditingArtifact({
-                                        ...editingArtifact,
-                                        icon: e.target.value
-                                    })}
-                                    className="col-span-3"
-                                />
-                            </div>
+                            <EmojiPicker 
+                                value={editingArtifact.icon}
+                                onChange={(value) => setEditingArtifact({
+                                    ...editingArtifact,
+                                    icon: value
+                                })}
+                            />
                             <div className="grid grid-cols-4 items-center gap-4">
                                 <label className="text-right text-sm">名称</label>
                                 <Input

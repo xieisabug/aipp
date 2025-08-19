@@ -12,9 +12,10 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import EmojiPicker from '@/components/ui/emoji-picker';
+import { getDefaultIcon } from '@/utils/emoji-utils';
 
 interface SaveArtifactDialogProps {
     isOpen: boolean;
@@ -23,13 +24,6 @@ interface SaveArtifactDialogProps {
     code: string;
 }
 
-// 预定义的图标选项
-const ICON_OPTIONS = [
-    '🎨', '📊', '🎯', '🔧', '📝', '💡', '🎭', '🌟', '🎪', '😄',
-    '📋', '🎲', '🧩', '⚡', '🎵', '🎬', '📱', '💻', '🖥️', '⌚',
-    '📷', '🎮', '🕹️', '🔮', '💎', '🎁', '🏆', '🎖️', '🥇', '🎯'
-];
-
 export default function SaveArtifactDialog({ 
     isOpen, 
     onClose, 
@@ -37,7 +31,7 @@ export default function SaveArtifactDialog({
     code 
 }: SaveArtifactDialogProps) {
     const [name, setName] = useState('');
-    const [icon, setIcon] = useState('🎨');
+    const [icon, setIcon] = useState(getDefaultIcon());
     const [description, setDescription] = useState('');
     const [tags, setTags] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -73,7 +67,7 @@ export default function SaveArtifactDialog({
 
             // 重置表单
             setName('');
-            setIcon('🎨');
+            setIcon(getDefaultIcon());
             setDescription('');
             setTags('');
             
@@ -93,7 +87,7 @@ export default function SaveArtifactDialog({
     const handleCancel = () => {
         // 重置表单
         setName('');
-        setIcon('🎨');
+        setIcon(getDefaultIcon());
         setDescription('');
         setTags('');
         onClose();
@@ -103,7 +97,7 @@ export default function SaveArtifactDialog({
     React.useEffect(() => {
         if (!isOpen) {
             setName('');
-            setIcon('🎨');
+            setIcon(getDefaultIcon());
             setDescription('');
             setTags('');
         }
@@ -121,37 +115,10 @@ export default function SaveArtifactDialog({
                 
                 <div className="grid gap-4 py-4">
                     {/* 图标选择 */}
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="icon" className="text-right">
-                            图标
-                        </Label>
-                        <div className="col-span-3">
-                            <Select value={icon} onValueChange={setIcon}>
-                                <SelectTrigger>
-                                    <SelectValue>
-                                        <span className="text-2xl mr-2">{icon}</span>
-                                        {icon}
-                                    </SelectValue>
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <div className="grid grid-cols-6 gap-2 p-2">
-                                        {ICON_OPTIONS.map((iconOption) => (
-                                            <button
-                                                key={iconOption}
-                                                onClick={() => setIcon(iconOption)}
-                                                className={`
-                                                    text-2xl p-2 rounded hover:bg-accent transition-colors
-                                                    ${icon === iconOption ? 'bg-accent ring-2 ring-primary' : ''}
-                                                `}
-                                            >
-                                                {iconOption}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    </div>
+                    <EmojiPicker 
+                        value={icon} 
+                        onChange={setIcon}
+                    />
 
                     {/* 名称 */}
                     <div className="grid grid-cols-4 items-center gap-4">
