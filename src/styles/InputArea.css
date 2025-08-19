@@ -200,6 +200,16 @@
     z-index: 1000;
 }
 
+.artifact-completion-hint {
+    padding: 8px 12px;
+    font-size: 11px;
+    color: hsl(var(--muted-foreground));
+    border-bottom: 1px solid hsl(var(--border));
+    background-color: hsl(var(--muted) / 0.3);
+    text-align: center;
+    font-weight: 500;
+}
+
 .completion-artifact-container {
     padding: 12px;
     cursor: pointer;

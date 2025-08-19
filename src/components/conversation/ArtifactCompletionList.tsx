@@ -10,7 +10,7 @@ interface ArtifactCompletionListProps {
     textareaRef: React.RefObject<HTMLTextAreaElement | null>;
     setInputText: React.Dispatch<React.SetStateAction<string>>;
     setArtifactListVisible: React.Dispatch<React.SetStateAction<boolean>>;
-    onArtifactSelect?: (artifact: ArtifactCollectionItem) => void;
+    onArtifactSelect?: (artifact: ArtifactCollectionItem, action: 'complete' | 'open') => void;
 }
 
 export default function ArtifactCompletionList({
@@ -70,7 +70,7 @@ export default function ArtifactCompletionList({
         }
 
         setArtifactListVisible(false);
-        onArtifactSelect?.(artifact);
+        onArtifactSelect?.(artifact, 'complete');
     };
 
     if (!artifactListVisible || artifacts.length === 0) {
@@ -97,6 +97,9 @@ export default function ArtifactCompletionList({
             className="completion-list artifact-completion-list" 
             style={listStyle}
         >
+            <div className="artifact-completion-hint">
+                Tab 补全名称 • Enter 打开
+            </div>
             {artifacts.map((artifact, index) => (
                 <div
                     key={artifact.id}

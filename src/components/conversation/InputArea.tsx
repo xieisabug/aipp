@@ -640,7 +640,7 @@ const InputArea = React.memo(
                     // Shift + Enter for new line
                     return;
                 } else if (artifactListVisible) {
-                    // Select artifact - 阻止表单提交
+                    // Open artifact - 阻止表单提交
                     e.preventDefault();
                     const selectedArtifact = filteredArtifacts[selectedArtifactIndex];
                     const textarea = e.currentTarget as HTMLTextAreaElement;
@@ -648,17 +648,22 @@ const InputArea = React.memo(
                     const hashIndex = textarea.value.lastIndexOf("#", cursorPosition - 1);
 
                     if (hashIndex !== -1) {
+                        // Clear the #artifact_name from input
                         const beforeHash = textarea.value.substring(0, hashIndex);
                         const afterHash = textarea.value.substring(cursorPosition);
-                        setInputText(beforeHash + `#${selectedArtifact.name} ` + afterHash);
+                        setInputText(beforeHash + afterHash);
 
-                        // 设置光标位置
+                        // Set cursor position at the hash position
                         setTimeout(() => {
-                            const newPosition = hashIndex + selectedArtifact.name.length + 2;
-                            textarea.setSelectionRange(newPosition, newPosition);
+                            textarea.setSelectionRange(hashIndex, hashIndex);
                         }, 0);
                     }
                     setArtifactListVisible(false);
+
+                    // Open the artifact
+                    invoke('open_artifact_window', { artifactId: selectedArtifact.id }).catch((error) => {
+                        console.error('Failed to open artifact:', error);
+                    });
                 } else if (assistantListVisible) {
                     // Select assistant - 阻止表单提交
                     e.preventDefault();
@@ -954,9 +959,16 @@ const InputArea = React.memo(
                     textareaRef={textareaRef}
                     setInputText={setInputText}
                     setArtifactListVisible={setArtifactListVisible}
-                    onArtifactSelect={(artifact) => {
-                        // Optional: handle artifact selection for additional actions
-                        console.log('Artifact selected:', artifact.name);
+                    onArtifactSelect={(artifact, action) => {
+                        if (action === 'open') {
+                            // Open artifact when Enter is pressed
+                            invoke('open_artifact_window', { artifactId: artifact.id }).catch((error) => {
+                                console.error('Failed to open artifact:', error);
+                            });
+                        } else {
+                            // Tab key completion - just log for now
+                            console.log('Artifact completed:', artifact.name);
+                        }
                     }}
                 />
             </div>
