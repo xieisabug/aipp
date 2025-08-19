@@ -74,9 +74,12 @@ pub fn save_artifact_to_collection(
         .save_artifact(new_artifact)
         .map_err(|e| format!("Failed to save artifact: {}", e))?;
 
-    // Emit event to update UI
-    if let Some(window) = app_handle.get_webview_window("artifact_collections") {
-        let _ = window.emit("artifact-saved", artifact_id);
+    // Emit events to update UI across all windows
+    let windows_to_notify = ["artifact_collections", "ask", "chat_ui"];
+    for window_name in windows_to_notify.iter() {
+        if let Some(window) = app_handle.get_webview_window(window_name) {
+            let _ = window.emit("artifact-collection-updated", artifact_id);
+        }
     }
 
     Ok(artifact_id)
@@ -180,11 +183,14 @@ pub fn update_artifact_collection(
     db.update_artifact(update)
         .map_err(|e| format!("Failed to update artifact: {}", e))?;
 
-    // Emit event to update UI
-    if let Some(window) = app_handle.get_webview_window("artifact_collections") {
-        let _ = window.emit("artifact-updated", request.id);
+    // Emit events to update UI across all windows
+    let windows_to_notify = ["artifact_collections", "ask", "chat_ui"];
+    for window_name in windows_to_notify.iter() {
+        if let Some(window) = app_handle.get_webview_window(window_name) {
+            let _ = window.emit("artifact-collection-updated", request.id);
+        }
     }
-
+    
     Ok(())
 }
 
@@ -202,9 +208,12 @@ pub fn delete_artifact_collection(
         .map_err(|e| format!("Failed to delete artifact: {}", e))?;
 
     if deleted {
-        // Emit event to update UI
-        if let Some(window) = app_handle.get_webview_window("artifact_collections") {
-            let _ = window.emit("artifact-deleted", id);
+        // Emit events to update UI across all windows
+        let windows_to_notify = ["artifact_collections", "ask", "chat_ui"];
+        for window_name in windows_to_notify.iter() {
+            if let Some(window) = app_handle.get_webview_window(window_name) {
+                let _ = window.emit("artifact-collection-updated", id);
+            }
         }
     }
 

@@ -57,6 +57,7 @@ import Stop from "../../assets/stop.svg?react";
 import UpArrow from "../../assets/up-arrow.svg?react";
 import { FileInfo } from "../../data/Conversation";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCaretCoordinates } from "../../utils/caretCoordinates";
 import BangCompletionList from "./BangCompletionList";
 import AssistantCompletionList from "./AssistantCompletionList";
@@ -164,16 +165,42 @@ const InputArea = React.memo(
             });
 
             // Load artifacts for # selection
-            invoke<ArtifactCollectionItem[]>("get_artifacts_for_completion").then((artifactList) => {
-                setArtifacts(artifactList);
-                // Initialize with default match info for all artifacts
-                const initialFiltered: FilteredArtifact[] = artifactList.map(artifact => ({
-                    ...artifact,
-                    matchType: 'exact' as const,
-                    highlightIndices: []
-                }));
-                setFilteredArtifacts(initialFiltered);
-            });
+            const loadArtifacts = () => {
+                invoke<ArtifactCollectionItem[]>("get_artifacts_for_completion").then((artifactList) => {
+                    setArtifacts(artifactList);
+                    // Initialize with default match info for all artifacts
+                    const initialFiltered: FilteredArtifact[] = artifactList.map(artifact => ({
+                        ...artifact,
+                        matchType: 'exact' as const,
+                        highlightIndices: []
+                    }));
+                    setFilteredArtifacts(initialFiltered);
+                });
+            };
+
+            loadArtifacts();
+
+            // Listen for artifact collection updates
+            const setupArtifactListener = async () => {
+                const unlisten = await listen('artifact-collection-updated', () => {
+                    loadArtifacts();
+                });
+                return unlisten;
+            };
+
+            let unlistenPromise: Promise<() => void> | null = null;
+            
+            try {
+                unlistenPromise = setupArtifactListener();
+            } catch (error) {
+                console.warn('Failed to setup artifact listener:', error);
+            }
+
+            return () => {
+                if (unlistenPromise) {
+                    unlistenPromise.then(unlisten => unlisten()).catch(console.warn);
+                }
+            };
         }, []);
 
         // 监听助手列表变化

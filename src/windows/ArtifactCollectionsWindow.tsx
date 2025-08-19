@@ -112,17 +112,11 @@ export default function ArtifactCollectionsWindow() {
         const unlisteners: (() => void)[] = [];
 
         const setupListeners = async () => {
-            const artifactSavedUnlisten = await listen('artifact-saved', () => {
-                loadArtifacts();
-            });
-            const artifactUpdatedUnlisten = await listen('artifact-updated', () => {
-                loadArtifacts();
-            });
-            const artifactDeletedUnlisten = await listen('artifact-deleted', () => {
+            const artifactDeletedUnlisten = await listen('artifact-collection-updated', () => {
                 loadArtifacts();
             });
 
-            unlisteners.push(artifactSavedUnlisten, artifactUpdatedUnlisten, artifactDeletedUnlisten);
+            unlisteners.push(artifactDeletedUnlisten);
         };
 
         setupListeners();
