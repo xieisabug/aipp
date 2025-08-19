@@ -3,8 +3,8 @@ use crate::{
         is_react_component, extract_component_name, is_vue_component, extract_vue_component_name
     },
     artifacts::{
-        react_preview::create_react_preview_for_artifact,
-        vue_preview::create_vue_preview_for_artifact,
+        react_runner::run_react_artifact,
+        vue_runner::run_vue_artifact,
     },
     db::artifacts_db::{
         ArtifactCollection, ArtifactsDatabase, NewArtifactCollection, UpdateArtifactCollection,
@@ -260,22 +260,23 @@ pub async fn open_artifact_window(
                     );
                 }
 
-                let preview_id = create_react_preview_for_artifact(
+                let preview_url = run_react_artifact(
                     app_handle.clone(),
+                    artifact_id,
                     artifact.code.as_str().to_string(),
                     component_name,
                 )
                 .await
                 .map_err(|e| {
-                    println!("❌ [Artifacts] React 组件预览失败: {}", e);
-                    let error_msg = format!("React 组件预览失败: {}", e);
+                    println!("❌ [Artifacts] React 组件运行失败: {}", e);
+                    let error_msg = format!("React 组件运行失败: {}", e);
                     if let Some(window) = app_handle.get_webview_window("artifact") {
                         let _ = window.emit("artifact-error", &error_msg);
                     }
                     error_msg
                 })?;
 
-                println!("✅ React 组件预览已启动，预览 ID: {}", preview_id);
+                println!("✅ React 组件已启动，访问地址: {}", preview_url);
             } else {
                 if let Some(window) = app_handle.get_webview_window("artifact") {
                     let _ = window.emit(
@@ -327,22 +328,23 @@ pub async fn open_artifact_window(
                         }),
                     );
                 }
-                let preview_id = create_vue_preview_for_artifact(
+                let preview_url = run_vue_artifact(
                     app_handle.clone(),
+                    artifact_id,
                     artifact.code.as_str().to_string(),
                     component_name,
                 )
                 .await
                 .map_err(|e| {
-                    println!("❌ [Artifacts] Vue 组件预览失败: {}", e);
-                    let error_msg = format!("Vue 组件预览失败: {}", e);
+                    println!("❌ [Artifacts] Vue 组件运行失败: {}", e);
+                    let error_msg = format!("Vue 组件运行失败: {}", e);
                     if let Some(window) = app_handle.get_webview_window("artifact") {
                         let _ = window.emit("artifact-error", &error_msg);
                     }
                     error_msg
                 })?;
 
-                println!("✅ Vue 组件预览已启动，预览 ID: {}", preview_id);
+                println!("✅ Vue 组件已启动，访问地址: {}", preview_url);
             } else {
                 if let Some(window) = app_handle.get_webview_window("artifact") {
                     let _ = window.emit(

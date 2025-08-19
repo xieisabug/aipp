@@ -25,6 +25,10 @@ use crate::api::artifacts_collection_api::{
     open_artifact_window, save_artifact_to_collection, search_artifacts_collection,
     update_artifact_collection,
 };
+use crate::artifacts::{
+    react_runner::{run_react_artifact, close_react_artifact},
+    vue_runner::{run_vue_artifact, close_vue_artifact},
+};
 use crate::api::assistant_api::{
     add_assistant, copy_assistant, delete_assistant, get_assistant, get_assistant_field_value,
     get_assistants, save_assistant, get_assistant_mcp_servers_with_tools, update_assistant_mcp_config, 
@@ -362,6 +366,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             create_vue_preview,
             create_vue_preview_for_artifact,
             close_vue_preview,
+            run_react_artifact,
+            close_react_artifact,
+            run_vue_artifact,
+            close_vue_artifact,
             confirm_environment_install,
             retry_preview_after_install,
             get_mcp_servers,

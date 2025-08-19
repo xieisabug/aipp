@@ -19,7 +19,7 @@
     "preview_vue",
     "artifact_preview",
     "artifact_collections",
-    "artifact_*"
+    "artifact"
   ],
   "permissions": [
     "core:default",
