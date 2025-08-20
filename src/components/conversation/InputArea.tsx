@@ -83,6 +83,7 @@ interface InputAreaProps {
     aiIsResponsing: boolean;
     placement?: "top" | "bottom";
 }
+const IMAGE_AREA_HEIGHT = 80;
 
 const InputArea = React.memo(
     forwardRef<InputAreaRef, InputAreaProps>(
@@ -101,7 +102,6 @@ const InputArea = React.memo(
             ref
         ) => {
             // 图片区域的高度
-            const IMAGE_AREA_HEIGHT = 80;
             const textareaRef = useRef<HTMLTextAreaElement>(null);
 
             // 暴露给外部的方法
@@ -119,6 +119,7 @@ const InputArea = React.memo(
             // 因为 WebKit2 下 event.isComposing 在确认候选词时会错误地返回 false
             const isComposingRef = useRef(false);
             const [initialHeight, setInitialHeight] = useState<number | null>(null);
+            const [isFocused, setIsFocused] = useState<boolean>(false);
             const [bangListVisible, setBangListVisible] = useState<boolean>(false);
             const [bangList, setBangList] = useState<string[]>([]);
             const [originalBangList, setOriginalBangList] = useState<string[]>([]);
@@ -150,8 +151,11 @@ const InputArea = React.memo(
                 if (textareaRef.current && !initialHeight) {
                     setInitialHeight(textareaRef.current.scrollHeight);
                 }
-                adjustTextareaHeight();
-            }, [inputText, initialHeight, fileInfoList]);
+                // Only adjust height when focused or when content changes
+                if (isFocused) {
+                    adjustTextareaHeight();
+                }
+            }, [inputText, initialHeight, fileInfoList, isFocused]);
 
             useEffect(() => {
                 invoke<string[]>("get_bang_list").then((bangList) => {
@@ -392,10 +396,18 @@ const InputArea = React.memo(
                 const textarea = textareaRef.current;
                 if (textarea && initialHeight) {
                     textarea.style.height = `${initialHeight}px`;
-                    const maxHeight = document.documentElement.clientHeight * 0.4;
+                    const maxHeight = document.documentElement.clientHeight * 0.35;
                     const newHeight = Math.min(Math.max(textarea.scrollHeight, initialHeight), maxHeight);
                     textarea.style.height = `${newHeight}px`;
                     textarea.parentElement!.style.height = `${newHeight + ((fileInfoList?.length && IMAGE_AREA_HEIGHT) || 0)}px`;
+                }
+            };
+
+            const restoreInitialHeight = () => {
+                const textarea = textareaRef.current;
+                if (textarea && initialHeight) {
+                    textarea.style.height = `${initialHeight}px`;
+                    textarea.parentElement!.style.height = `${initialHeight + ((fileInfoList?.length && IMAGE_AREA_HEIGHT) || 0)}px`;
                 }
             };
 
@@ -755,9 +767,15 @@ const InputArea = React.memo(
                     setSelectedBangIndex((prevIndex) => (prevIndex < bangList.length - 1 ? prevIndex + 1 : 0));
                 } else if (e.key === "Escape") {
                     e.preventDefault();
-                    setBangListVisible(false);
-                    setAssistantListVisible(false);
-                    setArtifactListVisible(false);
+                    if (bangListVisible || assistantListVisible || artifactListVisible) {
+                        // Hide completion lists
+                        setBangListVisible(false);
+                        setAssistantListVisible(false);
+                        setArtifactListVisible(false);
+                    } else {
+                        // No completion lists visible, blur the textarea to remove focus
+                        textareaRef.current?.blur();
+                    }
                 }
             };
 
@@ -799,6 +817,14 @@ const InputArea = React.memo(
                             onChange={handleTextareaChange}
                             onKeyDown={handleKeyDownWithBang}
                             onPaste={handlePaste}
+                            onFocus={() => {
+                                setIsFocused(true);
+                                adjustTextareaHeight();
+                            }}
+                            onBlur={() => {
+                                setIsFocused(false);
+                                restoreInitialHeight();
+                            }}
                             onCompositionStart={() => {
                                 // WebKit2 GTK 中文输入法兼容性：标记开始 IME 组合
                                 isComposingRef.current = true;
