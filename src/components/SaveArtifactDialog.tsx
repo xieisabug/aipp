@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import EmojiPicker from "@/components/ui/emoji-picker";
 import { getDefaultIcon, getEmojisByCategory } from "@/utils/emojiUtils";
 import { ArtifactMetadata } from "@/data/ArtifactCollection";
@@ -30,7 +30,6 @@ interface SaveArtifactDialogProps {
 export default function SaveArtifactDialog({ isOpen, onClose, artifactType, code }: SaveArtifactDialogProps) {
     const [isLoading, setIsLoading] = useState(false);
     const [isGeneratingMetadata, setIsGeneratingMetadata] = useState(false);
-    const { toast } = useToast();
 
     const form = useForm({
         defaultValues: {
@@ -55,20 +54,13 @@ export default function SaveArtifactDialog({ isOpen, onClose, artifactType, code
 
             await invoke<number>("save_artifact_to_collection", { request });
 
-            toast({
-                title: "保存成功",
-                description: `Artifact "${data.name}" 已保存到合集中`,
-            });
+            toast.success(`Artifact "${data.name}" 已保存到合集中`);
 
             form.reset();
             onClose();
         } catch (error) {
             console.error("保存失败:", error);
-            toast({
-                title: "保存失败",
-                description: error as string,
-                variant: "destructive",
-            });
+            toast.error("保存失败: " + error);
         } finally {
             setIsLoading(false);
         }
@@ -100,17 +92,10 @@ export default function SaveArtifactDialog({ isOpen, onClose, artifactType, code
             form.setValue("tags", metadata.tags);
             form.setValue("icon", randomEmoji);
 
-            toast({
-                title: "智能填写成功",
-                description: "已根据代码内容自动生成相关信息",
-            });
+            toast.success("已根据代码内容自动生成相关信息");
         } catch (error) {
             console.error("智能填写失败:", error);
-            toast({
-                title: "智能填写失败",
-                description: error as string,
-                variant: "destructive",
-            });
+            toast.error("智能填写失败: " + error);
         } finally {
             setIsGeneratingMetadata(false);
         }

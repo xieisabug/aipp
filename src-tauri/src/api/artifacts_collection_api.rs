@@ -465,17 +465,25 @@ pub async fn generate_artifact_metadata(
     let feature_config = config_feature_map.get("conversation_summary");
     
     if let Some(config) = feature_config {
-        let provider_id = config
-            .get("provider_id")
-            .ok_or("provider_id配置未找到")?
-            .value
-            .parse::<i64>()
-            .map_err(|e| format!("provider_id解析失败: {}", e))?;
-        let model_code = config
-            .get("model_code")
-            .ok_or("model_code配置未找到")?
-            .value
-            .clone();
+        // 检查是否配置了 form_autofill_model
+        let (provider_id, model_code) = if let Some(form_model) = config.get("form_autofill_model") {
+            let form_model_value = &form_model.value;
+            if form_model_value.contains("%%") && !form_model_value.starts_with("%%") {
+                let parts: Vec<&str> = form_model_value.split("%%").collect();
+                if parts.len() == 2 {
+                    let provider_id = parts[0].parse::<i64>()
+                        .map_err(|e| format!("表单填写模型provider_id解析失败: {}", e))?;
+                    (provider_id, parts[1].to_string())
+                } else {
+                    return Err("表单填写模型配置格式错误".to_string());
+                }
+            } else {
+                return Err("表单填写模型未配置，请在设置 -> 功能助手配置 -> AI总结 中配置表单填写模型".to_string());
+            }
+        } else {
+            // 如果没有配置 form_autofill_model，直接提示用户配置
+            return Err("表单填写模型未配置，请在设置 -> 功能助手配置 -> AI总结 中配置表单填写模型".to_string());
+        };
 
         // 构建AI提示词
         let system_prompt = r#"你是一个专业的代码分析助手。提供的代码是某个工具的核心组件，请根据代码对该工具生成适当的元数据。
