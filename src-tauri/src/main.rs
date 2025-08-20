@@ -21,7 +21,7 @@ use crate::api::artifacts_api::{
 };
 use crate::api::artifacts_collection_api::{
     delete_artifact_collection, get_artifact_by_id, get_artifacts_collection,
-    get_artifacts_for_completion, get_artifacts_statistics,
+    get_artifacts_for_completion, get_artifacts_statistics, generate_artifact_metadata,
     open_artifact_window, save_artifact_to_collection, search_artifacts_collection,
     update_artifact_collection,
 };
@@ -300,6 +300,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             tool_result_continue_ask_ai,
             regenerate_ai,
             regenerate_conversation_title,
+            generate_artifact_metadata,
             cancel_ai,
             get_selected,
             open_config_window,

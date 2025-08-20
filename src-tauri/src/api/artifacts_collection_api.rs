@@ -8,11 +8,18 @@ use crate::{
     },
     db::artifacts_db::{
         ArtifactCollection, ArtifactsDatabase, NewArtifactCollection, UpdateArtifactCollection,
-    }, 
+    },
+    db::llm_db::LLMDatabase,
+    db::system_db::FeatureConfig,
+    api::genai_client,
+    api::ai::config::{get_network_proxy_from_config, get_request_timeout_from_config},
+    errors::AppError,
+    FeatureConfigState,
     utils::bun_utils::BunUtils
 };
 use serde::{Deserialize, Serialize};
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, State};
+use std::collections::HashMap;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ArtifactCollectionItem {
@@ -50,6 +57,14 @@ pub struct UpdateArtifactRequest {
 pub struct ArtifactStatistics {
     pub total_count: i64,
     pub total_uses: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ArtifactMetadata {
+    pub name: String,
+    pub description: String,
+    pub tags: String,
+    pub emoji_category: String,
 }
 
 /// Save a new artifact to collection
@@ -436,4 +451,131 @@ pub fn get_artifacts_for_completion(
 ) -> Result<Vec<ArtifactCollectionItem>, String> {
     // Return artifacts sorted by use frequency for completion
     get_artifacts_collection(app_handle, None)
+}
+
+/// AI生成artifact元数据
+#[tauri::command]
+pub async fn generate_artifact_metadata(
+    app_handle: tauri::AppHandle,
+    feature_config_state: State<'_, FeatureConfigState>,
+    artifact_type: String,
+    code: String,
+) -> Result<ArtifactMetadata, String> {
+    println!("================================ Generate Artifact Metadata Start ===============================================");
+
+    // 获取特性配置
+    let config_feature_map = feature_config_state.config_feature_map.lock().await;
+    let feature_config = config_feature_map.get("conversation_summary");
+    
+    if let Some(config) = feature_config {
+        let provider_id = config
+            .get("provider_id")
+            .ok_or("provider_id配置未找到")?
+            .value
+            .parse::<i64>()
+            .map_err(|e| format!("provider_id解析失败: {}", e))?;
+        let model_code = config
+            .get("model_code")
+            .ok_or("model_code配置未找到")?
+            .value
+            .clone();
+
+        // 构建AI提示词
+        let system_prompt = r#"你是一个专业的代码分析助手。提供的代码是某个工具的核心组件，请根据代码对该工具生成适当的元数据。
+你需要返回一个JSON格式的响应，包含以下字段：
+{
+  "name": "简洁的名称（中文，不超过10字）",
+  "description": "对该工具的描述（中文，5-30字）",
+  "tags": "相关标签（用英文逗号分隔）",
+  "emoji_category": "emoji类型（选择以下之一：smileys_emotion, people_body, activities, objects, symbols, animals, food_drink, travel）"
+}
+
+请确保：
+- 名称要简洁明了，体现代码的核心功能
+- 描述要准确说明代码的用途和特点
+- 标签要相关且有用，帮助分类和搜索
+- emoji_category要根据代码内容选择最合适的类别"#;
+
+        let user_prompt = format!(
+            "代码类型：{}\n\n代码内容：\n{}\n\n请分析上述代码并生成相应的元数据。",
+            artifact_type, code
+        );
+
+        let llm_db = LLMDatabase::new(&app_handle)
+            .map_err(|e| format!("数据库连接失败: {}", e))?;
+        let model_detail = llm_db
+            .get_llm_model_detail(&provider_id, &model_code)
+            .map_err(|e| format!("模型详情获取失败: {}", e))?;
+
+        // 获取网络配置
+        let network_proxy = get_network_proxy_from_config(&config_feature_map);
+        let request_timeout = get_request_timeout_from_config(&config_feature_map);
+        
+        let proxy_enabled = false; // 元数据生成通常不需要代理
+        
+        let client = genai_client::create_client_with_config(
+            &model_detail.configs,
+            &model_detail.model.code,
+            &model_detail.provider.api_type,
+            network_proxy.as_deref(),
+            proxy_enabled,
+            Some(request_timeout),
+        ).map_err(|e| format!("AI客户端创建失败: {}", e))?;
+
+        let chat_messages = vec![
+            genai::chat::ChatMessage::system(system_prompt),
+            genai::chat::ChatMessage::user(&user_prompt)
+        ];
+        let chat_request = genai::chat::ChatRequest::new(chat_messages);
+        let model_name = &model_detail.model.code;
+
+        println!("[[AI Request]] 请求");
+        // 调用AI生成元数据
+        let response = client
+            .exec_chat(model_name, chat_request.clone(), None)
+            .await
+            .map_err(|e| format!("AI请求失败: {}", e))?;
+
+        let response_text = response.first_text().unwrap_or("").to_string();
+        println!("[[AI Response]]: {}", response_text);
+
+        // 解析JSON响应
+        match serde_json::from_str::<ArtifactMetadata>(&response_text) {
+            Ok(metadata) => {
+                println!("[[Parsed Metadata]]: {:#?}", metadata);
+                Ok(metadata)
+            }
+            Err(e) => {
+                println!("[[JSON Parse Error]]: {}", e);
+                // 如果JSON解析失败，尝试从响应中提取JSON部分
+                if let Some(json_start) = response_text.find('{') {
+                    if let Some(json_end) = response_text.rfind('}') {
+                        let json_part = &response_text[json_start..=json_end];
+                        match serde_json::from_str::<ArtifactMetadata>(json_part) {
+                            Ok(metadata) => {
+                                println!("[[Parsed Metadata from extracted JSON]]: {:#?}", metadata);
+                                Ok(metadata)
+                            }
+                            Err(e2) => {
+                                println!("[[Extracted JSON Parse Error]]: {}", e2);
+                                // 返回默认的元数据作为fallback
+                                Ok(ArtifactMetadata {
+                                    name: format!("{} 代码", artifact_type),
+                                    description: format!("一个 {} 类型的代码片段，包含丰富的功能实现。", artifact_type),
+                                    tags: format!("{},代码,开发,工具", artifact_type.to_lowercase()),
+                                    emoji_category: "物品".to_string(),
+                                })
+                            }
+                        }
+                    } else {
+                        Err("无法从AI响应中提取有效的JSON格式".to_string())
+                    }
+                } else {
+                    Err("AI响应不包含JSON格式的内容".to_string())
+                }
+            }
+        }
+    } else {
+        Err("conversation_summary配置未找到".to_string())
+    }
 }

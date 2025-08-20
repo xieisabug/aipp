@@ -16,7 +16,9 @@ import { Badge } from "@/components/ui/badge";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import EmojiPicker from "@/components/ui/emoji-picker";
-import { getDefaultIcon } from "@/utils/emojiUtils";
+import { getDefaultIcon, getEmojisByCategory } from "@/utils/emojiUtils";
+import { ArtifactMetadata } from "@/data/ArtifactCollection";
+import { Sparkles } from "lucide-react";
 
 interface SaveArtifactDialogProps {
     isOpen: boolean;
@@ -27,6 +29,7 @@ interface SaveArtifactDialogProps {
 
 export default function SaveArtifactDialog({ isOpen, onClose, artifactType, code }: SaveArtifactDialogProps) {
     const [isLoading, setIsLoading] = useState(false);
+    const [isGeneratingMetadata, setIsGeneratingMetadata] = useState(false);
     const { toast } = useToast();
 
     const form = useForm({
@@ -76,6 +79,43 @@ export default function SaveArtifactDialog({ isOpen, onClose, artifactType, code
         onClose();
     };
 
+    const handleGenerateMetadata = async () => {
+        if (isGeneratingMetadata) return;
+
+        setIsGeneratingMetadata(true);
+        try {
+            const metadata = await invoke<ArtifactMetadata>("generate_artifact_metadata", {
+                artifactType,
+                code,
+            });
+
+            const categoryKey = metadata.emoji_category || "objects";
+            const emojis = getEmojisByCategory(categoryKey);
+            const randomEmoji =
+                emojis.length > 0 ? emojis[Math.floor(Math.random() * emojis.length)] : getDefaultIcon();
+
+            // 填充表单字段
+            form.setValue("name", metadata.name);
+            form.setValue("description", metadata.description);
+            form.setValue("tags", metadata.tags);
+            form.setValue("icon", randomEmoji);
+
+            toast({
+                title: "智能填写成功",
+                description: "已根据代码内容自动生成相关信息",
+            });
+        } catch (error) {
+            console.error("智能填写失败:", error);
+            toast({
+                title: "智能填写失败",
+                description: error as string,
+                variant: "destructive",
+            });
+        } finally {
+            setIsGeneratingMetadata(false);
+        }
+    };
+
     // 当对话框关闭时重置表单
     React.useEffect(() => {
         if (!isOpen) {
@@ -87,9 +127,21 @@ export default function SaveArtifactDialog({ isOpen, onClose, artifactType, code
         <Dialog open={isOpen} onOpenChange={handleCancel}>
             <DialogContent className="sm:max-w-[525px] max-h-[80vh] overflow-y-auto">
                 <DialogHeader>
-                    <DialogTitle>保存 Artifact 到合集</DialogTitle>
+                    <div className="flex items-center justify-between">
+                        <DialogTitle>保存 Artifact 到合集</DialogTitle>
+                        <button
+                            type="button"
+                            onClick={handleGenerateMetadata}
+                            disabled={isGeneratingMetadata}
+                            className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 px-2 py-1"
+                            title="智能填写"
+                        >
+                            <Sparkles className={`h-4 w-4 ${isGeneratingMetadata ? "animate-pulse" : ""}`} />
+                        </button>
+                    </div>
                     <DialogDescription>
-                        将当前的 {artifactType.toUpperCase()} artifact 保存到您的合集中，方便以后快速访问。
+                        将当前的 {artifactType.toUpperCase()} artifact 保存到您的合集中，方便以后快速访问。点击右上角的
+                        ⭐ 按钮可智能生成名称、描述、标签等信息。
                     </DialogDescription>
                 </DialogHeader>
 

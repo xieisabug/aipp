@@ -35,3 +35,10 @@ export interface FilteredArtifact extends ArtifactCollectionItem {
     matchType: 'exact' | 'pinyin' | 'initial' | 'fuzzy';
     highlightIndices: number[];
 }
+
+export interface ArtifactMetadata {
+    name: string;
+    description: string;
+    tags: string;
+    emoji_category: string;
+}
