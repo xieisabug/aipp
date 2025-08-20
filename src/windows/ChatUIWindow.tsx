@@ -1,10 +1,10 @@
 import { useEffect, useState, useRef } from "react";
 import { emit } from "@tauri-apps/api/event";
-import ChatUIToolbar from "./components/ChatUIToolbar";
-import ConversationList from "./components/ConversationList";
-import ChatUIInfomation from "./components/ChatUIInfomation";
-import ConversationUI, { ConversationUIRef } from "./components/ConversationUI";
-import { useTheme } from "./hooks/useTheme";
+import ChatUIToolbar from "../components/ChatUIToolbar";
+import ConversationList from "../components/ConversationList";
+import ChatUIInfomation from "../components/ChatUIInfomation";
+import ConversationUI, { ConversationUIRef } from "../components/ConversationUI";
+import { useTheme } from "../hooks/useTheme";
 
 import { appDataDir } from "@tauri-apps/api/path";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -53,9 +53,9 @@ function ChatUIWindow() {
                 name: "代码生成",
                 code: "code-generate",
                 pluginType: ["assistantType"],
-                instance: null
-            }
-        ]
+                instance: null,
+            },
+        ];
 
         const initPlugin = async () => {
             const dirPath = await appDataDir();
@@ -63,7 +63,7 @@ function ChatUIWindow() {
                 const convertFilePath = dirPath + "plugin/" + plugin.code + "/dist/main.js";
 
                 return new Promise<void>((resolve) => {
-                    const script = document.createElement('script');
+                    const script = document.createElement("script");
                     script.src = convertFileSrc(convertFilePath);
                     script.onload = () => {
                         const SamplePlugin = (window as any).SamplePlugin;
@@ -83,7 +83,7 @@ function ChatUIWindow() {
             // 所有插件实例都准备好后再更新状态
             setPluginList([...pluginLoadList]);
             console.log("setPluginList");
-        }
+        };
 
         initPlugin();
     }, []);
@@ -93,11 +93,19 @@ function ChatUIWindow() {
             <div className="flex-none w-[280px] flex flex-col shadow-lg box-border rounded-r-xl my-2 mr-2">
                 <ChatUIInfomation />
                 <ChatUIToolbar onNewConversation={() => setSelectedConversation("")} />
-                <ConversationList conversationId={selectedConversation} onSelectConversation={setSelectedConversation} />
+                <ConversationList
+                    conversationId={selectedConversation}
+                    onSelectConversation={setSelectedConversation}
+                />
             </div>
 
             <div className="flex-1 bg-background overflow-auto rounded-xl m-2 ml-0 shadow-lg">
-                <ConversationUI ref={conversationUIRef} pluginList={pluginList} conversationId={selectedConversation} onChangeConversationId={setSelectedConversation} />
+                <ConversationUI
+                    ref={conversationUIRef}
+                    pluginList={pluginList}
+                    conversationId={selectedConversation}
+                    onChangeConversationId={setSelectedConversation}
+                />
             </div>
         </div>
     );
