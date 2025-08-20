@@ -14,6 +14,7 @@ import "../styles/ArtifactPreviewWIndow.css";
 import "katex/dist/katex.min.css";
 import EnvironmentInstallDialog from "../components/EnvironmentInstallDialog";
 import { useTheme } from "../hooks/useTheme";
+import { formatIconDisplay } from "@/utils/emojiUtils";
 
 interface ArtifactInfo {
     id: number;
@@ -524,7 +525,22 @@ export default function ArtifactWindow() {
                                                 artifactInfo ? "opacity-100 scale-100" : "opacity-0 scale-75"
                                             }`}
                                         >
-                                            {artifactInfo?.icon && <div className="text-4xl">{artifactInfo.icon}</div>}
+                                            {artifactInfo?.icon && (
+                                                <div className="text-4xl">
+                                                    {(() => {
+                                                        const iconDisplay = formatIconDisplay(artifactInfo.icon);
+                                                        return iconDisplay.isImage ? (
+                                                            <img
+                                                                src={iconDisplay.display}
+                                                                alt={`Icon for ${artifactInfo.name}`}
+                                                                className="w-16 h-16 object-cover"
+                                                            />
+                                                        ) : (
+                                                            iconDisplay.display
+                                                        );
+                                                    })()}
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 </div>

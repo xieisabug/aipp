@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { ArtifactCollectionItem } from '../../data/ArtifactCollection';
+import { formatIconDisplay } from '@/utils/emojiUtils';
 
 interface ArtifactCompletionListProps {
     artifactListVisible: boolean;
@@ -109,7 +110,20 @@ export default function ArtifactCompletionList({
                     onClick={() => handleArtifactClick(artifact)}
                 >
                     <div className="artifact-completion-header">
-                        <span className="artifact-completion-icon">{artifact.icon}</span>
+                        <span className="artifact-completion-icon">
+                            {(() => {
+                                const iconDisplay = formatIconDisplay(artifact.icon);
+                                return iconDisplay.isImage ? (
+                                    <img
+                                        src={iconDisplay.display}
+                                        alt={`Icon for ${artifact.name}`}
+                                        className="w-5 h-5 object-cover"
+                                    />
+                                ) : (
+                                    iconDisplay.display
+                                );
+                            })()}
+                        </span>
                         <span className="artifact-completion-name">{artifact.name}</span>
                         <span className="artifact-completion-type">
                             {artifact.artifact_type.toUpperCase()}
