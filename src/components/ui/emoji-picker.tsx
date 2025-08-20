@@ -11,8 +11,8 @@ interface EmojiPickerProps {
     className?: string;
 }
 
-const DEFAULT_IMAGE_WIDTH = 64;
-const DEFAULT_IMAGE_HEIGHT = 64;
+const DEFAULT_IMAGE_WIDTH = 128;
+const DEFAULT_IMAGE_HEIGHT = 128;
 const DEFAULT_IMAGE_QUALITY = 0.8;
 
 export default function EmojiPicker({ value, onChange, className }: EmojiPickerProps) {

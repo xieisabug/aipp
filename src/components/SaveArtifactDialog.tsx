@@ -95,7 +95,6 @@ export default function SaveArtifactDialog({ isOpen, onClose, artifactType, code
 
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(handleSave)} className="space-y-6 py-4">
-                        {/* 图标选择 */}
                         <FormField
                             control={form.control}
                             name="icon"
@@ -116,7 +115,6 @@ export default function SaveArtifactDialog({ isOpen, onClose, artifactType, code
                             )}
                         />
 
-                        {/* 名称 */}
                         <FormField
                             control={form.control}
                             name="name"
@@ -139,7 +137,6 @@ export default function SaveArtifactDialog({ isOpen, onClose, artifactType, code
                             )}
                         />
 
-                        {/* 描述 */}
                         <FormField
                             control={form.control}
                             name="description"
@@ -161,7 +158,6 @@ export default function SaveArtifactDialog({ isOpen, onClose, artifactType, code
                             )}
                         />
 
-                        {/* 标签 */}
                         <FormField
                             control={form.control}
                             name="tags"
@@ -182,7 +178,6 @@ export default function SaveArtifactDialog({ isOpen, onClose, artifactType, code
                             )}
                         />
 
-                        {/* 类型展示 */}
                         <FormItem className="space-y-3">
                             <FormLabel className="flex items-center font-semibold text-sm text-foreground">
                                 类型
@@ -196,7 +191,6 @@ export default function SaveArtifactDialog({ isOpen, onClose, artifactType, code
                             </FormControl>
                         </FormItem>
 
-                        {/* 代码预览 */}
                         <FormItem className="space-y-3">
                             <FormLabel className="flex items-center font-semibold text-sm text-foreground">
                                 代码预览

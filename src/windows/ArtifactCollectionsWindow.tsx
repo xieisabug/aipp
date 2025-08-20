@@ -4,8 +4,6 @@ import { listen } from "@tauri-apps/api/event";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-// form removed here; using a dedicated dialog component
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
     Dialog,
     DialogContent,
@@ -15,15 +13,16 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+    ContextMenu,
+    ContextMenuTrigger,
+    ContextMenuContent,
+    ContextMenuItem,
+    ContextMenuSeparator,
+} from "@/components/ui/context-menu";
 import { useToast } from "@/hooks/use-toast";
 import { useTheme } from "@/hooks/useTheme";
 import { formatIconDisplay } from "@/utils/emojiUtils";
-import { Search, MoreVertical, Folder, Grid, List } from "lucide-react";
+import { Search, Folder } from "lucide-react";
 import EditArtifactDialog from "@/components/EditArtifactDialog";
 
 interface ArtifactCollection {
@@ -38,16 +37,12 @@ interface ArtifactCollection {
     use_count: number;
 }
 
-// (removed old EditArtifactData; replaced by using ArtifactCollection directly)
-
 export default function ArtifactCollectionsWindow() {
     useTheme();
 
     const [artifacts, setArtifacts] = useState<ArtifactCollection[]>([]);
     const [filteredArtifacts, setFilteredArtifacts] = useState<ArtifactCollection[]>([]);
     const [searchQuery, setSearchQuery] = useState("");
-    const [selectedType, setSelectedType] = useState<string>("all");
-    const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
     const [isLoading, setIsLoading] = useState(true);
     const [showEditDialog, setShowEditDialog] = useState(false);
     const [editingArtifact, setEditingArtifact] = useState<ArtifactCollection | null>(null);
@@ -60,7 +55,7 @@ export default function ArtifactCollectionsWindow() {
         try {
             setIsLoading(true);
             const result = await invoke<ArtifactCollection[]>("get_artifacts_collection", {
-                artifactType: selectedType === "all" ? null : selectedType,
+                artifactType: null,
             });
             setArtifacts(result);
             setFilteredArtifacts(result);
@@ -80,11 +75,6 @@ export default function ArtifactCollectionsWindow() {
     useEffect(() => {
         let filtered = artifacts;
 
-        // 按类型过滤
-        if (selectedType !== "all") {
-            filtered = filtered.filter((artifact) => artifact.artifact_type === selectedType);
-        }
-
         // 按搜索词过滤
         if (searchQuery.trim()) {
             const query = searchQuery.toLowerCase();
@@ -97,7 +87,7 @@ export default function ArtifactCollectionsWindow() {
         }
 
         setFilteredArtifacts(filtered);
-    }, [artifacts, searchQuery, selectedType]);
+    }, [artifacts, searchQuery]);
 
     // 监听事件
     useEffect(() => {
@@ -117,7 +107,7 @@ export default function ArtifactCollectionsWindow() {
         return () => {
             unlisteners.forEach((unlisten) => unlisten());
         };
-    }, [selectedType]);
+    }, []);
 
     // 打开 artifact
     const openArtifact = async (artifact: ArtifactCollection) => {
@@ -138,9 +128,6 @@ export default function ArtifactCollectionsWindow() {
         setEditingArtifact(artifact);
         setShowEditDialog(true);
     };
-
-    // 保存编辑
-    // save handled inside the dialog component
 
     // 删除 artifact
     const handleDelete = (artifact: ArtifactCollection) => {
@@ -173,12 +160,8 @@ export default function ArtifactCollectionsWindow() {
         }
     };
 
-    // 获取唯一的类型列表
-    const artifactTypes = Array.from(new Set(artifacts.map((a) => a.artifact_type)));
-
     return (
         <div className="flex flex-col h-screen bg-background p-6">
-            {/* 顶部工具栏 */}
             <div className="flex flex-col gap-4 mb-6">
                 <div className="flex items-center justify-between">
                     <div>
@@ -187,51 +170,19 @@ export default function ArtifactCollectionsWindow() {
                             管理您保存的所有 artifacts，共 {artifacts.length} 个项目
                         </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <Button
-                            variant={viewMode === "grid" ? "default" : "outline"}
-                            size="sm"
-                            onClick={() => setViewMode("grid")}
-                        >
-                            <Grid className="w-4 h-4" />
-                        </Button>
-                        <Button
-                            variant={viewMode === "list" ? "default" : "outline"}
-                            size="sm"
-                            onClick={() => setViewMode("list")}
-                        >
-                            <List className="w-4 h-4" />
-                        </Button>
-                    </div>
                 </div>
 
-                {/* 搜索和过滤 */}
-                <div className="flex items-center gap-4">
-                    <div className="relative flex-1">
-                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                        <Input
-                            placeholder="搜索 artifacts..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="pl-10"
-                        />
-                    </div>
-                    <select
-                        value={selectedType}
-                        onChange={(e) => setSelectedType(e.target.value)}
-                        className="px-3 py-2 border border-border rounded-md bg-background"
-                    >
-                        <option value="all">所有类型</option>
-                        {artifactTypes.map((type) => (
-                            <option key={type} value={type}>
-                                {type.toUpperCase()}
-                            </option>
-                        ))}
-                    </select>
+                <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                        placeholder="搜索 artifacts..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="pl-10"
+                    />
                 </div>
             </div>
 
-            {/* 内容区域 */}
             <div className="flex-1 overflow-auto">
                 {isLoading ? (
                     <div className="flex items-center justify-center h-full">
@@ -250,95 +201,67 @@ export default function ArtifactCollectionsWindow() {
                         </div>
                     </div>
                 ) : (
-                    <div
-                        className={
-                            viewMode === "grid"
-                                ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
-                                : "space-y-2"
-                        }
-                    >
+                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10 gap-3">
                         {filteredArtifacts.map((artifact) => (
-                            <Card
-                                key={artifact.id}
-                                className="cursor-pointer hover:bg-accent/50 transition-colors"
-                                onClick={() => openArtifact(artifact)}
-                            >
-                                <CardHeader className="pb-3">
-                                    <div className="flex items-start justify-between">
-                                        <div className="flex items-center gap-2">
+                            <ContextMenu key={artifact.id}>
+                                <ContextMenuTrigger asChild>
+                                    <div
+                                        className="flex flex-col items-center p-2 cursor-pointer hover:bg-accent/50 rounded-lg transition-colors group"
+                                        onClick={() => openArtifact(artifact)}
+                                    >
+                                        <div className="mb-2 w-16 h-16">
                                             {(() => {
                                                 const iconDisplay = formatIconDisplay(artifact.icon);
                                                 return iconDisplay.isImage ? (
                                                     <img
                                                         src={iconDisplay.display}
                                                         alt={`Icon for ${artifact.name}`}
-                                                        className="w-6 h-6 object-cover rounded border"
+                                                        className="w-16 h-16 object-cover"
                                                     />
                                                 ) : (
-                                                    <span className="text-2xl">{iconDisplay.display}</span>
+                                                    <span className="text-6xl">{iconDisplay.display}</span>
                                                 );
                                             })()}
-                                            <div className="flex-1">
-                                                <CardTitle className="text-sm font-medium truncate">
-                                                    {artifact.name}
-                                                </CardTitle>
-                                                <Badge variant="secondary" className="text-xs mt-1">
-                                                    {artifact.artifact_type.toUpperCase()}
-                                                </Badge>
-                                            </div>
                                         </div>
-                                        <DropdownMenu>
-                                            <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                                                <Button variant="ghost" size="sm">
-                                                    <MoreVertical className="w-4 h-4" />
-                                                </Button>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="end">
-                                                <DropdownMenuItem
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        openArtifact(artifact);
-                                                    }}
-                                                >
-                                                    打开
-                                                </DropdownMenuItem>
-                                                <DropdownMenuItem
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleEdit(artifact);
-                                                    }}
-                                                >
-                                                    编辑
-                                                </DropdownMenuItem>
-                                                <DropdownMenuItem
-                                                    className="text-destructive"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleDelete(artifact);
-                                                    }}
-                                                >
-                                                    删除
-                                                </DropdownMenuItem>
-                                            </DropdownMenuContent>
-                                        </DropdownMenu>
+
+                                        <div className="text-center w-full">
+                                            <p className="text-xs font-medium truncate mb-1" title={artifact.name}>
+                                                {artifact.name}
+                                            </p>
+                                            <Badge variant="secondary" className="text-xs">
+                                                {artifact.artifact_type}
+                                            </Badge>
+                                        </div>
                                     </div>
-                                </CardHeader>
-                                <CardContent className="pt-0">
-                                    <CardDescription className="text-xs line-clamp-2 mb-2">
-                                        {artifact.description || "暂无描述"}
-                                    </CardDescription>
-                                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                                        <span>使用 {artifact.use_count} 次</span>
-                                        <span>{new Date(artifact.created_time).toLocaleDateString()}</span>
-                                    </div>
-                                </CardContent>
-                            </Card>
+                                </ContextMenuTrigger>
+
+                                <ContextMenuContent>
+                                    <ContextMenuItem onClick={() => openArtifact(artifact)}>打开</ContextMenuItem>
+                                    <ContextMenuItem onClick={() => handleEdit(artifact)}>编辑</ContextMenuItem>
+                                    <ContextMenuSeparator />
+                                    <ContextMenuItem variant="destructive" onClick={() => handleDelete(artifact)}>
+                                        删除
+                                    </ContextMenuItem>
+                                    <ContextMenuSeparator />
+                                    <ContextMenuItem disabled>使用次数: {artifact.use_count}</ContextMenuItem>
+                                    <ContextMenuItem disabled>
+                                        创建时间: {new Date(artifact.created_time).toLocaleDateString()}
+                                    </ContextMenuItem>
+                                    {artifact.description && (
+                                        <ContextMenuItem disabled title={artifact.description}>
+                                            描述:{" "}
+                                            {artifact.description.length > 20
+                                                ? artifact.description.substring(0, 20) + "..."
+                                                : artifact.description}
+                                        </ContextMenuItem>
+                                    )}
+                                </ContextMenuContent>
+                            </ContextMenu>
                         ))}
                     </div>
                 )}
             </div>
 
-            {/* 编辑对话框 */}
             <EditArtifactDialog
                 isOpen={showEditDialog}
                 artifact={editingArtifact}
@@ -349,7 +272,6 @@ export default function ArtifactCollectionsWindow() {
                 onUpdated={loadArtifacts}
             />
 
-            {/* 删除确认对话框 */}
             <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
                 <DialogContent>
                     <DialogHeader>
