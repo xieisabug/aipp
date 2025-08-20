@@ -127,21 +127,22 @@ export default function SaveArtifactDialog({ isOpen, onClose, artifactType, code
         <Dialog open={isOpen} onOpenChange={handleCancel}>
             <DialogContent className="sm:max-w-[525px] max-h-[80vh] overflow-y-auto">
                 <DialogHeader>
-                    <div className="flex items-center justify-between">
-                        <DialogTitle>保存 Artifact 到合集</DialogTitle>
-                        <button
-                            type="button"
-                            onClick={handleGenerateMetadata}
-                            disabled={isGeneratingMetadata}
-                            className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 px-2 py-1"
-                            title="智能填写"
-                        >
-                            <Sparkles className={`h-4 w-4 ${isGeneratingMetadata ? "animate-pulse" : ""}`} />
-                        </button>
-                    </div>
+                    <DialogTitle>保存 Artifact 到合集</DialogTitle>
                     <DialogDescription>
-                        将当前的 {artifactType.toUpperCase()} artifact 保存到您的合集中，方便以后快速访问。点击右上角的
-                        ⭐ 按钮可智能生成名称、描述、标签等信息。
+                        将当前的 {artifactType.toUpperCase()} artifact 保存到您的合集中，方便以后快速访问。
+                        <div className="mt-2">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={handleGenerateMetadata}
+                                disabled={isGeneratingMetadata}
+                                className="gap-2"
+                            >
+                                <Sparkles className={`h-4 w-4 ${isGeneratingMetadata ? "animate-pulse" : ""}`} />
+                                {isGeneratingMetadata ? "生成中..." : "智能填写"}
+                            </Button>
+                        </div>
                     </DialogDescription>
                 </DialogHeader>
 

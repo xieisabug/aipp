@@ -10,16 +10,13 @@ use crate::{
         ArtifactCollection, ArtifactsDatabase, NewArtifactCollection, UpdateArtifactCollection,
     },
     db::llm_db::LLMDatabase,
-    db::system_db::FeatureConfig,
     api::genai_client,
     api::ai::config::{get_network_proxy_from_config, get_request_timeout_from_config},
-    errors::AppError,
     FeatureConfigState,
     utils::bun_utils::BunUtils
 };
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager, State};
-use std::collections::HashMap;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ArtifactCollectionItem {
