@@ -50,7 +50,7 @@ export const REHYPE_PLUGINS = [
     rehypeRaw,
     [rehypeSanitize, SANITIZE_SCHEMA] as const,
     rehypeKatex,
-    [rehypeHighlight, { languages: { ...common, vue: vueLanguageDefinition} }],
+    [rehypeHighlight, { languages: { ...common, vue: vueLanguageDefinition, tsx: common.typescript, jsx: common.javascript, react: common.typescript } }],
 ] as const;
 
 // ReactMarkdown 组件配置的基础部分 - 移除无用的 mcp_tool_call
