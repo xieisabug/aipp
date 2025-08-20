@@ -2,19 +2,18 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
 use std::sync::LazyLock;
-use tauri::{AppHandle, Manager, Emitter};
+use std::sync::{Arc, Mutex};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::artifacts::shared_components::{
-    SharedPreviewUtils, TemplateCache, 
-    kill_process_by_pid, kill_process_group_by_pid, kill_processes_by_port
+    kill_process_by_pid, kill_process_group_by_pid, kill_processes_by_port, SharedPreviewUtils,
+    TemplateCache,
 };
 
 // 全局共享的服务器映射
-static GLOBAL_ARTIFACT_SERVERS: LazyLock<Arc<Mutex<HashMap<String, ArtifactServer>>>> = LazyLock::new(|| {
-    Arc::new(Mutex::new(HashMap::new()))
-});
+static GLOBAL_ARTIFACT_SERVERS: LazyLock<Arc<Mutex<HashMap<String, ArtifactServer>>>> =
+    LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 #[derive(Debug, Clone)]
 pub struct ArtifactServer {
@@ -32,10 +31,7 @@ pub struct ReactArtifactRunner {
 impl ReactArtifactRunner {
     pub fn new(app_handle: AppHandle) -> Self {
         let shared_utils = SharedPreviewUtils::new(app_handle.clone());
-        Self {
-            app_handle,
-            shared_utils,
-        }
+        Self { app_handle, shared_utils }
     }
 
     /// 运行保存的React artifact
@@ -55,7 +51,7 @@ impl ReactArtifactRunner {
 
         let port = self.shared_utils.find_available_port(3001, 4000)?;
         println!("🚀 [ReactRunner] 找到可用端口: {}", port);
-        
+
         // 关闭已存在的artifact实例
         let _ = self.close_artifact(&server_id);
 
@@ -77,12 +73,12 @@ impl ReactArtifactRunner {
             template_path,
         };
 
-        println!("🔧 [ReactRunner] 创建服务器对象: ID={}, Port={}, PID={:?}", server_id, port, process_id);
-        
-        GLOBAL_ARTIFACT_SERVERS
-            .lock()
-            .unwrap()
-            .insert(server_id.clone(), server);
+        println!(
+            "🔧 [ReactRunner] 创建服务器对象: ID={}, Port={}, PID={:?}",
+            server_id, port, process_id
+        );
+
+        GLOBAL_ARTIFACT_SERVERS.lock().unwrap().insert(server_id.clone(), server);
 
         // 等待服务器启动
         self.wait_for_server_ready(port).await?;
@@ -101,12 +97,12 @@ impl ReactArtifactRunner {
     /// 关闭artifact服务器
     pub fn close_artifact(&self, server_id: &str) -> Result<(), Box<dyn std::error::Error>> {
         let mut servers = GLOBAL_ARTIFACT_SERVERS.lock().unwrap();
-        
+
         println!("🔧 [ReactRunner] 尝试关闭服务器 ID: {}", server_id);
 
         if let Some(server) = servers.remove(server_id) {
             println!("🔧 [ReactRunner] 找到artifact服务器: {}", server_id);
-            
+
             // 优先使用PID终止进程
             if let Some(pid) = server.process {
                 println!("🔧 [ReactRunner] 准备终止进程 PID: {}", pid);
@@ -164,7 +160,9 @@ impl ReactArtifactRunner {
         println!("🛠️ [ReactRunner] 模板源路径: {:?}", template_source);
 
         // 计算当前模板的哈希值
-        let current_files_hash = self.shared_utils.calculate_template_files_hash(&template_source, "UserComponent.tsx")?;
+        let current_files_hash = self
+            .shared_utils
+            .calculate_template_files_hash(&template_source, "UserComponent.tsx")?;
         let current_deps_hash = self.shared_utils.calculate_deps_hash(&template_source)?;
 
         // 检查缓存（使用独立的缓存key）
@@ -178,7 +176,7 @@ impl ReactArtifactRunner {
                 need_copy_files = false;
                 println!("✅ [ReactRunner] 模板文件无变化，跳过复制");
             }
-            
+
             // 检查依赖是否需要更新
             if cache.deps_hash == current_deps_hash && artifact_dir.join("node_modules").exists() {
                 need_install_deps = false;
@@ -208,11 +206,9 @@ impl ReactArtifactRunner {
         }
 
         // 保存新的缓存信息
-        let new_cache = TemplateCache {
-            files_hash: current_files_hash,
-            deps_hash: current_deps_hash,
-        };
-        
+        let new_cache =
+            TemplateCache { files_hash: current_files_hash, deps_hash: current_deps_hash };
+
         if let Err(e) = self.shared_utils.save_template_cache("react-artifacts", &new_cache) {
             println!("⚠️ [ReactRunner] 保存缓存信息失败: {}", e);
         } else {
@@ -264,7 +260,11 @@ impl ReactArtifactRunner {
                     if !output.status.success() {
                         let stderr = String::from_utf8_lossy(&output.stderr);
                         let stdout = String::from_utf8_lossy(&output.stdout);
-                        return Err(format!("Bun install 失败:\\nStderr: {}\\nStdout: {}", stderr, stdout).into());
+                        return Err(format!(
+                            "Bun install 失败:\\nStderr: {}\\nStdout: {}",
+                            stderr, stdout
+                        )
+                        .into());
                     }
                     println!("✅ [ReactRunner] 依赖安装成功");
                 }
@@ -281,14 +281,7 @@ impl ReactArtifactRunner {
 
         let mut vite_command = Command::new(&bun_executable);
         vite_command
-            .args(&[
-                "x",
-                "vite",
-                "--port",
-                &port.to_string(),
-                "--host",
-                "127.0.0.1",
-            ])
+            .args(&["x", "vite", "--port", &port.to_string(), "--host", "127.0.0.1"])
             .current_dir(project_path)
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -372,7 +365,5 @@ pub async fn close_react_artifact(app_handle: AppHandle, artifact_id: i64) -> Re
     let server_id = format!("react-artifact-{}", artifact_id);
     println!("🔧 [ReactRunner] 关闭artifact服务器: {}", server_id);
     let runner = ReactArtifactRunner::new(app_handle);
-    runner
-        .close_artifact(&server_id)
-        .map_err(|e| e.to_string())
+    runner.close_artifact(&server_id).map_err(|e| e.to_string())
 }

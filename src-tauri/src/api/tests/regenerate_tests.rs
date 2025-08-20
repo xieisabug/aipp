@@ -225,9 +225,7 @@ async fn test_message_version_grouping() {
     // 5. AI response v2 (id=5, group_id_2, parent_id=3)
 
     let messages = vec![
-        create_test_message(
-            1, None, 1, "user", "Hello", None, None, None, None, base_time,
-        ),
+        create_test_message(1, None, 1, "user", "Hello", None, None, None, None, base_time),
         create_test_message(
             2,
             None,
@@ -282,10 +280,7 @@ async fn test_message_version_grouping() {
     let mut version_groups: HashMap<String, Vec<Message>> = HashMap::new();
     for message in &messages {
         if let Some(group_id) = &message.generation_group_id {
-            version_groups
-                .entry(group_id.clone())
-                .or_insert_with(Vec::new)
-                .push(message.clone());
+            version_groups.entry(group_id.clone()).or_insert_with(Vec::new).push(message.clone());
         }
     }
 
@@ -301,18 +296,10 @@ async fn test_message_version_grouping() {
     assert_eq!(group_2_messages.len(), 2, "第二组应该有2条消息");
 
     // 验证组内消息类型
-    assert!(group_1_messages
-        .iter()
-        .any(|m| m.message_type == "reasoning"));
-    assert!(group_1_messages
-        .iter()
-        .any(|m| m.message_type == "response"));
-    assert!(group_2_messages
-        .iter()
-        .any(|m| m.message_type == "reasoning"));
-    assert!(group_2_messages
-        .iter()
-        .any(|m| m.message_type == "response"));
+    assert!(group_1_messages.iter().any(|m| m.message_type == "reasoning"));
+    assert!(group_1_messages.iter().any(|m| m.message_type == "response"));
+    assert!(group_2_messages.iter().any(|m| m.message_type == "reasoning"));
+    assert!(group_2_messages.iter().any(|m| m.message_type == "response"));
 }
 
 #[tokio::test]
@@ -323,9 +310,7 @@ async fn test_deprecated_assistant_message_type() {
 
     // 创建包含废弃消息类型的场景
     let messages = vec![
-        create_test_message(
-            1, None, 1, "user", "Hello", None, None, None, None, base_time,
-        ),
+        create_test_message(1, None, 1, "user", "Hello", None, None, None, None, base_time),
         create_test_message(
             2,
             None,
@@ -353,10 +338,8 @@ async fn test_deprecated_assistant_message_type() {
     ];
 
     // 验证废弃消息类型检测
-    let deprecated_messages: Vec<&Message> = messages
-        .iter()
-        .filter(|m| m.message_type == "assistant")
-        .collect();
+    let deprecated_messages: Vec<&Message> =
+        messages.iter().filter(|m| m.message_type == "assistant").collect();
 
     assert_eq!(deprecated_messages.len(), 1, "应该检测到1条废弃消息");
     assert_eq!(deprecated_messages[0].id, 2);
@@ -418,37 +401,19 @@ async fn test_llm_model_fields_in_messages() {
     );
 
     // 验证AI消息包含模型信息
-    assert!(
-        reasoning_msg.llm_model_id.is_some(),
-        "reasoning消息应该包含llm_model_id"
-    );
-    assert!(
-        reasoning_msg.llm_model_name.is_some(),
-        "reasoning消息应该包含llm_model_name"
-    );
+    assert!(reasoning_msg.llm_model_id.is_some(), "reasoning消息应该包含llm_model_id");
+    assert!(reasoning_msg.llm_model_name.is_some(), "reasoning消息应该包含llm_model_name");
     assert_eq!(reasoning_msg.llm_model_id.unwrap(), 42);
     assert_eq!(reasoning_msg.llm_model_name.unwrap(), "gpt-4-turbo");
 
-    assert!(
-        response_msg.llm_model_id.is_some(),
-        "response消息应该包含llm_model_id"
-    );
-    assert!(
-        response_msg.llm_model_name.is_some(),
-        "response消息应该包含llm_model_name"
-    );
+    assert!(response_msg.llm_model_id.is_some(), "response消息应该包含llm_model_id");
+    assert!(response_msg.llm_model_name.is_some(), "response消息应该包含llm_model_name");
     assert_eq!(response_msg.llm_model_id.unwrap(), 42);
     assert_eq!(response_msg.llm_model_name.unwrap(), "gpt-4-turbo");
 
     // 验证用户消息不需要模型信息
-    assert!(
-        user_msg.llm_model_id.is_none(),
-        "user消息不应该包含llm_model_id"
-    );
-    assert!(
-        user_msg.llm_model_name.is_none(),
-        "user消息不应该包含llm_model_name"
-    );
+    assert!(user_msg.llm_model_id.is_none(), "user消息不应该包含llm_model_id");
+    assert!(user_msg.llm_model_name.is_none(), "user消息不应该包含llm_model_name");
 }
 
 #[tokio::test]
@@ -485,10 +450,7 @@ async fn test_generation_group_id_consistency() {
     );
 
     // 验证同一组的消息有相同的 generation_group_id
-    assert_eq!(
-        reasoning_msg.generation_group_id,
-        response_msg.generation_group_id
-    );
+    assert_eq!(reasoning_msg.generation_group_id, response_msg.generation_group_id);
     assert!(reasoning_msg.generation_group_id.is_some());
     assert_eq!(reasoning_msg.generation_group_id.unwrap(), group_id);
 }
@@ -530,10 +492,7 @@ async fn test_parent_child_relationship_logic() {
 
     // 验证父子关系
     assert_eq!(regenerated_response.parent_id, Some(original_response.id));
-    assert_ne!(
-        original_response.generation_group_id,
-        regenerated_response.generation_group_id
-    );
+    assert_ne!(original_response.generation_group_id, regenerated_response.generation_group_id);
 
     // 模拟获取最新版本的逻辑
     let messages = vec![original_response.clone(), regenerated_response.clone()];
@@ -632,10 +591,8 @@ async fn test_message_filtering_for_regenerate() {
 
     // 模拟重新生成第3条消息（reasoning）的过滤逻辑
     let regenerate_message_id = 3;
-    let filtered_messages: Vec<&Message> = messages
-        .iter()
-        .filter(|m| m.id < regenerate_message_id)
-        .collect();
+    let filtered_messages: Vec<&Message> =
+        messages.iter().filter(|m| m.id < regenerate_message_id).collect();
 
     // 验证过滤结果：应该只包含前两条消息
     assert_eq!(filtered_messages.len(), 2);
@@ -645,10 +602,8 @@ async fn test_message_filtering_for_regenerate() {
 
     // 模拟重新生成用户消息的过滤逻辑
     let regenerate_user_message_id = 2;
-    let filtered_for_user: Vec<&Message> = messages
-        .iter()
-        .filter(|m| m.id <= regenerate_user_message_id)
-        .collect();
+    let filtered_for_user: Vec<&Message> =
+        messages.iter().filter(|m| m.id <= regenerate_user_message_id).collect();
 
     // 验证过滤结果：应该包含system和user消息
     assert_eq!(filtered_for_user.len(), 2);

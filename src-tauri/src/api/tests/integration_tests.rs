@@ -52,32 +52,14 @@ async fn test_regenerate_logic_validation() {
     assert!(reasoning_msg.llm_model_name.is_some());
     assert!(response_msg.llm_model_id.is_some());
     assert!(response_msg.llm_model_name.is_some());
-    assert_eq!(
-        reasoning_msg.generation_group_id,
-        response_msg.generation_group_id
-    );
+    assert_eq!(reasoning_msg.generation_group_id, response_msg.generation_group_id);
 
     println!("✅ 数据库字段修复验证通过:");
-    println!(
-        "  - reasoning消息包含llm_model_id: {:?}",
-        reasoning_msg.llm_model_id
-    );
-    println!(
-        "  - reasoning消息包含llm_model_name: {:?}",
-        reasoning_msg.llm_model_name
-    );
-    println!(
-        "  - response消息包含llm_model_id: {:?}",
-        response_msg.llm_model_id
-    );
-    println!(
-        "  - response消息包含llm_model_name: {:?}",
-        response_msg.llm_model_name
-    );
-    println!(
-        "  - generation_group_id一致: {:?}",
-        reasoning_msg.generation_group_id
-    );
+    println!("  - reasoning消息包含llm_model_id: {:?}", reasoning_msg.llm_model_id);
+    println!("  - reasoning消息包含llm_model_name: {:?}", reasoning_msg.llm_model_name);
+    println!("  - response消息包含llm_model_id: {:?}", response_msg.llm_model_id);
+    println!("  - response消息包含llm_model_name: {:?}", response_msg.llm_model_name);
+    println!("  - generation_group_id一致: {:?}", reasoning_msg.generation_group_id);
 }
 
 #[tokio::test]
@@ -90,18 +72,12 @@ async fn test_parent_id_logic() {
 
     // 用户消息重发：新消息应该没有parent_id（新一轮对话）
     let user_regenerate_parent_id: Option<i64> = None;
-    println!(
-        "✅ 用户消息重发的parent_id: {:?} (应该为None)",
-        user_regenerate_parent_id
-    );
+    println!("✅ 用户消息重发的parent_id: {:?} (应该为None)", user_regenerate_parent_id);
     assert!(user_regenerate_parent_id.is_none());
 
     // AI消息重发：新消息应该以原消息为parent（版本关系）
     let ai_regenerate_parent_id = Some(ai_msg_id);
-    println!(
-        "✅ AI消息重发的parent_id: {:?} (应该为原消息ID)",
-        ai_regenerate_parent_id
-    );
+    println!("✅ AI消息重发的parent_id: {:?} (应该为原消息ID)", ai_regenerate_parent_id);
     assert!(ai_regenerate_parent_id.is_some());
     assert_eq!(ai_regenerate_parent_id.unwrap(), ai_msg_id);
 }
@@ -116,10 +92,7 @@ async fn test_generation_group_id_logic() {
     let new_group_id_2 = Uuid::new_v4().to_string();
 
     assert_ne!(new_group_id_1, new_group_id_2);
-    println!(
-        "✅ 新group_id生成正常: {} != {}",
-        new_group_id_1, new_group_id_2
-    );
+    println!("✅ 新group_id生成正常: {} != {}", new_group_id_1, new_group_id_2);
 
     // 测试同一组消息的group_id应该相同
     let group_id = Uuid::new_v4().to_string();
@@ -127,10 +100,7 @@ async fn test_generation_group_id_logic() {
     let response_group_id = group_id.clone();
 
     assert_eq!(reasoning_group_id, response_group_id);
-    println!(
-        "✅ 同组消息group_id一致: {} == {}",
-        reasoning_group_id, response_group_id
-    );
+    println!("✅ 同组消息group_id一致: {} == {}", reasoning_group_id, response_group_id);
 }
 
 #[tokio::test]
@@ -155,19 +125,13 @@ async fn test_message_filtering_logic() {
     let user_regenerate_messages: Vec<_> = messages.iter().filter(|m| m.0 <= user_msg_id).collect();
 
     assert_eq!(user_regenerate_messages.len(), 2); // system + user
-    println!(
-        "✅ 用户消息重发过滤结果: {} 条消息",
-        user_regenerate_messages.len()
-    );
+    println!("✅ 用户消息重发过滤结果: {} 条消息", user_regenerate_messages.len());
 
     // 测试AI消息重发的过滤逻辑
     let ai_regenerate_messages: Vec<_> = messages.iter().filter(|m| m.0 < ai_msg_id).collect();
 
     assert_eq!(ai_regenerate_messages.len(), 2); // system + user
-    println!(
-        "✅ AI消息重发过滤结果: {} 条消息",
-        ai_regenerate_messages.len()
-    );
+    println!("✅ AI消息重发过滤结果: {} 条消息", ai_regenerate_messages.len());
 }
 
 #[tokio::test]
@@ -176,10 +140,8 @@ async fn test_deprecated_assistant_message_logic() {
     println!("开始废弃消息处理逻辑验证...");
 
     // 模拟废弃的assistant消息
-    let deprecated_messages = vec![
-        ("assistant", "Old response 1"),
-        ("assistant", "Old response 2"),
-    ];
+    let deprecated_messages =
+        vec![("assistant", "Old response 1"), ("assistant", "Old response 2")];
 
     // 模拟转换逻辑
     let converted_messages: Vec<_> = deprecated_messages
@@ -201,10 +163,7 @@ async fn test_deprecated_assistant_message_logic() {
     }
 
     println!("✅ 废弃消息转换验证通过:");
-    println!(
-        "  - {} 条assistant消息已转换为response",
-        converted_messages.len()
-    );
+    println!("  - {} 条assistant消息已转换为response", converted_messages.len());
     println!("  - 每条消息都分配了generation_group_id");
 
     println!("✅ 所有regenerate逻辑验证通过！");

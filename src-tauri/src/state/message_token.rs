@@ -9,9 +9,7 @@ pub struct MessageTokenManager {
 
 impl MessageTokenManager {
     pub fn new() -> Self {
-        Self {
-            tokens: Arc::new(Mutex::new(HashMap::new())),
-        }
+        Self { tokens: Arc::new(Mutex::new(HashMap::new())) }
     }
 
     pub async fn exist(&self, message_id: i64) -> bool {

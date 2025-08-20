@@ -21,9 +21,7 @@ pub fn run_applescript(script: &str) -> Result<String, Box<dyn std::error::Error
     thread::spawn(move || {
         let reader = BufReader::new(stdout);
         for line in reader.lines() {
-            tx_stdout
-                .send(format!("stdout: {}", line.unwrap()))
-                .unwrap();
+            tx_stdout.send(format!("stdout: {}", line.unwrap())).unwrap();
         }
     });
 

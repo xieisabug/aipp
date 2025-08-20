@@ -57,13 +57,7 @@ fn selected_text(
     _: String,
     context: HashMap<String, String>,
 ) -> BoxFuture<'static, String> {
-    async move {
-        context
-            .get("selected_text")
-            .unwrap_or(&String::default())
-            .to_string()
-    }
-    .boxed()
+    async move { context.get("selected_text").unwrap_or(&String::default()).to_string() }.boxed()
 }
 
 // 新增获取网页内容的函数
@@ -72,10 +66,7 @@ fn web(_: TemplateEngine, url: String, _: HashMap<String, String>) -> BoxFuture<
         // 移除url中前后的括号
         let url = url.trim_start_matches('(').trim_end_matches(')');
 
-        let client = reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
-            .build()
-            .unwrap();
+        let client = reqwest::Client::builder().danger_accept_invalid_certs(true).build().unwrap();
 
         match client.get(url).send().await {
             Ok(response) => {

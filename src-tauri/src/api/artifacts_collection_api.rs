@@ -1,19 +1,16 @@
 use crate::{
+    api::ai::config::{get_network_proxy_from_config, get_request_timeout_from_config},
     api::artifacts_api::{
-        is_react_component, extract_component_name, is_vue_component, extract_vue_component_name
+        extract_component_name, extract_vue_component_name, is_react_component, is_vue_component,
     },
-    artifacts::{
-        react_runner::run_react_artifact,
-        vue_runner::run_vue_artifact,
-    },
+    api::genai_client,
+    artifacts::{react_runner::run_react_artifact, vue_runner::run_vue_artifact},
     db::artifacts_db::{
         ArtifactCollection, ArtifactsDatabase, NewArtifactCollection, UpdateArtifactCollection,
     },
     db::llm_db::LLMDatabase,
-    api::genai_client,
-    api::ai::config::{get_network_proxy_from_config, get_request_timeout_from_config},
+    utils::bun_utils::BunUtils,
     FeatureConfigState,
-    utils::bun_utils::BunUtils
 };
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager, State};
@@ -82,9 +79,8 @@ pub fn save_artifact_to_collection(
         tags: request.tags,
     };
 
-    let artifact_id = db
-        .save_artifact(new_artifact)
-        .map_err(|e| format!("Failed to save artifact: {}", e))?;
+    let artifact_id =
+        db.save_artifact(new_artifact).map_err(|e| format!("Failed to save artifact: {}", e))?;
 
     // Emit events to update UI across all windows
     let windows_to_notify = ["artifact_collections", "ask", "chat_ui"];
@@ -137,9 +133,8 @@ pub fn get_artifact_by_id(
     let db = ArtifactsDatabase::new(&app_handle)
         .map_err(|e| format!("Database connection failed: {}", e))?;
 
-    let artifact = db
-        .get_artifact_by_id(id)
-        .map_err(|e| format!("Failed to get artifact: {}", e))?;
+    let artifact =
+        db.get_artifact_by_id(id).map_err(|e| format!("Failed to get artifact: {}", e))?;
 
     Ok(artifact)
 }
@@ -153,9 +148,8 @@ pub fn search_artifacts_collection(
     let db = ArtifactsDatabase::new(&app_handle)
         .map_err(|e| format!("Database connection failed: {}", e))?;
 
-    let artifacts = db
-        .search_artifacts(&query)
-        .map_err(|e| format!("Failed to search artifacts: {}", e))?;
+    let artifacts =
+        db.search_artifacts(&query).map_err(|e| format!("Failed to search artifacts: {}", e))?;
 
     let items: Vec<ArtifactCollectionItem> = artifacts
         .into_iter()
@@ -192,8 +186,7 @@ pub fn update_artifact_collection(
         tags: request.tags,
     };
 
-    db.update_artifact(update)
-        .map_err(|e| format!("Failed to update artifact: {}", e))?;
+    db.update_artifact(update).map_err(|e| format!("Failed to update artifact: {}", e))?;
 
     // Emit events to update UI across all windows
     let windows_to_notify = ["artifact_collections", "ask", "chat_ui"];
@@ -202,22 +195,18 @@ pub fn update_artifact_collection(
             let _ = window.emit("artifact-collection-updated", request.id);
         }
     }
-    
+
     Ok(())
 }
 
 /// Delete artifact by ID
 #[tauri::command]
-pub fn delete_artifact_collection(
-    app_handle: tauri::AppHandle,
-    id: i64,
-) -> Result<bool, String> {
+pub fn delete_artifact_collection(app_handle: tauri::AppHandle, id: i64) -> Result<bool, String> {
     let db = ArtifactsDatabase::new(&app_handle)
         .map_err(|e| format!("Database connection failed: {}", e))?;
 
-    let deleted = db
-        .delete_artifact(id)
-        .map_err(|e| format!("Failed to delete artifact: {}", e))?;
+    let deleted =
+        db.delete_artifact(id).map_err(|e| format!("Failed to delete artifact: {}", e))?;
 
     if deleted {
         // Emit events to update UI across all windows
@@ -266,10 +255,11 @@ pub async fn open_artifact_window(
                 println!("🎯 [Artifacts] 检测到完整的 React 组件，使用新预览");
 
                 // 使用新的 React Component Preview
-                let component_name = extract_component_name(artifact.code.as_str()).unwrap_or_else(|| {
-                    println!("🎯 [Artifacts] 无法提取组件名称，使用默认名称");
-                    "UserComponent".to_string()
-                });
+                let component_name =
+                    extract_component_name(artifact.code.as_str()).unwrap_or_else(|| {
+                        println!("🎯 [Artifacts] 无法提取组件名称，使用默认名称");
+                        "UserComponent".to_string()
+                    });
                 println!("🎯 [Artifacts] 组件名称: {}", component_name);
                 if let Some(window) = app_handle.get_webview_window("artifact") {
                     let _ = window.emit(
@@ -321,10 +311,7 @@ pub async fn open_artifact_window(
             // 检查是否需要 bun 环境
             let bun_version = BunUtils::get_bun_version(&app_handle);
             if bun_version.is_err()
-                || bun_version
-                    .as_ref()
-                    .unwrap_or(&String::new())
-                    .contains("Not Installed")
+                || bun_version.as_ref().unwrap_or(&String::new()).contains("Not Installed")
             {
                 println!("🎯 [Artifacts] 检测到需要 bun 环境但未安装");
                 if let Some(window) = app_handle.get_webview_window("artifact") {
@@ -343,10 +330,11 @@ pub async fn open_artifact_window(
                 println!("🎯 [Artifacts] 检测到完整的 Vue 组件，使用新预览");
 
                 // 使用新的 Vue Component Preview
-                let component_name = extract_vue_component_name(artifact.code.as_str()).unwrap_or_else(|| {
-                    println!("🎯 [Artifacts] 无法提取组件名称，使用默认名称");
-                    "UserComponent".to_string()
-                });
+                let component_name = extract_vue_component_name(artifact.code.as_str())
+                    .unwrap_or_else(|| {
+                        println!("🎯 [Artifacts] 无法提取组件名称，使用默认名称");
+                        "UserComponent".to_string()
+                    });
                 println!("🎯 [Artifacts] 组件名称: {}", component_name);
                 if let Some(window) = app_handle.get_webview_window("artifact") {
                     let _ = window.emit(
@@ -409,11 +397,9 @@ pub async fn open_artifact_window(
                         "use_count": artifact.use_count,
                     }),
                 );
-                let _ = window.emit("artifact-log", format!("html content: {}", artifact.code.as_str()));
-                let _ = window.emit(
-                    "artifact-success",
-                    format!("{} 预览已准备完成", "HTML"),
-                );
+                let _ = window
+                    .emit("artifact-log", format!("html content: {}", artifact.code.as_str()));
+                let _ = window.emit("artifact-success", format!("{} 预览已准备完成", "HTML"));
             }
         }
         _ => {
@@ -421,24 +407,21 @@ pub async fn open_artifact_window(
         }
     }
 
-
     Ok(())
 }
 
 /// Get artifacts statistics
 #[tauri::command]
-pub fn get_artifacts_statistics(app_handle: tauri::AppHandle) -> Result<ArtifactStatistics, String> {
+pub fn get_artifacts_statistics(
+    app_handle: tauri::AppHandle,
+) -> Result<ArtifactStatistics, String> {
     let db = ArtifactsDatabase::new(&app_handle)
         .map_err(|e| format!("Database connection failed: {}", e))?;
 
-    let (total_count, total_uses) = db
-        .get_statistics()
-        .map_err(|e| format!("Failed to get statistics: {}", e))?;
+    let (total_count, total_uses) =
+        db.get_statistics().map_err(|e| format!("Failed to get statistics: {}", e))?;
 
-    Ok(ArtifactStatistics {
-        total_count,
-        total_uses,
-    })
+    Ok(ArtifactStatistics { total_count, total_uses })
 }
 
 /// Get artifacts for completion suggestions (used by InputArea # trigger)
@@ -463,26 +446,34 @@ pub async fn generate_artifact_metadata(
     // 获取特性配置
     let config_feature_map = feature_config_state.config_feature_map.lock().await;
     let feature_config = config_feature_map.get("conversation_summary");
-    
+
     if let Some(config) = feature_config {
         // 检查是否配置了 form_autofill_model
-        let (provider_id, model_code) = if let Some(form_model) = config.get("form_autofill_model") {
+        let (provider_id, model_code) = if let Some(form_model) = config.get("form_autofill_model")
+        {
             let form_model_value = &form_model.value;
             if form_model_value.contains("%%") && !form_model_value.starts_with("%%") {
                 let parts: Vec<&str> = form_model_value.split("%%").collect();
                 if parts.len() == 2 {
-                    let provider_id = parts[0].parse::<i64>()
+                    let provider_id = parts[0]
+                        .parse::<i64>()
                         .map_err(|e| format!("表单填写模型provider_id解析失败: {}", e))?;
                     (provider_id, parts[1].to_string())
                 } else {
                     return Err("表单填写模型配置格式错误".to_string());
                 }
             } else {
-                return Err("表单填写模型未配置，请在设置 -> 功能助手配置 -> AI总结 中配置表单填写模型".to_string());
+                return Err(
+                    "表单填写模型未配置，请在设置 -> 功能助手配置 -> AI总结 中配置表单填写模型"
+                        .to_string(),
+                );
             }
         } else {
             // 如果没有配置 form_autofill_model，直接提示用户配置
-            return Err("表单填写模型未配置，请在设置 -> 功能助手配置 -> AI总结 中配置表单填写模型".to_string());
+            return Err(
+                "表单填写模型未配置，请在设置 -> 功能助手配置 -> AI总结 中配置表单填写模型"
+                    .to_string(),
+            );
         };
 
         // 构建AI提示词
@@ -506,8 +497,7 @@ pub async fn generate_artifact_metadata(
             artifact_type, code
         );
 
-        let llm_db = LLMDatabase::new(&app_handle)
-            .map_err(|e| format!("数据库连接失败: {}", e))?;
+        let llm_db = LLMDatabase::new(&app_handle).map_err(|e| format!("数据库连接失败: {}", e))?;
         let model_detail = llm_db
             .get_llm_model_detail(&provider_id, &model_code)
             .map_err(|e| format!("模型详情获取失败: {}", e))?;
@@ -515,9 +505,9 @@ pub async fn generate_artifact_metadata(
         // 获取网络配置
         let network_proxy = get_network_proxy_from_config(&config_feature_map);
         let request_timeout = get_request_timeout_from_config(&config_feature_map);
-        
+
         let proxy_enabled = false; // 元数据生成通常不需要代理
-        
+
         let client = genai_client::create_client_with_config(
             &model_detail.configs,
             &model_detail.model.code,
@@ -525,11 +515,12 @@ pub async fn generate_artifact_metadata(
             network_proxy.as_deref(),
             proxy_enabled,
             Some(request_timeout),
-        ).map_err(|e| format!("AI客户端创建失败: {}", e))?;
+        )
+        .map_err(|e| format!("AI客户端创建失败: {}", e))?;
 
         let chat_messages = vec![
             genai::chat::ChatMessage::system(system_prompt),
-            genai::chat::ChatMessage::user(&user_prompt)
+            genai::chat::ChatMessage::user(&user_prompt),
         ];
         let chat_request = genai::chat::ChatRequest::new(chat_messages);
         let model_name = &model_detail.model.code;
@@ -558,7 +549,10 @@ pub async fn generate_artifact_metadata(
                         let json_part = &response_text[json_start..=json_end];
                         match serde_json::from_str::<ArtifactMetadata>(json_part) {
                             Ok(metadata) => {
-                                println!("[[Parsed Metadata from extracted JSON]]: {:#?}", metadata);
+                                println!(
+                                    "[[Parsed Metadata from extracted JSON]]: {:#?}",
+                                    metadata
+                                );
                                 Ok(metadata)
                             }
                             Err(e2) => {
@@ -566,8 +560,14 @@ pub async fn generate_artifact_metadata(
                                 // 返回默认的元数据作为fallback
                                 Ok(ArtifactMetadata {
                                     name: format!("{} 代码", artifact_type),
-                                    description: format!("一个 {} 类型的代码片段，包含丰富的功能实现。", artifact_type),
-                                    tags: format!("{},代码,开发,工具", artifact_type.to_lowercase()),
+                                    description: format!(
+                                        "一个 {} 类型的代码片段，包含丰富的功能实现。",
+                                        artifact_type
+                                    ),
+                                    tags: format!(
+                                        "{},代码,开发,工具",
+                                        artifact_type.to_lowercase()
+                                    ),
                                     emoji_category: "物品".to_string(),
                                 })
                             }

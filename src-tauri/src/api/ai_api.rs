@@ -70,9 +70,8 @@ pub async fn ask_ai(
     let app_handle_clone = app_handle.clone();
     let assistant_detail = get_assistant(app_handle_clone, processed_request.assistant_id).unwrap();
     let assistant_prompt_origin = &assistant_detail.prompts[0].prompt;
-    let assistant_prompt_result = template_engine
-        .parse(&assistant_prompt_origin, &template_context)
-        .await;
+    let assistant_prompt_result =
+        template_engine.parse(&assistant_prompt_origin, &template_context).await;
     println!("[[assistant_prompt_result]]: {}\n", assistant_prompt_result);
 
     if assistant_detail.model.is_empty() {
@@ -100,9 +99,8 @@ pub async fn ask_ai(
         };
 
     let _need_generate_title = processed_request.conversation_id.is_empty();
-    let request_prompt_result = template_engine
-        .parse(&processed_request.prompt, &template_context)
-        .await;
+    let request_prompt_result =
+        template_engine.parse(&processed_request.prompt, &template_context).await;
 
     let app_handle_clone = app_handle.clone();
     let (conversation_id, _new_message_id, request_prompt_result_with_context, init_message_list) =
@@ -142,9 +140,7 @@ pub async fn ask_ai(
 
     let cancel_token = CancellationToken::new();
 
-    message_token_manager
-        .store_token(conversation_id, cancel_token.clone())
-        .await;
+    message_token_manager.store_token(conversation_id, cancel_token.clone()).await;
 
     // 在异步任务外获取模型详情（避免线程安全问题）
     let llm_db = LLMDatabase::new(&app_handle).map_err(AppError::from)?;
@@ -219,22 +215,13 @@ pub async fn ask_ai(
         let config_map = model_config_clone
             .iter()
             .filter_map(|config| {
-                config
-                    .value
-                    .as_ref()
-                    .map(|value| (config.name.clone(), value.clone()))
+                config.value.as_ref().map(|value| (config.name.clone(), value.clone()))
             })
             .collect::<HashMap<String, String>>();
 
-        let stream = config_map
-            .get("stream")
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(false);
+        let stream = config_map.get("stream").and_then(|v| v.parse().ok()).unwrap_or(false);
 
-        let model_name = config_map
-            .get("model")
-            .cloned()
-            .unwrap_or_else(|| model_code.clone());
+        let model_name = config_map.get("model").cloned().unwrap_or_else(|| model_code.clone());
 
         let chat_options = ConfigBuilder::build_chat_options(&config_map);
 
@@ -251,10 +238,7 @@ pub async fn ask_ai(
             client,
         };
 
-        println!(
-            "[[model_name]]: {} [[stream]]: {}\n",
-            chat_config.model_name, chat_config.stream
-        );
+        println!("[[model_name]]: {} [[stream]]: {}\n", chat_config.model_name, chat_config.stream);
 
         // 将消息转换为 ChatMessage（已按是否原生 toolcall 处理过 tool_result）
         let chat_messages = build_chat_messages(&final_message_list_for_llm);
@@ -335,10 +319,7 @@ pub async fn ask_ai(
 
     println!("================================ Ask AI End ===============================================");
 
-    Ok(AiResponse {
-        conversation_id,
-        request_prompt_result_with_context,
-    })
+    Ok(AiResponse { conversation_id, request_prompt_result_with_context })
 }
 
 #[tauri::command]
@@ -398,10 +379,7 @@ pub async fn tool_result_continue_ask_ai(
     )?;
 
     // Get all existing messages
-    let all_messages = db
-        .message_repo()
-        .unwrap()
-        .list_by_conversation_id(conversation_id_i64)?;
+    let all_messages = db.message_repo().unwrap().list_by_conversation_id(conversation_id_i64)?;
 
     // 使用统一的排序逻辑
     let (latest_children, child_ids) = get_latest_child_messages(&all_messages);
@@ -432,9 +410,7 @@ pub async fn tool_result_continue_ask_ai(
     let is_native_toolcall = mcp_info.use_native_toolcall;
 
     let cancel_token = CancellationToken::new();
-    message_token_manager
-        .store_token(conversation_id_i64, cancel_token.clone())
-        .await;
+    message_token_manager.store_token(conversation_id_i64, cancel_token.clone()).await;
 
     // Get model details (same as ask_ai)
     let llm_db = LLMDatabase::new(&app_handle).map_err(AppError::from)?;
@@ -461,7 +437,8 @@ pub async fn tool_result_continue_ask_ai(
         None,
         false,
         None,
-    ).map_err(|e| {
+    )
+    .map_err(|e| {
         println!("[[Failed to create client in tool_result_continue_ask_ai]]: {}", e);
         e
     })?;
@@ -494,22 +471,13 @@ pub async fn tool_result_continue_ask_ai(
     let config_map = model_config_clone
         .iter()
         .filter_map(|config| {
-            config
-                .value
-                .as_ref()
-                .map(|value| (config.name.clone(), value.clone()))
+            config.value.as_ref().map(|value| (config.name.clone(), value.clone()))
         })
         .collect::<HashMap<String, String>>();
 
-    let stream = config_map
-        .get("stream")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(false);
+    let stream = config_map.get("stream").and_then(|v| v.parse().ok()).unwrap_or(false);
 
-    let model_name = config_map
-        .get("model")
-        .cloned()
-        .unwrap_or_else(|| model_code.clone());
+    let model_name = config_map.get("model").cloned().unwrap_or_else(|| model_code.clone());
 
     let chat_options = ConfigBuilder::build_chat_options(&config_map);
 
@@ -532,10 +500,7 @@ pub async fn tool_result_continue_ask_ai(
         client,
     };
 
-    println!(
-        "[[model_name]]: {} [[stream]]: {}\n",
-        chat_config.model_name, chat_config.stream
-    );
+    println!("[[model_name]]: {} [[stream]]: {}\n", chat_config.model_name, chat_config.stream);
 
     // 根据是否为原生 toolcall 选择不同的消息组织策略：
     // - 原生：将 "tool_result" 转为 ToolResponse（含 tool_call_id）
@@ -733,10 +698,7 @@ pub async fn regenerate_ai(
         .unwrap()
         .read(conversation_id)?
         .ok_or(AppError::DatabaseError("未找到对话".to_string()))?;
-    let messages = db
-        .message_repo()
-        .unwrap()
-        .list_by_conversation_id(conversation_id)?;
+    let messages = db.message_repo().unwrap().list_by_conversation_id(conversation_id)?;
 
     // 根据消息类型决定处理逻辑
     let (filtered_messages, _parent_message_id) = if message.message_type == "user" {
@@ -748,10 +710,8 @@ pub async fn regenerate_ai(
         (filtered_messages, None) // 用户消息重发时，新的AI回复没有parent_id
     } else {
         // AI消息重新生成：仅保留在待重新生成消息之前的历史消息，新消息以被重发的原消息为parent
-        let filtered_messages: Vec<(Message, Option<MessageAttachment>)> = messages
-            .into_iter()
-            .filter(|m| m.0.id < message_id)
-            .collect();
+        let filtered_messages: Vec<(Message, Option<MessageAttachment>)> =
+            messages.into_iter().filter(|m| m.0.id < message_id).collect();
         (filtered_messages, Some(message_id)) // 使用被重发消息的ID作为parent_id表示这是它的一个版本
     };
 
@@ -770,10 +730,8 @@ pub async fn regenerate_ai(
         }
 
         // 使用最新的子消息（如果存在）替换当前消息
-        let (final_msg, final_attach_opt) = latest_children
-            .get(&msg.id)
-            .cloned()
-            .unwrap_or((msg.clone(), attach.clone()));
+        let (final_msg, final_attach_opt) =
+            latest_children.get(&msg.id).cloned().unwrap_or((msg.clone(), attach.clone()));
 
         let attachments_vec = final_attach_opt.map(|a| vec![a]).unwrap_or_else(Vec::new);
 
@@ -783,10 +741,7 @@ pub async fn regenerate_ai(
     // 使用统一的排序函数进行排序
     let init_message_list = sort_messages_by_group_and_id(init_message_list, &filtered_messages);
 
-    println!(
-        "[[init_message_list (regenerate)]]: {:#?}\n",
-        init_message_list
-    );
+    println!("[[init_message_list (regenerate)]]: {:#?}\n", init_message_list);
 
     // 获取助手信息（在构建消息列表之后，以确保对话已确定）
     let assistant_id = conversation.assistant_id.unwrap();
@@ -802,50 +757,43 @@ pub async fn regenerate_ai(
     let is_native_toolcall = mcp_info.use_native_toolcall;
 
     // 确定要使用的generation_group_id和parent_group_id
-    let (regenerate_generation_group_id, regenerate_parent_group_id) =
-        if message.message_type == "user" {
-            // 用户消息重发：为新的AI回复生成全新的group_id
-            // 查找该user message后面第一条非user、非system的消息，用它的generation_group_id作为parent_group_id
-            let mut parent_group_id: Option<String> = None;
+    let (regenerate_generation_group_id, regenerate_parent_group_id) = if message.message_type
+        == "user"
+    {
+        // 用户消息重发：为新的AI回复生成全新的group_id
+        // 查找该user message后面第一条非user、非system的消息，用它的generation_group_id作为parent_group_id
+        let mut parent_group_id: Option<String> = None;
 
-            // 获取对话中的所有消息，按ID排序
-            let all_messages = db
-                .message_repo()
-                .unwrap()
-                .list_by_conversation_id(conversation_id)?;
+        // 获取对话中的所有消息，按ID排序
+        let all_messages = db.message_repo().unwrap().list_by_conversation_id(conversation_id)?;
 
-            // 找到当前user message在列表中的位置
-            if let Some(message_index) = all_messages
-                .iter()
-                .position(|(msg, _)| msg.id == message_id)
-            {
-                // 查找该user message后面第一条非user、非system的消息
-                for (next_msg, _) in all_messages.iter().skip(message_index + 1) {
-                    if next_msg.message_type != "user"
-                        && next_msg.message_type != "system"
-                        && next_msg.generation_group_id.is_some()
-                    {
-                        parent_group_id = next_msg.generation_group_id.clone();
-                        println!(
-                            "[[parent_group_id for user message regenerate]]: {:?}\n",
-                            parent_group_id
-                        );
-                        break;
-                    }
+        // 找到当前user message在列表中的位置
+        if let Some(message_index) = all_messages.iter().position(|(msg, _)| msg.id == message_id) {
+            // 查找该user message后面第一条非user、非system的消息
+            for (next_msg, _) in all_messages.iter().skip(message_index + 1) {
+                if next_msg.message_type != "user"
+                    && next_msg.message_type != "system"
+                    && next_msg.generation_group_id.is_some()
+                {
+                    parent_group_id = next_msg.generation_group_id.clone();
+                    println!(
+                        "[[parent_group_id for user message regenerate]]: {:?}\n",
+                        parent_group_id
+                    );
+                    break;
                 }
             }
+        }
 
-            (Some(uuid::Uuid::new_v4().to_string()), parent_group_id)
-        } else {
-            // AI消息重发：生成新的group_id，并将原消息的group_id作为parent_group_id
-            let original_group_id = message.generation_group_id.clone();
-            (Some(uuid::Uuid::new_v4().to_string()), original_group_id)
-        };
+        (Some(uuid::Uuid::new_v4().to_string()), parent_group_id)
+    } else {
+        // AI消息重发：生成新的group_id，并将原消息的group_id作为parent_group_id
+        let original_group_id = message.generation_group_id.clone();
+        (Some(uuid::Uuid::new_v4().to_string()), original_group_id)
+    };
 
     let cancel_token = CancellationToken::new();
-    message_token_manager
-        .store_token(conversation_id, cancel_token.clone())
-        .await;
+    message_token_manager.store_token(conversation_id, cancel_token.clone()).await;
 
     // 在异步任务外获取模型详情（避免线程安全问题）
     let llm_db = LLMDatabase::new(&app_handle).map_err(AppError::from)?;
@@ -923,22 +871,14 @@ pub async fn regenerate_ai(
         let config_map = model_config_clone
             .iter()
             .filter_map(|config| {
-                config
-                    .value
-                    .as_ref()
-                    .map(|value| (config.name.clone(), value.clone()))
+                config.value.as_ref().map(|value| (config.name.clone(), value.clone()))
             })
             .collect::<HashMap<String, String>>();
 
-        let stream = config_map
-            .get("stream")
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(false);
+        let stream = config_map.get("stream").and_then(|v| v.parse().ok()).unwrap_or(false);
 
-        let model_name = config_map
-            .get("model")
-            .cloned()
-            .unwrap_or_else(|| regenerate_model_code.clone());
+        let model_name =
+            config_map.get("model").cloned().unwrap_or_else(|| regenerate_model_code.clone());
 
         let chat_options = ConfigBuilder::build_chat_options(&config_map);
 
@@ -975,10 +915,7 @@ pub async fn regenerate_ai(
             };
 
         let chat_messages = build_chat_messages(&final_message_list_for_llm);
-        println!(
-            "[[final_chat_messages (regenerate)]]: {:#?}\n",
-            chat_messages
-        );
+        println!("[[final_chat_messages (regenerate)]]: {:#?}\n", chat_messages);
         // 原生：注入 MCP 工具
         let chat_request = if has_available_tools {
             // 重新拉取一次助手的 MCP 工具，确保一致
@@ -1061,20 +998,14 @@ pub async fn regenerate_ai(
 
     println!("================================ Regenerate AI End ===============================================");
 
-    Ok(AiResponse {
-        conversation_id,
-        request_prompt_result_with_context: String::new(),
-    })
+    Ok(AiResponse { conversation_id, request_prompt_result_with_context: String::new() })
 }
 
 /// 获取每个父消息的最新子消息（统一的排序逻辑）
 /// 返回: (latest_children_map, child_ids_set)
 fn get_latest_child_messages(
     messages: &[(Message, Option<MessageAttachment>)],
-) -> (
-    HashMap<i64, (Message, Option<MessageAttachment>)>,
-    HashSet<i64>,
-) {
+) -> (HashMap<i64, (Message, Option<MessageAttachment>)>, HashSet<i64>) {
     let mut latest_children: HashMap<i64, (Message, Option<MessageAttachment>)> = HashMap::new();
     let mut child_ids: HashSet<i64> = HashSet::new();
 
@@ -1209,15 +1140,7 @@ async fn initialize_conversation(
     assistant_prompt_result: String,
     request_prompt_result: String,
     override_prompt: Option<String>,
-) -> Result<
-    (
-        i64,
-        Option<i64>,
-        String,
-        Vec<(String, String, Vec<MessageAttachment>)>,
-    ),
-    AppError,
-> {
+) -> Result<(i64, Option<i64>, String, Vec<(String, String, Vec<MessageAttachment>)>), AppError> {
     let db = ConversationDatabase::new(app_handle).map_err(AppError::from)?;
 
     let (conversation_id, add_message_id, request_prompt_result_with_context, init_message_list) =
@@ -1253,14 +1176,8 @@ async fn initialize_conversation(
                     message_attachment_list,
                 ),
             ];
-            println!(
-                "[[initialize_conversation assistant_id]]: {}\n",
-                request.assistant_id
-            );
-            println!(
-                "[[initialize_conversation init_message_list]]: {:#?}\n",
-                init_message_list
-            );
+            println!("[[initialize_conversation assistant_id]]: {}\n", request.assistant_id);
+            println!("[[initialize_conversation init_message_list]]: {:#?}\n", init_message_list);
             let (conversation, _) = init_conversation(
                 app_handle,
                 request.assistant_id,
@@ -1277,10 +1194,8 @@ async fn initialize_conversation(
         } else {
             // 已存在对话逻辑
             let conversation_id = request.conversation_id.parse::<i64>()?;
-            let all_messages = db
-                .message_repo()
-                .unwrap()
-                .list_by_conversation_id(conversation_id)?;
+            let all_messages =
+                db.message_repo().unwrap().list_by_conversation_id(conversation_id)?;
 
             // 使用统一的排序逻辑
             let (latest_children, child_ids) = get_latest_child_messages(&all_messages);
@@ -1353,10 +1268,8 @@ async fn initialize_conversation(
                 .unwrap(),
             };
 
-            let _ = app_handle.emit(
-                format!("conversation_event_{}", conversation_id).as_str(),
-                add_event,
-            );
+            let _ = app_handle
+                .emit(format!("conversation_event_{}", conversation_id).as_str(), add_event);
 
             let update_event = ConversationEvent {
                 r#type: "message_update".to_string(),
@@ -1368,10 +1281,8 @@ async fn initialize_conversation(
                 })
                 .unwrap(),
             };
-            let _ = app_handle.emit(
-                format!("conversation_event_{}", conversation_id).as_str(),
-                update_event,
-            );
+            let _ = app_handle
+                .emit(format!("conversation_event_{}", conversation_id).as_str(), update_event);
 
             let mut updated_message_list = message_list;
             updated_message_list.push((
@@ -1387,12 +1298,7 @@ async fn initialize_conversation(
                 updated_message_list,
             )
         };
-    Ok((
-        conversation_id,
-        add_message_id,
-        request_prompt_result_with_context,
-        init_message_list,
-    ))
+    Ok((conversation_id, add_message_id, request_prompt_result_with_context, init_message_list))
 }
 
 /// 重新生成对话标题
@@ -1409,10 +1315,8 @@ pub async fn regenerate_conversation_title(
     })?;
 
     // 获取对话的消息
-    let messages = conversation_db
-        .message_repo()
-        .unwrap()
-        .list_by_conversation_id(conversation_id)?;
+    let messages =
+        conversation_db.message_repo().unwrap().list_by_conversation_id(conversation_id)?;
 
     if messages.is_empty() {
         return Err(AppError::InsufficientMessages);
@@ -1426,18 +1330,14 @@ pub async fn regenerate_conversation_title(
         .ok_or_else(|| AppError::InsufficientMessages)?;
 
     // 获取第一条AI回答（可选）
-    let response_message = messages
-        .iter()
-        .find(|(msg, _)| msg.message_type == "response")
-        .map(|(msg, _)| msg);
+    let response_message =
+        messages.iter().find(|(msg, _)| msg.message_type == "response").map(|(msg, _)| msg);
 
     // 获取特性配置
     let config_feature_map = feature_config_state.config_feature_map.lock().await;
 
     // 调用内部的 generate_title 函数
-    let response_content = response_message
-        .map(|msg| msg.content.clone())
-        .unwrap_or_default(); // 如果没有回答，使用空字符串
+    let response_content = response_message.map(|msg| msg.content.clone()).unwrap_or_default(); // 如果没有回答，使用空字符串
 
     generate_title(
         &app_handle,

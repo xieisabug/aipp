@@ -2,19 +2,18 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
 use std::sync::LazyLock;
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, Emitter};
+use std::sync::{Arc, Mutex};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 use crate::artifacts::shared_components::{
-    SharedPreviewUtils, TemplateCache, 
-    kill_process_by_pid, kill_process_group_by_pid, kill_processes_by_port
+    kill_process_by_pid, kill_process_group_by_pid, kill_processes_by_port, SharedPreviewUtils,
+    TemplateCache,
 };
 
 // 全局共享的服务器映射
-static GLOBAL_SERVERS: LazyLock<Arc<Mutex<HashMap<String, PreviewServer>>>> = LazyLock::new(|| {
-    Arc::new(Mutex::new(HashMap::new()))
-});
+static GLOBAL_SERVERS: LazyLock<Arc<Mutex<HashMap<String, PreviewServer>>>> =
+    LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 #[derive(Debug, Clone)]
 pub struct PreviewServer {
@@ -38,10 +37,7 @@ pub struct ReactPreviewManager {
 impl ReactPreviewManager {
     pub fn new(app_handle: AppHandle) -> Self {
         let shared_utils = SharedPreviewUtils::new(app_handle.clone());
-        Self {
-            app_handle,
-            shared_utils,
-        }
+        Self { app_handle, shared_utils }
     }
 
     // 获取 bun 可执行文件路径
@@ -79,7 +75,7 @@ impl ReactPreviewManager {
 
         let port = self.find_available_port()?;
         println!("🚀 [React Preview] 找到可用端口: {}", port);
-        
+
         // 关闭已存在的预览实例
         let _ = self.close_preview(&preview_id);
 
@@ -100,12 +96,12 @@ impl ReactPreviewManager {
             template_path,
         };
 
-        println!("🔧 [ReactPreview] 创建服务器对象: ID={}, Port={}, PID={:?}", preview_id, port, process_id);
-        
-        GLOBAL_SERVERS
-            .lock()
-            .unwrap()
-            .insert(preview_id.clone(), server);
+        println!(
+            "🔧 [ReactPreview] 创建服务器对象: ID={}, Port={}, PID={:?}",
+            preview_id, port, process_id
+        );
+
+        GLOBAL_SERVERS.lock().unwrap().insert(preview_id.clone(), server);
 
         // 等待开发服务器启动并执行相应操作
         let app_handle = self.app_handle.clone();
@@ -129,7 +125,7 @@ impl ReactPreviewManager {
             }
 
             // std::thread::sleep(std::time::Duration::from_secs(3));
-            
+
             match mode {
                 PreviewMode::Artifact => {
                     let preview_url = format!("http://localhost:{}", port);
@@ -137,7 +133,7 @@ impl ReactPreviewManager {
                     if let Some(window) = app_handle.get_webview_window("artifact_preview") {
                         let _ = window.emit("artifact-preview-success", "预览服务器已启动完成");
                     }
-                    
+
                     // 发送跳转事件，让前端窗口自动跳转到预览页面
                     if let Some(window) = app_handle.get_webview_window("artifact_preview") {
                         let _ = window.emit("artifact-preview-redirect", preview_url);
@@ -159,7 +155,7 @@ impl ReactPreviewManager {
 
     pub fn close_preview(&self, preview_id: &str) -> Result<(), Box<dyn std::error::Error>> {
         let mut servers = GLOBAL_SERVERS.lock().unwrap();
-        
+
         // 调试信息：显示当前所有服务器
         println!("🔧 [ReactPreview] 当前服务器列表:");
         for (id, server) in servers.iter() {
@@ -169,7 +165,7 @@ impl ReactPreviewManager {
 
         if let Some(server) = servers.remove(preview_id) {
             println!("🔧 [ReactPreview] 找到预览服务器: {}", preview_id);
-            
+
             // 优先使用PID终止进程
             if let Some(pid) = server.process {
                 println!("🔧 [ReactPreview] 准备终止进程 PID: {}", pid);
@@ -238,9 +234,11 @@ impl ReactPreviewManager {
         println!("🛠️ [Setup] 模板源路径: {:?}", template_source);
 
         // 计算当前模板的哈希值
-        let current_files_hash = self.shared_utils.calculate_template_files_hash(&template_source, "UserComponent.tsx")?;
+        let current_files_hash = self
+            .shared_utils
+            .calculate_template_files_hash(&template_source, "UserComponent.tsx")?;
         let current_deps_hash = self.shared_utils.calculate_deps_hash(&template_source)?;
-        
+
         println!("🔍 [Setup] 当前模板文件哈希: {}", current_files_hash);
         println!("🔍 [Setup] 当前依赖哈希: {}", current_deps_hash);
 
@@ -252,13 +250,13 @@ impl ReactPreviewManager {
         if let Ok(Some(cache)) = cached_info {
             println!("🔍 [Setup] 缓存文件哈希: {}", cache.files_hash);
             println!("🔍 [Setup] 缓存依赖哈希: {}", cache.deps_hash);
-            
+
             // 检查文件是否需要更新
             if cache.files_hash == current_files_hash && preview_dir.exists() {
                 need_copy_files = false;
                 println!("✅ [Setup] 模板文件无变化，跳过复制");
             }
-            
+
             // 检查依赖是否需要更新
             if cache.deps_hash == current_deps_hash && preview_dir.join("node_modules").exists() {
                 need_install_deps = false;
@@ -290,11 +288,9 @@ impl ReactPreviewManager {
         }
 
         // 保存新的缓存信息
-        let new_cache = TemplateCache {
-            files_hash: current_files_hash,
-            deps_hash: current_deps_hash,
-        };
-        
+        let new_cache =
+            TemplateCache { files_hash: current_files_hash, deps_hash: current_deps_hash };
+
         if let Err(e) = self.shared_utils.save_template_cache("react", &new_cache) {
             println!("⚠️ [Setup] 保存缓存信息失败: {}", e);
         } else {
@@ -318,10 +314,7 @@ impl ReactPreviewManager {
         port: u16,
         force_install: bool,
     ) -> Result<u32, Box<dyn std::error::Error>> {
-        println!(
-            "🔧 [DevServer] 在项目路径启动开发服务器: {:?}",
-            project_path
-        );
+        println!("🔧 [DevServer] 在项目路径启动开发服务器: {:?}", project_path);
         println!("🔧 [DevServer] 使用端口: {}", port);
 
         // 获取 bun 可执行文件路径
@@ -394,14 +387,7 @@ impl ReactPreviewManager {
         // 首先尝试使用 bunx vite
         let mut vite_command = Command::new(&bun_executable);
         vite_command
-            .args(&[
-                "x",
-                "vite",
-                "--port",
-                &port.to_string(),
-                "--host",
-                "127.0.0.1",
-            ])
+            .args(&["x", "vite", "--port", &port.to_string(), "--host", "127.0.0.1"])
             .current_dir(project_path)
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -434,7 +420,10 @@ impl ReactPreviewManager {
                     // 等待子进程结束或者被终止
                     match child.wait() {
                         Ok(status) => {
-                            println!("🔧 [DevServer] Vite 进程 PID {} 已结束，状态: {}", pid, status);
+                            println!(
+                                "🔧 [DevServer] Vite 进程 PID {} 已结束，状态: {}",
+                                pid, status
+                            );
                         }
                         Err(e) => {
                             println!("⚠️ [DevServer] 等待 Vite 进程 PID {} 结束时出错: {}", pid, e);
@@ -516,9 +505,7 @@ pub async fn create_react_preview_for_artifact(
     component_name: String,
 ) -> Result<String, String> {
     let manager = ReactPreviewManager::new(app_handle);
-    manager
-        .create_preview_for_artifact(component_code, component_name)
-        .map_err(|e| e.to_string())
+    manager.create_preview_for_artifact(component_code, component_name).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -528,16 +515,12 @@ pub async fn create_react_preview(
     component_name: String,
 ) -> Result<String, String> {
     let manager = ReactPreviewManager::new(app_handle);
-    manager
-        .create_preview(component_code, component_name)
-        .map_err(|e| e.to_string())
+    manager.create_preview(component_code, component_name).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn close_react_preview(app_handle: AppHandle, preview_id: String) -> Result<(), String> {
     println!("🔧 [ReactPreview] 关闭预览窗口: {}", preview_id);
     let manager = ReactPreviewManager::new(app_handle);
-    manager
-        .close_preview(&preview_id)
-        .map_err(|e| e.to_string())
+    manager.close_preview(&preview_id).map_err(|e| e.to_string())
 }

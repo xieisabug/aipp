@@ -50,17 +50,13 @@ impl SystemDatabase {
     }
 
     pub fn add_system_config(&self, key: &str, value: &str) -> Result<()> {
-        self.conn.execute(
-            "INSERT INTO system_config (key, value) VALUES (?, ?)",
-            params![key, value],
-        )?;
+        self.conn
+            .execute("INSERT INTO system_config (key, value) VALUES (?, ?)", params![key, value])?;
         Ok(())
     }
 
     pub fn get_config(&self, key: &str) -> Result<String> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT value FROM system_config WHERE key = ?")?;
+        let mut stmt = self.conn.prepare("SELECT value FROM system_config WHERE key = ?")?;
         let mut rows = stmt.query_map(params![key], |row| Ok(row.get(0)?))?;
 
         if let Some(row) = rows.next() {
@@ -72,16 +68,13 @@ impl SystemDatabase {
     }
 
     pub fn update_system_config(&self, key: &str, value: &str) -> Result<()> {
-        self.conn.execute(
-            "UPDATE system_config SET value = ? WHERE key = ?",
-            params![value, key],
-        )?;
+        self.conn
+            .execute("UPDATE system_config SET value = ? WHERE key = ?", params![value, key])?;
         Ok(())
     }
 
     pub fn delete_system_config(&self, key: &str) -> Result<()> {
-        self.conn
-            .execute("DELETE FROM system_config WHERE key = ?", params![key])?;
+        self.conn.execute("DELETE FROM system_config WHERE key = ?", params![key])?;
         Ok(())
     }
 
@@ -116,14 +109,16 @@ impl SystemDatabase {
     }
 
     pub fn delete_feature_config_by_feature_code(&self, feature_code: &str) -> Result<()> {
-        self.conn.execute(
-            "DELETE FROM feature_config WHERE feature_code = ?1",
-            params![feature_code],
-        )?;
+        self.conn
+            .execute("DELETE FROM feature_config WHERE feature_code = ?1", params![feature_code])?;
         Ok(())
     }
 
-    pub fn get_feature_config(&self, feature_code: &str, key: &str) -> Result<Option<FeatureConfig>> {
+    pub fn get_feature_config(
+        &self,
+        feature_code: &str,
+        key: &str,
+    ) -> Result<Option<FeatureConfig>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, feature_code, key, value, data_type, description
              FROM feature_config WHERE feature_code = ?1 AND key = ?2",

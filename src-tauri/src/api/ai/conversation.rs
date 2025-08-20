@@ -19,12 +19,19 @@ pub fn build_chat_messages_with_context(
     init_message_list: &[(String, String, Vec<MessageAttachment>)],
     current_tool_call_id: Option<String>,
 ) -> Vec<ChatMessage> {
-    println!("[[DEBUG - build_chat_messages_with_context]] current_tool_call_id: {:?}", current_tool_call_id);
-    
+    println!(
+        "[[DEBUG - build_chat_messages_with_context]] current_tool_call_id: {:?}",
+        current_tool_call_id
+    );
+
     let mut chat_messages = Vec::new();
     for (message_type, content, attachment_list) in init_message_list.iter() {
-        println!("[[DEBUG]] Processing message type: {}, content preview: {}", message_type, content.chars().take(50).collect::<String>());
-        
+        println!(
+            "[[DEBUG]] Processing message type: {}, content preview: {}",
+            message_type,
+            content.chars().take(50).collect::<String>()
+        );
+
         match message_type.as_str() {
             "system" => chat_messages.push(ChatMessage::system(content)),
             "user" => {
@@ -61,9 +68,7 @@ pub fn build_chat_messages_with_context(
                             {
                                 if let Some((mime, b64)) = parse_data_url(attachment_content) {
                                     parts.push(genai::chat::ContentPart::from_binary_base64(
-                                        None,
-                                        mime, 
-                                        b64,
+                                        None, mime, b64,
                                     ));
                                 }
                             } else if matches!(
@@ -96,18 +101,24 @@ pub fn build_chat_messages_with_context(
             "tool_result" => {
                 println!("[[DEBUG]] Processing tool_result message");
                 // Priority: 1. current_tool_call_id, 2. extracted from content, 3. random
-                let tool_call_id = current_tool_call_id.clone()
+                let tool_call_id = current_tool_call_id
+                    .clone()
                     .or_else(|| extract_tool_call_id(content))
-                    .unwrap_or_else(|| format!("tool_call_{}", Uuid::new_v4().to_string()[..8].to_string()));
-                
+                    .unwrap_or_else(|| {
+                        format!("tool_call_{}", Uuid::new_v4().to_string()[..8].to_string())
+                    });
+
                 println!("[[DEBUG]] Using tool_call_id: {}", tool_call_id);
-                
+
                 // Try to extract clean result, fallback to full content
-                let tool_result = extract_tool_result(content)
-                    .unwrap_or_else(|| content.to_string());
-                
-                println!("[[DEBUG]] Tool result preview: {}", tool_result.chars().take(100).collect::<String>());
-                
+                let tool_result =
+                    extract_tool_result(content).unwrap_or_else(|| content.to_string());
+
+                println!(
+                    "[[DEBUG]] Tool result preview: {}",
+                    tool_result.chars().take(100).collect::<String>()
+                );
+
                 // Create ToolResponse from genai crate
                 let tool_response = ToolResponse::new(tool_call_id.clone(), tool_result);
                 println!("[[DEBUG]] Created ToolResponse with call_id: {}", tool_call_id);
@@ -117,7 +128,9 @@ pub fn build_chat_messages_with_context(
                 // 将 response 统一视为 assistant 历史
                 if other == "response" {
                     // 检查是否包含 MCP_TOOL_CALL 注释，如果有则需要重建包含工具调用的 assistant 消息
-                    if let Some(assistant_with_calls) = reconstruct_assistant_with_tool_calls_from_content(content) {
+                    if let Some(assistant_with_calls) =
+                        reconstruct_assistant_with_tool_calls_from_content(content)
+                    {
                         chat_messages.push(assistant_with_calls);
                     } else {
                         chat_messages.push(ChatMessage::assistant(content));
@@ -163,41 +176,38 @@ pub fn reconstruct_assistant_with_tool_calls_from_content(content: &str) -> Opti
     // 查找所有 MCP_TOOL_CALL 注释
     if let Ok(mcp_call_regex) = regex::Regex::new(r"<!-- MCP_TOOL_CALL:(.*?) -->") {
         let mut tool_calls = Vec::new();
-        
+
         // 提取所有工具调用信息
         for capture in mcp_call_regex.captures_iter(content) {
             if let Ok(tool_data) = serde_json::from_str::<serde_json::Value>(&capture[1]) {
                 if let (Some(server_name), Some(tool_name), Some(parameters)) = (
                     tool_data["server_name"].as_str(),
-                    tool_data["tool_name"].as_str(), 
-                    tool_data["parameters"].as_str()
+                    tool_data["tool_name"].as_str(),
+                    tool_data["parameters"].as_str(),
                 ) {
                     // 使用正确的格式：server__tool (双下划线)
                     let fn_name = format!("{}__{}", server_name, tool_name);
-                    let fn_arguments = serde_json::from_str(parameters).unwrap_or(serde_json::json!({}));
-                    
+                    let fn_arguments =
+                        serde_json::from_str(parameters).unwrap_or(serde_json::json!({}));
+
                     // 优先使用 llm_call_id，如果没有则使用 call_id 转换为字符串
                     let call_id = tool_data["llm_call_id"]
                         .as_str()
                         .map(|s| s.to_string())
                         .or_else(|| tool_data["call_id"].as_u64().map(|n| n.to_string()))
                         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-                    
-                    tool_calls.push(ToolCall {
-                        call_id,
-                        fn_name,
-                        fn_arguments,
-                    });
+
+                    tool_calls.push(ToolCall { call_id, fn_name, fn_arguments });
                 }
             }
         }
-        
+
         if !tool_calls.is_empty() {
             // 创建包含工具调用的 assistant 消息（忽略文本内容以避免混合消息类型的复杂性）
             return Some(ChatMessage::from(tool_calls));
         }
     }
-    
+
     None
 }
 
@@ -262,9 +272,7 @@ pub async fn handle_message_type_end(
     let end_time = chrono::Utc::now();
     let duration_ms = end_time.timestamp_millis() - start_time.timestamp_millis();
 
-    conversation_db
-        .message_repo()?
-        .update_finish_time(message_id)?;
+    conversation_db.message_repo()?.update_finish_time(message_id)?;
 
     if message_type == "response" && !skip_mcp_detection {
         if let Err(e) = crate::api::ai::mcp::detect_and_process_mcp_calls(
@@ -290,10 +298,7 @@ pub async fn handle_message_type_end(
         })
         .unwrap(),
     };
-    let _ = window.emit(
-        format!("conversation_event_{}", conversation_id).as_str(),
-        type_end_event,
-    );
+    let _ = window.emit(format!("conversation_event_{}", conversation_id).as_str(), type_end_event);
 
     let final_update_event = crate::api::ai::events::ConversationEvent {
         r#type: "message_update".to_string(),
@@ -305,10 +310,8 @@ pub async fn handle_message_type_end(
         })
         .unwrap(),
     };
-    let _ = window.emit(
-        format!("conversation_event_{}", conversation_id).as_str(),
-        final_update_event,
-    );
+    let _ =
+        window.emit(format!("conversation_event_{}", conversation_id).as_str(), final_update_event);
 
     Ok(())
 }
@@ -324,11 +327,7 @@ pub fn finish_stream_messages(
 ) -> Result<(), anyhow::Error> {
     if let Some(msg_id) = reasoning_message_id {
         if response_message_id.is_none() {
-            conversation_db
-                .message_repo()
-                .unwrap()
-                .update_finish_time(msg_id)
-                .unwrap();
+            conversation_db.message_repo().unwrap().update_finish_time(msg_id).unwrap();
             let complete_event = crate::api::ai::events::ConversationEvent {
                 r#type: "message_update".to_string(),
                 data: serde_json::to_value(crate::api::ai::events::MessageUpdateEvent {
@@ -339,19 +338,13 @@ pub fn finish_stream_messages(
                 })
                 .unwrap(),
             };
-            let _ = window.emit(
-                format!("conversation_event_{}", conversation_id).as_str(),
-                complete_event,
-            );
+            let _ = window
+                .emit(format!("conversation_event_{}", conversation_id).as_str(), complete_event);
         }
     }
 
     if let Some(msg_id) = response_message_id {
-        conversation_db
-            .message_repo()
-            .unwrap()
-            .update_finish_time(msg_id)
-            .unwrap();
+        conversation_db.message_repo().unwrap().update_finish_time(msg_id).unwrap();
         let complete_event = crate::api::ai::events::ConversationEvent {
             r#type: "message_update".to_string(),
             data: serde_json::to_value(crate::api::ai::events::MessageUpdateEvent {
@@ -362,10 +355,8 @@ pub fn finish_stream_messages(
             })
             .unwrap(),
         };
-        let _ = window.emit(
-            format!("conversation_event_{}", conversation_id).as_str(),
-            complete_event,
-        );
+        let _ =
+            window.emit(format!("conversation_event_{}", conversation_id).as_str(), complete_event);
     }
     Ok(())
 }
@@ -415,10 +406,7 @@ pub fn init_conversation(
         for attachment in attachment_list {
             let mut updated_attachment = attachment.clone();
             updated_attachment.message_id = message.id;
-            db.attachment_repo()
-                .unwrap()
-                .update(&updated_attachment)
-                .map_err(AppError::from)?;
+            db.attachment_repo().unwrap().update(&updated_attachment).map_err(AppError::from)?;
         }
         message_result_array.push(message.clone());
     }

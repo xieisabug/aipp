@@ -157,11 +157,7 @@ impl Repository<Conversation> for ConversationRepository {
     fn create(&self, conversation: &Conversation) -> Result<Conversation> {
         self.conn.execute(
             "INSERT INTO conversation (name, assistant_id, created_time) VALUES (?1, ?2, ?3)",
-            (
-                &conversation.name,
-                &conversation.assistant_id,
-                &conversation.created_time,
-            ),
+            (&conversation.name, &conversation.assistant_id, &conversation.created_time),
         )?;
         let id = self.conn.last_insert_rowid();
         Ok(Conversation {
@@ -192,18 +188,13 @@ impl Repository<Conversation> for ConversationRepository {
     fn update(&self, conversation: &Conversation) -> Result<()> {
         self.conn.execute(
             "UPDATE conversation SET name = ?1, assistant_id = ?2 WHERE id = ?3",
-            (
-                &conversation.name,
-                &conversation.assistant_id,
-                &conversation.id,
-            ),
+            (&conversation.name, &conversation.assistant_id, &conversation.id),
         )?;
         Ok(())
     }
 
     fn delete(&self, id: i64) -> Result<()> {
-        self.conn
-            .execute("DELETE FROM conversation WHERE id = ?", &[&id])?;
+        self.conn.execute("DELETE FROM conversation WHERE id = ?", &[&id])?;
         Ok(())
     }
 }
@@ -227,9 +218,7 @@ impl MessageRepository {
                                           WHERE conversation_id = ?1")?;
         let rows = stmt.query_map(&[&conversation_id], |row| {
             let attachment_type_int: Option<i64> = row.get(14).ok();
-            let attachment_type = attachment_type_int
-                .map(AttachmentType::try_from)
-                .transpose()?;
+            let attachment_type = attachment_type_int.map(AttachmentType::try_from).transpose()?;
             let message = Message {
                 id: row.get(0)?,
                 parent_id: row.get(1)?,
@@ -266,22 +255,16 @@ impl MessageRepository {
     }
 
     pub fn update_finish_time(&self, id: i64) -> Result<()> {
-        self.conn.execute(
-            "UPDATE message SET finish_time = CURRENT_TIMESTAMP WHERE id = ?1",
-            [&id],
-        )?;
+        self.conn
+            .execute("UPDATE message SET finish_time = CURRENT_TIMESTAMP WHERE id = ?1", [&id])?;
         Ok(())
     }
 
     /// 更新消息内容
     pub fn update_content(&self, id: i64, content: &str) -> Result<()> {
-        self.conn.execute(
-            "UPDATE message SET content = ?1 WHERE id = ?2",
-            (content, id),
-        )?;
+        self.conn.execute("UPDATE message SET content = ?1 WHERE id = ?2", (content, id))?;
         Ok(())
     }
-
 }
 
 impl Repository<Message> for MessageRepository {
@@ -364,8 +347,7 @@ impl Repository<Message> for MessageRepository {
     }
 
     fn delete(&self, id: i64) -> Result<()> {
-        self.conn
-            .execute("DELETE FROM message WHERE id = ?", &[&id])?;
+        self.conn.execute("DELETE FROM message WHERE id = ?", &[&id])?;
         Ok(())
     }
 }
@@ -382,10 +364,7 @@ impl MessageAttachmentRepository {
     pub fn list_by_id(&self, id_list: &Vec<i64>) -> Result<Vec<MessageAttachment>> {
         let id_list_str: Vec<String> = id_list.iter().map(|id| id.to_string()).collect();
         let id_list_str = id_list_str.join(",");
-        let query = format!(
-            "SELECT * FROM message_attachment WHERE id IN ({})",
-            id_list_str
-        );
+        let query = format!("SELECT * FROM message_attachment WHERE id IN ({})", id_list_str);
         let mut stmt = self.conn.prepare(&query)?;
         let rows = stmt.query_map([], |row| {
             let attachment_type_int: i64 = row.get(2)?;
@@ -448,24 +427,20 @@ impl Repository<MessageAttachment> for MessageAttachmentRepository {
 
     fn read(&self, id: i64) -> Result<Option<MessageAttachment>> {
         self.conn
-            .query_row(
-                "SELECT * FROM message_attachment WHERE id = ?",
-                &[&id],
-                |row| {
-                    let attachment_type_int: i64 = row.get(2)?;
-                    let attachment_type = AttachmentType::try_from(attachment_type_int)?;
-                    Ok(MessageAttachment {
-                        id: row.get(0)?,
-                        message_id: row.get(1)?,
-                        attachment_type,
-                        attachment_url: row.get(3)?,
-                        attachment_content: row.get(4)?,
-                        attachment_hash: None,
-                        use_vector: row.get(5)?,
-                        token_count: row.get(6)?,
-                    })
-                },
-            )
+            .query_row("SELECT * FROM message_attachment WHERE id = ?", &[&id], |row| {
+                let attachment_type_int: i64 = row.get(2)?;
+                let attachment_type = AttachmentType::try_from(attachment_type_int)?;
+                Ok(MessageAttachment {
+                    id: row.get(0)?,
+                    message_id: row.get(1)?,
+                    attachment_type,
+                    attachment_url: row.get(3)?,
+                    attachment_content: row.get(4)?,
+                    attachment_hash: None,
+                    use_vector: row.get(5)?,
+                    token_count: row.get(6)?,
+                })
+            })
             .optional()
     }
 
@@ -478,8 +453,7 @@ impl Repository<MessageAttachment> for MessageAttachmentRepository {
     }
 
     fn delete(&self, id: i64) -> Result<()> {
-        self.conn
-            .execute("DELETE FROM message_attachment WHERE id = ?", &[&id])?;
+        self.conn.execute("DELETE FROM message_attachment WHERE id = ?", &[&id])?;
         Ok(())
     }
 }
@@ -492,9 +466,7 @@ impl ConversationDatabase {
     pub fn new(app_handle: &tauri::AppHandle) -> rusqlite::Result<Self> {
         let db_path = get_db_path(app_handle, "conversation.db");
 
-        Ok(ConversationDatabase {
-            db_path: db_path.unwrap(),
-        })
+        Ok(ConversationDatabase { db_path: db_path.unwrap() })
     }
 
     pub fn get_connection(&self) -> rusqlite::Result<Connection> {
@@ -548,21 +520,23 @@ impl ConversationDatabase {
             )",
             [],
         )?;
-        
+
         // 添加迁移逻辑：如果parent_group_id或tool_calls_json列不存在，则添加它们
         let mut stmt = conn.prepare("PRAGMA table_info(message)")?;
-        let column_info: Vec<String> = stmt.query_map([], |row| {
-            let column_name: String = row.get(1)?;
-            Ok(column_name)
-        })?.collect::<Result<Vec<String>, _>>()?;
-        
+        let column_info: Vec<String> = stmt
+            .query_map([], |row| {
+                let column_name: String = row.get(1)?;
+                Ok(column_name)
+            })?
+            .collect::<Result<Vec<String>, _>>()?;
+
         if !column_info.contains(&"parent_group_id".to_string()) {
             conn.execute("ALTER TABLE message ADD COLUMN parent_group_id TEXT", [])?;
         }
         if !column_info.contains(&"tool_calls_json".to_string()) {
             conn.execute("ALTER TABLE message ADD COLUMN tool_calls_json TEXT", [])?;
         }
-        
+
         conn.execute(
             "CREATE TABLE IF NOT EXISTS message_attachment (
                 id                 INTEGER

@@ -41,5 +41,3 @@ pub struct MCPToolCallUpdateEvent {
 
 pub const TITLE_CHANGE_EVENT: &str = "title_change";
 pub const ERROR_NOTIFICATION_EVENT: &str = "conversation-window-error-notification";
-
-

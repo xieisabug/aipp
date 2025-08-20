@@ -43,7 +43,7 @@ impl ArtifactsDatabase {
     pub fn new(app_handle: &tauri::AppHandle) -> rusqlite::Result<Self> {
         let db_path = get_db_path(app_handle, "artifacts.db");
         let conn = Connection::open(db_path.unwrap())?;
-        
+
         Ok(ArtifactsDatabase { conn })
     }
 
@@ -82,9 +82,9 @@ impl ArtifactsDatabase {
     pub fn save_artifact(&self, artifact: NewArtifactCollection) -> Result<i64> {
         let mut stmt = self.conn.prepare(
             "INSERT INTO artifacts_collection (name, icon, description, artifact_type, code, tags) 
-             VALUES (?, ?, ?, ?, ?, ?)"
+             VALUES (?, ?, ?, ?, ?, ?)",
         )?;
-        
+
         stmt.execute(params![
             artifact.name,
             artifact.icon,
@@ -111,7 +111,7 @@ impl ArtifactsDatabase {
         };
 
         let mut stmt = self.conn.prepare(query)?;
-        
+
         let row_mapper = |row: &rusqlite::Row| {
             Ok(ArtifactCollection {
                 id: row.get(0)?,
@@ -137,7 +137,7 @@ impl ArtifactsDatabase {
         for artifact_result in rows {
             artifacts.push(artifact_result?);
         }
-        
+
         Ok(artifacts)
     }
 
@@ -174,7 +174,7 @@ impl ArtifactsDatabase {
     /// Search artifacts by name, description, or tags
     pub fn search_artifacts(&self, query: &str) -> Result<Vec<ArtifactCollection>> {
         let search_pattern = format!("%{}%", query.to_lowercase());
-        
+
         let mut stmt = self.conn.prepare(
             "SELECT id, name, icon, description, artifact_type, code, tags, created_time, last_used_time, use_count 
              FROM artifacts_collection 
@@ -201,7 +201,7 @@ impl ArtifactsDatabase {
         for artifact_result in rows {
             artifacts.push(artifact_result?);
         }
-        
+
         Ok(artifacts)
     }
 
@@ -231,25 +231,21 @@ impl ArtifactsDatabase {
             return Ok(()); // Nothing to update
         }
 
-        let query = format!(
-            "UPDATE artifacts_collection SET {} WHERE id = ?",
-            query_parts.join(", ")
-        );
+        let query =
+            format!("UPDATE artifacts_collection SET {} WHERE id = ?", query_parts.join(", "));
 
         let id_string = update.id.to_string();
         params.push(&id_string);
-        
+
         self.conn.execute(&query, rusqlite::params_from_iter(params))?;
         Ok(())
     }
 
     /// Delete artifact by ID
     pub fn delete_artifact(&self, id: i64) -> Result<bool> {
-        let rows_affected = self.conn.execute(
-            "DELETE FROM artifacts_collection WHERE id = ?",
-            [id]
-        )?;
-        
+        let rows_affected =
+            self.conn.execute("DELETE FROM artifacts_collection WHERE id = ?", [id])?;
+
         Ok(rows_affected > 0)
     }
 
@@ -259,24 +255,22 @@ impl ArtifactsDatabase {
             "UPDATE artifacts_collection 
              SET use_count = use_count + 1, last_used_time = CURRENT_TIMESTAMP 
              WHERE id = ?",
-            [id]
+            [id],
         )?;
-        
+
         Ok(())
     }
 
     /// Get artifacts statistics
     pub fn get_statistics(&self) -> Result<(i64, i64)> {
-        let total_count: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM artifacts_collection",
-            [],
-            |row| row.get(0)
-        )?;
+        let total_count: i64 =
+            self.conn
+                .query_row("SELECT COUNT(*) FROM artifacts_collection", [], |row| row.get(0))?;
 
         let total_uses: i64 = self.conn.query_row(
             "SELECT COALESCE(SUM(use_count), 0) FROM artifacts_collection",
             [],
-            |row| row.get(0)
+            |row| row.get(0),
         )?;
 
         Ok((total_count, total_uses))

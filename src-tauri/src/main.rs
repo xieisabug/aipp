@@ -1,7 +1,4 @@
-#![cfg_attr(
-    all(not(debug_assertions), target_os = "windows"),
-    windows_subsystem = "windows"
-)]
+#![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]
 
 mod api;
 mod artifacts;
@@ -13,27 +10,25 @@ mod template_engine;
 mod utils;
 mod window;
 
-use crate::api::ai_api::{ask_ai, cancel_ai, regenerate_ai, regenerate_conversation_title, tool_result_continue_ask_ai};
+use crate::api::ai_api::{
+    ask_ai, cancel_ai, regenerate_ai, regenerate_conversation_title, tool_result_continue_ask_ai,
+};
 use crate::api::artifacts_api::{
     check_bun_version, check_uv_version, confirm_environment_install, install_bun, install_uv,
-    preview_react_component, retry_preview_after_install,
-    run_artifacts,
+    preview_react_component, retry_preview_after_install, run_artifacts,
 };
 use crate::api::artifacts_collection_api::{
-    delete_artifact_collection, get_artifact_by_id, get_artifacts_collection,
-    get_artifacts_for_completion, get_artifacts_statistics, generate_artifact_metadata,
+    delete_artifact_collection, generate_artifact_metadata, get_artifact_by_id,
+    get_artifacts_collection, get_artifacts_for_completion, get_artifacts_statistics,
     open_artifact_window, save_artifact_to_collection, search_artifacts_collection,
     update_artifact_collection,
 };
-use crate::artifacts::{
-    react_runner::{run_react_artifact, close_react_artifact},
-    vue_runner::{run_vue_artifact, close_vue_artifact},
-};
 use crate::api::assistant_api::{
-    add_assistant, copy_assistant, delete_assistant, get_assistant, get_assistant_field_value,
-    get_assistants, save_assistant, get_assistant_mcp_servers_with_tools, update_assistant_mcp_config, 
-    update_assistant_mcp_tool_config, bulk_update_assistant_mcp_tools, update_assistant_model_config_value,
-    export_assistant, import_assistant,
+    add_assistant, bulk_update_assistant_mcp_tools, copy_assistant, delete_assistant,
+    export_assistant, get_assistant, get_assistant_field_value,
+    get_assistant_mcp_servers_with_tools, get_assistants, import_assistant, save_assistant,
+    update_assistant_mcp_config, update_assistant_mcp_tool_config,
+    update_assistant_model_config_value,
 };
 use crate::api::attachment_api::{add_attachment, open_attachment_with_default_app};
 use crate::api::conversation_api::{
@@ -41,18 +36,20 @@ use crate::api::conversation_api::{
     update_message_content,
 };
 use crate::api::llm_api::{
-    add_llm_model, add_llm_provider, delete_llm_model, delete_llm_provider, fetch_model_list,
-    get_llm_models, get_llm_provider_config, get_llm_providers, get_models_for_select,
-    preview_model_list, update_llm_provider, update_llm_provider_config, update_selected_models,
-    export_llm_provider, import_llm_provider,
+    add_llm_model, add_llm_provider, delete_llm_model, delete_llm_provider, export_llm_provider,
+    fetch_model_list, get_llm_models, get_llm_provider_config, get_llm_providers,
+    get_models_for_select, import_llm_provider, preview_model_list, update_llm_provider,
+    update_llm_provider_config, update_selected_models,
 };
 use crate::api::mcp_api::{
-    add_mcp_server, delete_mcp_server, get_mcp_server, get_mcp_server_resources,
-    get_mcp_server_tools, get_mcp_server_prompts, get_mcp_servers, refresh_mcp_server_capabilities, 
-    test_mcp_connection, toggle_mcp_server, update_mcp_server, update_mcp_server_tool, update_mcp_server_prompt,
+    add_mcp_server, delete_mcp_server, get_mcp_server, get_mcp_server_prompts,
+    get_mcp_server_resources, get_mcp_server_tools, get_mcp_servers,
+    refresh_mcp_server_capabilities, test_mcp_connection, toggle_mcp_server, update_mcp_server,
+    update_mcp_server_prompt, update_mcp_server_tool,
 };
 use crate::api::mcp_execution_api::{
-    create_mcp_tool_call, execute_mcp_tool_call, get_mcp_tool_call, get_mcp_tool_calls_by_conversation,
+    create_mcp_tool_call, execute_mcp_tool_call, get_mcp_tool_call,
+    get_mcp_tool_calls_by_conversation,
 };
 use crate::api::system_api::{
     get_all_feature_config, get_bang_list, get_selected_text_api, open_data_folder,
@@ -64,15 +61,18 @@ use crate::artifacts::react_preview::{
 use crate::artifacts::vue_preview::{
     close_vue_preview, create_vue_preview, create_vue_preview_for_artifact,
 };
+use crate::artifacts::{
+    react_runner::{close_react_artifact, run_react_artifact},
+    vue_runner::{close_vue_artifact, run_vue_artifact},
+};
 use crate::db::artifacts_db::ArtifactsDatabase;
 use crate::db::assistant_db::AssistantDatabase;
 use crate::db::llm_db::LLMDatabase;
 use crate::db::mcp_db::MCPDatabase;
 use crate::db::system_db::SystemDatabase;
 use crate::window::{
-    awaken_aipp, create_ask_window, handle_open_ask_window, open_artifact_preview_window,
-    open_chat_ui_window, open_config_window, open_plugin_window,
-    open_artifact_collections_window,
+    awaken_aipp, create_ask_window, handle_open_ask_window, open_artifact_collections_window,
+    open_artifact_preview_window, open_chat_ui_window, open_config_window, open_plugin_window,
 };
 use chrono::Local;
 use db::conversation_db::ConversationDatabase;
@@ -148,13 +148,12 @@ async fn save_config(state: tauri::State<'_, AppState>, config: Config) -> Resul
 #[tauri::command]
 async fn get_config(state: tauri::State<'_, AppState>) -> Result<Config, String> {
     let selected_text = state.selected_text.lock().await;
-    Ok(Config {
-        selected_text: selected_text.clone(),
-    })
+    Ok(Config { selected_text: selected_text.clone() })
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
@@ -265,7 +264,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let plugin_db = PluginDatabase::new(&app_handle)?;
             let mcp_db = MCPDatabase::new(&app_handle)?;
             let artifacts_db = ArtifactsDatabase::new(&app_handle)?;
-            
+
             system_db.create_tables()?;
             llm_db.create_tables()?;
             assistant_db.create_tables()?;
@@ -274,13 +273,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             mcp_db.create_tables()?;
             artifacts_db.create_tables()?;
 
-            let _ = database_upgrade(
-                &app_handle,
-                system_db,
-                llm_db,
-                assistant_db,
-                conversation_db,
-            );
+            let _ = database_upgrade(&app_handle, system_db, llm_db, assistant_db, conversation_db);
 
             app.manage(initialize_state(&app_handle));
             app.manage(initialize_name_cache_state(&app_handle));
@@ -291,9 +284,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             Ok(())
         })
-        .manage(AppState {
-            selected_text: TokioMutex::new(String::new()),
-        })
+        .manage(AppState { selected_text: TokioMutex::new(String::new()) })
         .manage(MessageTokenManager::new())
         .invoke_handler(tauri::generate_handler![
             ask_ai,
@@ -413,12 +404,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-
 fn initialize_state(app_handle: &tauri::AppHandle) -> FeatureConfigState {
     let db = SystemDatabase::new(app_handle).expect("Failed to connect to database");
-    let configs = db
-        .get_all_feature_config()
-        .expect("Failed to load feature configs");
+    let configs = db.get_all_feature_config().expect("Failed to load feature configs");
     let mut configs_map = HashMap::new();
     for config in configs.clone().into_iter() {
         let feature_code = config.feature_code.clone();
@@ -436,18 +424,14 @@ fn initialize_state(app_handle: &tauri::AppHandle) -> FeatureConfigState {
 
 fn initialize_name_cache_state(app_handle: &tauri::AppHandle) -> NameCacheState {
     let assistant_db = AssistantDatabase::new(app_handle).expect("Failed to connect to database");
-    let assistants = assistant_db
-        .get_assistants()
-        .expect("Failed to load assistants");
+    let assistants = assistant_db.get_assistants().expect("Failed to load assistants");
     let mut assistant_names = HashMap::new();
     for assistant in assistants.clone().into_iter() {
         assistant_names.insert(assistant.id, assistant.name.clone());
     }
 
     let llm_db = LLMDatabase::new(app_handle).expect("Failed to connect to database");
-    let models = llm_db
-        .get_models_for_select()
-        .expect("Failed to load models");
+    let models = llm_db.get_models_for_select().expect("Failed to load models");
     let mut model_names = HashMap::new();
     for model in models.clone().into_iter() {
         model_names.insert(model.2, model.0);

@@ -7,8 +7,8 @@ use crate::{
         conversation_db::ConversationDatabase,
     },
     utils::share_utils::{
-        SharedAssistant, AssistantShareData, ModelConfigShare,
-        compress_assistant_data, decompress_assistant_data
+        compress_assistant_data, decompress_assistant_data, AssistantShareData, ModelConfigShare,
+        SharedAssistant,
     },
     NameCacheState,
 };
@@ -53,10 +53,7 @@ pub struct MCPServerWithTools {
 #[tauri::command]
 pub fn get_assistants(app_handle: tauri::AppHandle) -> Result<Vec<Assistant>, String> {
     let assistant_db = AssistantDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    assistant_db
-        .get_assistants()
-        .map(|assistants| assistants.into())
-        .map_err(|e| e.to_string())
+    assistant_db.get_assistants().map(|assistants| assistants.into()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -67,48 +64,35 @@ pub fn get_assistant(
     let assistant_db = AssistantDatabase::new(&app_handle).map_err(|e| e.to_string())?;
 
     // 获取 Assistant 基本信息
-    let assistant = assistant_db
-        .get_assistant(assistant_id)
-        .map_err(|e| e.to_string())?;
-    println!(
-        "Assistant name: {:?} (id: {})",
-        assistant.name, assistant.id
-    );
+    let assistant = assistant_db.get_assistant(assistant_id).map_err(|e| e.to_string())?;
+    println!("Assistant name: {:?} (id: {})", assistant.name, assistant.id);
 
     // 获取相关的 prompt
-    let prompts = assistant_db
-        .get_assistant_prompt(assistant_id)
-        .map_err(|e| e.to_string())?;
+    let prompts = assistant_db.get_assistant_prompt(assistant_id).map_err(|e| e.to_string())?;
     println!("prompts: {:?}", prompts);
 
     // 获取相关的 model
-    let model = assistant_db
-        .get_assistant_model(assistant_id)
-        .map_err(|e| e.to_string())?;
+    let model = assistant_db.get_assistant_model(assistant_id).map_err(|e| e.to_string())?;
     println!("model: {:?}", model);
 
     // 获取相关的 model_config
-    let model_configs = assistant_db
-        .get_assistant_model_configs(assistant_id)
-        .map_err(|e| e.to_string())?;
+    let model_configs =
+        assistant_db.get_assistant_model_configs(assistant_id).map_err(|e| e.to_string())?;
     println!("model_configs: {:?}", model_configs);
 
     // 获取相关的 prompt_params
-    let prompt_params = assistant_db
-        .get_assistant_prompt_params(assistant_id)
-        .map_err(|e| e.to_string())?;
+    let prompt_params =
+        assistant_db.get_assistant_prompt_params(assistant_id).map_err(|e| e.to_string())?;
     println!("prompt_params: {:?}", prompt_params);
 
     // 获取相关的 MCP 配置
-    let mcp_configs = assistant_db
-        .get_assistant_mcp_configs(assistant_id)
-        .map_err(|e| e.to_string())?;
+    let mcp_configs =
+        assistant_db.get_assistant_mcp_configs(assistant_id).map_err(|e| e.to_string())?;
     println!("mcp_configs: {:?}", mcp_configs);
 
     // 获取相关的 MCP 工具配置
-    let mcp_tool_configs = assistant_db
-        .get_assistant_mcp_tool_configs(assistant_id)
-        .map_err(|e| e.to_string())?;
+    let mcp_tool_configs =
+        assistant_db.get_assistant_mcp_tool_configs(assistant_id).map_err(|e| e.to_string())?;
     println!("mcp_tool_configs: {:?}", mcp_tool_configs);
 
     // 构建 AssistantDetail 对象
@@ -133,21 +117,14 @@ pub async fn save_assistant(
 ) -> Result<(), String> {
     let assistant_db = AssistantDatabase::new(&app_handle).map_err(|e| e.to_string())?;
 
-    println!(
-        "save_assistant assistant_detail: {:?}",
-        assistant_detail.clone()
-    );
+    println!("save_assistant assistant_detail: {:?}", assistant_detail.clone());
 
     // Save or update the Assistant
     if assistant_detail.assistant.id == 0 {
         assistant_db
             .add_assistant(
                 &assistant_detail.assistant.name,
-                assistant_detail
-                    .assistant
-                    .description
-                    .as_deref()
-                    .unwrap_or(""),
+                assistant_detail.assistant.description.as_deref().unwrap_or(""),
                 assistant_detail.assistant.assistant_type,
                 true,
             )
@@ -157,21 +134,14 @@ pub async fn save_assistant(
             .update_assistant(
                 assistant_detail.assistant.id,
                 &assistant_detail.assistant.name,
-                assistant_detail
-                    .assistant
-                    .description
-                    .as_deref()
-                    .unwrap_or(""),
+                assistant_detail.assistant.description.as_deref().unwrap_or(""),
             )
             .map_err(|e| e.to_string())?;
     }
 
     // Update the name_cache_state
     let mut model_names = name_cache_state.assistant_names.lock().await;
-    model_names.insert(
-        assistant_detail.assistant.id,
-        assistant_detail.assistant.name,
-    );
+    model_names.insert(assistant_detail.assistant.id, assistant_detail.assistant.name);
 
     // Save or update the AssistantPrompts
     for prompt in assistant_detail.prompts {
@@ -280,9 +250,7 @@ pub fn add_assistant(
         .map_err(|e| e.to_string())?;
 
     // Get the newly added assistant
-    let assistant = assistant_db
-        .get_assistant(assistant_id)
-        .map_err(|e| e.to_string())?;
+    let assistant = assistant_db.get_assistant(assistant_id).map_err(|e| e.to_string())?;
     println!("assistant: {:?}", assistant);
 
     let default_prompt = "You are a helpful assistant.";
@@ -296,9 +264,8 @@ pub fn add_assistant(
         created_time: Option::None,
     }];
 
-    let model_id = assistant_db
-        .add_assistant_model(assistant_id, 0, "", "")
-        .map_err(|e| e.to_string())?;
+    let model_id =
+        assistant_db.add_assistant_model(assistant_id, 0, "", "").map_err(|e| e.to_string())?;
     println!("model_id: {:?}", model_id);
 
     // Add default model configs
@@ -394,9 +361,7 @@ pub fn copy_assistant(
     let assistant_db = AssistantDatabase::new(&app_handle).map_err(|e| e.to_string())?;
 
     // Get the original assistant
-    let original_assistant = assistant_db
-        .get_assistant(assistant_id)
-        .map_err(|e| e.to_string())?;
+    let original_assistant = assistant_db.get_assistant(assistant_id).map_err(|e| e.to_string())?;
 
     // Create a new assistant based on the original
     let new_assistant_id = assistant_db
@@ -409,9 +374,8 @@ pub fn copy_assistant(
         .map_err(|e| e.to_string())?;
 
     // Copy prompts
-    let original_prompts = assistant_db
-        .get_assistant_prompt(assistant_id)
-        .map_err(|e| e.to_string())?;
+    let original_prompts =
+        assistant_db.get_assistant_prompt(assistant_id).map_err(|e| e.to_string())?;
     let mut new_prompts = Vec::new();
     for prompt in original_prompts {
         let new_prompt_id = assistant_db
@@ -426,9 +390,8 @@ pub fn copy_assistant(
     }
 
     // Copy models and their configs
-    let original_models = assistant_db
-        .get_assistant_model(assistant_id)
-        .map_err(|e| e.to_string())?;
+    let original_models =
+        assistant_db.get_assistant_model(assistant_id).map_err(|e| e.to_string())?;
     let mut new_models = Vec::new();
     let mut new_model_configs = Vec::new();
     for model in original_models {
@@ -474,9 +437,7 @@ pub fn copy_assistant(
     }
 
     // Get the newly created assistant
-    let new_assistant = assistant_db
-        .get_assistant(new_assistant_id)
-        .map_err(|e| e.to_string())?;
+    let new_assistant = assistant_db.get_assistant(new_assistant_id).map_err(|e| e.to_string())?;
 
     // Build AssistantDetail object
     let assistant_detail = AssistantDetail {
@@ -489,10 +450,7 @@ pub fn copy_assistant(
         mcp_tool_configs: Vec::new(),
     };
 
-    println!(
-        "Successfully copied assistant. New assistant ID: {}",
-        new_assistant_id
-    );
+    println!("Successfully copied assistant. New assistant ID: {}", new_assistant_id);
 
     // 广播助手列表更新事件
     let _ = app_handle.emit("assistant_list_changed", ());
@@ -525,9 +483,7 @@ pub fn delete_assistant(app_handle: tauri::AppHandle, assistant_id: i64) -> Resu
         .update_assistant_id(assistant_id, Some(1))
         .map_err(|e| e.to_string())?;
 
-    assistant_db
-        .delete_assistant(assistant_id)
-        .map_err(|e| e.to_string())?;
+    assistant_db.delete_assistant(assistant_id).map_err(|e| e.to_string())?;
 
     // 广播助手列表更新事件
     let _ = app_handle.emit("assistant_list_changed", ());
@@ -545,9 +501,7 @@ pub fn get_assistant_field_value(
 
     if field_name == "prompt" {
         // Get prompts for this assistant
-        let prompts = assistant_db
-            .get_assistant_prompt(assistant_id)
-            .map_err(|e| e.to_string())?;
+        let prompts = assistant_db.get_assistant_prompt(assistant_id).map_err(|e| e.to_string())?;
 
         println!("Prompts for assistant {}: {:?}", assistant_id, prompts);
 
@@ -559,9 +513,8 @@ pub fn get_assistant_field_value(
     }
 
     // Get all model configs for this assistant
-    let configs = assistant_db
-        .get_assistant_model_configs(assistant_id)
-        .map_err(|e| e.to_string())?;
+    let configs =
+        assistant_db.get_assistant_model_configs(assistant_id).map_err(|e| e.to_string())?;
 
     println!("Configs for assistant {}: {:?}", assistant_id, configs);
 
@@ -694,9 +647,8 @@ pub async fn update_assistant_model_config_value(
     let assistant_db = AssistantDatabase::new(&app_handle).map_err(|e| e.to_string())?;
 
     // 首先尝试查找是否已存在该配置
-    let existing_configs = assistant_db
-        .get_assistant_model_configs(assistant_id)
-        .map_err(|e| e.to_string())?;
+    let existing_configs =
+        assistant_db.get_assistant_model_configs(assistant_id).map_err(|e| e.to_string())?;
 
     if let Some(existing_config) = existing_configs.iter().find(|c| c.name == config_name) {
         // 更新现有配置
@@ -705,17 +657,13 @@ pub async fn update_assistant_model_config_value(
             .map_err(|e| e.to_string())?;
     } else {
         // 创建新配置 - 需要获取assistant_model_id
-        let models = assistant_db
-            .get_assistant_model(assistant_id)
-            .map_err(|e| e.to_string())?;
+        let models = assistant_db.get_assistant_model(assistant_id).map_err(|e| e.to_string())?;
 
         let model_id = if let Some(model) = models.first() {
             model.id
         } else {
             // 如果没有模型，创建一个默认模型
-            assistant_db
-                .add_assistant_model(assistant_id, 0, "", "")
-                .map_err(|e| e.to_string())?
+            assistant_db.add_assistant_model(assistant_id, 0, "", "").map_err(|e| e.to_string())?
         };
 
         assistant_db
@@ -740,16 +688,16 @@ pub async fn export_assistant(
     assistant_id: i64,
 ) -> Result<String, String> {
     let assistant_detail = get_assistant(app_handle, assistant_id)?;
-    
+
     // Convert to share format (exclude model information)
     let share_data = AssistantShareData {
         name: assistant_detail.assistant.name.clone(),
         description: assistant_detail.assistant.description.clone(),
         assistant_type: assistant_detail.assistant.assistant_type.unwrap_or(0),
-        prompt: assistant_detail.prompts.first()
-            .map(|p| p.prompt.clone())
-            .unwrap_or_default(),
-        model_configs: assistant_detail.model_configs.iter()
+        prompt: assistant_detail.prompts.first().map(|p| p.prompt.clone()).unwrap_or_default(),
+        model_configs: assistant_detail
+            .model_configs
+            .iter()
             .map(|config| ModelConfigShare {
                 name: config.name.clone(),
                 value: config.value.clone().unwrap_or_default(),
@@ -757,13 +705,13 @@ pub async fn export_assistant(
             })
             .collect(),
     };
-    
+
     let shared_assistant = SharedAssistant {
         version: "1.0".to_string(),
         data_type: "assistant".to_string(),
         data: share_data,
     };
-    
+
     compress_assistant_data(&shared_assistant).map_err(|e| e.to_string())
 }
 
@@ -775,18 +723,17 @@ pub async fn import_assistant(
 ) -> Result<AssistantDetail, String> {
     // Decompress and validate share code
     let shared_assistant = decompress_assistant_data(&share_code).map_err(|e| e.to_string())?;
-    
+
     if shared_assistant.data_type != "assistant" {
         return Err("Invalid share code: not an assistant".to_string());
     }
-    
+
     let assistant_db = AssistantDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    
+
     // Use provided name or original name with suffix
-    let assistant_name = new_name.unwrap_or_else(|| {
-        format!("{} (导入)", shared_assistant.data.name)
-    });
-    
+    let assistant_name =
+        new_name.unwrap_or_else(|| format!("{} (导入)", shared_assistant.data.name));
+
     // Create new assistant
     let new_assistant_id = assistant_db
         .add_assistant(
@@ -796,17 +743,16 @@ pub async fn import_assistant(
             false,
         )
         .map_err(|e| e.to_string())?;
-    
+
     // Add prompt
     assistant_db
         .add_assistant_prompt(new_assistant_id, &shared_assistant.data.prompt)
         .map_err(|e| e.to_string())?;
-    
+
     // Add default model (will need to be configured by user)
-    let model_id = assistant_db
-        .add_assistant_model(new_assistant_id, 0, "", "")
-        .map_err(|e| e.to_string())?;
-    
+    let model_id =
+        assistant_db.add_assistant_model(new_assistant_id, 0, "", "").map_err(|e| e.to_string())?;
+
     // Add model configs
     for config in shared_assistant.data.model_configs {
         assistant_db
@@ -819,10 +765,10 @@ pub async fn import_assistant(
             )
             .map_err(|e| e.to_string())?;
     }
-    
+
     // Broadcast assistant list update
     let _ = app_handle.emit("assistant_list_changed", ());
-    
+
     // Return the created assistant detail
     get_assistant(app_handle, new_assistant_id)
 }

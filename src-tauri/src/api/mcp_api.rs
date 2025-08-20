@@ -101,8 +101,7 @@ pub async fn toggle_mcp_server(
     is_enabled: bool,
 ) -> Result<(), String> {
     let db = MCPDatabase::new(&app_handle).map_err(|e: rusqlite::Error| e.to_string())?;
-    db.toggle_mcp_server(id, is_enabled)
-        .map_err(|e| e.to_string())?;
+    db.toggle_mcp_server(id, is_enabled).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -112,9 +111,7 @@ pub async fn get_mcp_server_tools(
     server_id: i64,
 ) -> Result<Vec<MCPServerTool>, String> {
     let db = MCPDatabase::new(&app_handle).map_err(|e: rusqlite::Error| e.to_string())?;
-    let tools = db
-        .get_mcp_server_tools(server_id)
-        .map_err(|e| e.to_string())?;
+    let tools = db.get_mcp_server_tools(server_id).map_err(|e| e.to_string())?;
     Ok(tools)
 }
 
@@ -126,8 +123,7 @@ pub async fn update_mcp_server_tool(
     is_auto_run: bool,
 ) -> Result<(), String> {
     let db = MCPDatabase::new(&app_handle).map_err(|e: rusqlite::Error| e.to_string())?;
-    db.update_mcp_server_tool(tool_id, is_enabled, is_auto_run)
-        .map_err(|e| e.to_string())?;
+    db.update_mcp_server_tool(tool_id, is_enabled, is_auto_run).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -137,9 +133,7 @@ pub async fn get_mcp_server_resources(
     server_id: i64,
 ) -> Result<Vec<MCPServerResource>, String> {
     let db = MCPDatabase::new(&app_handle).map_err(|e: rusqlite::Error| e.to_string())?;
-    let resources = db
-        .get_mcp_server_resources(server_id)
-        .map_err(|e| e.to_string())?;
+    let resources = db.get_mcp_server_resources(server_id).map_err(|e| e.to_string())?;
     Ok(resources)
 }
 
@@ -156,10 +150,7 @@ pub async fn test_mcp_connection(
         "stdio" => test_stdio_connection(&server).await,
         "sse" => test_sse_connection(&server).await,
         "http" => test_http_connection(&server).await,
-        _ => Err(format!(
-            "Unsupported transport type: {}",
-            server.transport_type
-        )),
+        _ => Err(format!("Unsupported transport type: {}", server.transport_type)),
     };
 
     match test_result {
@@ -179,10 +170,7 @@ async fn test_stdio_connection(server: &MCPServer) -> Result<(), String> {
     };
     use tokio::process::Command;
 
-    let command = server
-        .command
-        .as_ref()
-        .ok_or("No command specified for stdio transport")?;
+    let command = server.command.as_ref().ok_or("No command specified for stdio transport")?;
     let parts: Vec<&str> = command.split_whitespace().collect();
     if parts.is_empty() {
         return Err("Empty command".to_string());
@@ -193,23 +181,21 @@ async fn test_stdio_connection(server: &MCPServer) -> Result<(), String> {
         std::time::Duration::from_millis(5000), // 5秒超时
         async {
             let client = ()
-                .serve(TokioChildProcess::new(Command::new(parts[0]).configure(
-                    |cmd| {
-                        // 添加命令参数
-                        if parts.len() > 1 {
-                            cmd.args(&parts[1..]);
-                        }
+                .serve(TokioChildProcess::new(Command::new(parts[0]).configure(|cmd| {
+                    // 添加命令参数
+                    if parts.len() > 1 {
+                        cmd.args(&parts[1..]);
+                    }
 
-                        // 设置环境变量
-                        if let Some(env_vars) = &server.environment_variables {
-                            for line in env_vars.lines() {
-                                if let Some((key, value)) = line.split_once('=') {
-                                    cmd.env(key.trim(), value.trim());
-                                }
+                    // 设置环境变量
+                    if let Some(env_vars) = &server.environment_variables {
+                        for line in env_vars.lines() {
+                            if let Some((key, value)) = line.split_once('=') {
+                                cmd.env(key.trim(), value.trim());
                             }
                         }
-                    },
-                ))?)
+                    }
+                }))?)
                 .await?;
 
             // 测试成功，取消连接
@@ -234,10 +220,7 @@ async fn test_sse_connection(server: &MCPServer) -> Result<(), String> {
         ServiceExt,
     };
 
-    let url = server
-        .url
-        .as_ref()
-        .ok_or("No URL specified for SSE transport")?;
+    let url = server.url.as_ref().ok_or("No URL specified for SSE transport")?;
 
     // 简短的连接测试，超时时间更短
     let client_result = tokio::time::timeout(
@@ -276,10 +259,7 @@ async fn test_http_connection(server: &MCPServer) -> Result<(), String> {
         ServiceExt,
     };
 
-    let url = server
-        .url
-        .as_ref()
-        .ok_or("No URL specified for HTTP transport")?;
+    let url = server.url.as_ref().ok_or("No URL specified for HTTP transport")?;
 
     // 创建StreamableHttpClientTransport传输
     let transport = StreamableHttpClientTransport::from_uri(url.as_str());
@@ -318,9 +298,7 @@ pub async fn get_mcp_server_prompts(
     server_id: i64,
 ) -> Result<Vec<MCPServerPrompt>, String> {
     let db = MCPDatabase::new(&app_handle).map_err(|e: rusqlite::Error| e.to_string())?;
-    let prompts = db
-        .get_mcp_server_prompts(server_id)
-        .map_err(|e| e.to_string())?;
+    let prompts = db.get_mcp_server_prompts(server_id).map_err(|e| e.to_string())?;
     Ok(prompts)
 }
 
@@ -331,8 +309,7 @@ pub async fn update_mcp_server_prompt(
     is_enabled: bool,
 ) -> Result<(), String> {
     let db = MCPDatabase::new(&app_handle).map_err(|e: rusqlite::Error| e.to_string())?;
-    db.update_mcp_server_prompt(prompt_id, is_enabled)
-        .map_err(|e| e.to_string())?;
+    db.update_mcp_server_prompt(prompt_id, is_enabled).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -340,14 +317,7 @@ pub async fn update_mcp_server_prompt(
 pub async fn refresh_mcp_server_capabilities(
     app_handle: tauri::AppHandle,
     server_id: i64,
-) -> Result<
-    (
-        Vec<MCPServerTool>,
-        Vec<MCPServerResource>,
-        Vec<MCPServerPrompt>,
-    ),
-    String,
-> {
+) -> Result<(Vec<MCPServerTool>, Vec<MCPServerResource>, Vec<MCPServerPrompt>), String> {
     let db = MCPDatabase::new(&app_handle).map_err(|e: rusqlite::Error| e.to_string())?;
     let server = db.get_mcp_server(server_id).map_err(|e| e.to_string())?;
 
@@ -358,23 +328,14 @@ pub async fn refresh_mcp_server_capabilities(
         "stdio" => get_stdio_capabilities(app_handle.clone(), server_id, server.clone()).await,
         "sse" => get_sse_capabilities(app_handle.clone(), server_id, server.clone()).await,
         "http" => get_http_capabilities(app_handle.clone(), server_id, server.clone()).await,
-        _ => Err(format!(
-            "Unsupported transport type: {}",
-            server.transport_type
-        )),
+        _ => Err(format!("Unsupported transport type: {}", server.transport_type)),
     };
 
     match result {
         Ok(_) => {
-            let tools = db
-                .get_mcp_server_tools(server_id)
-                .map_err(|e| e.to_string())?;
-            let resources = db
-                .get_mcp_server_resources(server_id)
-                .map_err(|e| e.to_string())?;
-            let prompts = db
-                .get_mcp_server_prompts(server_id)
-                .map_err(|e| e.to_string())?;
+            let tools = db.get_mcp_server_tools(server_id).map_err(|e| e.to_string())?;
+            let resources = db.get_mcp_server_resources(server_id).map_err(|e| e.to_string())?;
+            let prompts = db.get_mcp_server_prompts(server_id).map_err(|e| e.to_string())?;
             Ok((tools, resources, prompts))
         }
         Err(e) => {
@@ -400,9 +361,7 @@ async fn get_stdio_capabilities(
     let db = MCPDatabase::new(&app_handle).map_err(|e| e.to_string())?;
 
     // 获取命令，如果没有则返回错误
-    let command = server
-        .command
-        .ok_or("No command specified for stdio transport")?;
+    let command = server.command.ok_or("No command specified for stdio transport")?;
 
     // 解析命令和参数
     let parts: Vec<&str> = command.split_whitespace().collect();
@@ -415,23 +374,21 @@ async fn get_stdio_capabilities(
         std::time::Duration::from_millis(server.timeout.unwrap_or(30000) as u64),
         async {
             let client = ()
-                .serve(TokioChildProcess::new(Command::new(parts[0]).configure(
-                    |cmd| {
-                        // 添加命令参数
-                        if parts.len() > 1 {
-                            cmd.args(&parts[1..]);
-                        }
+                .serve(TokioChildProcess::new(Command::new(parts[0]).configure(|cmd| {
+                    // 添加命令参数
+                    if parts.len() > 1 {
+                        cmd.args(&parts[1..]);
+                    }
 
-                        // 设置环境变量
-                        if let Some(env_vars) = &server.environment_variables {
-                            for line in env_vars.lines() {
-                                if let Some((key, value)) = line.split_once('=') {
-                                    cmd.env(key.trim(), value.trim());
-                                }
+                    // 设置环境变量
+                    if let Some(env_vars) = &server.environment_variables {
+                        for line in env_vars.lines() {
+                            if let Some((key, value)) = line.split_once('=') {
+                                cmd.env(key.trim(), value.trim());
                             }
                         }
-                    },
-                ))?)
+                    }
+                }))?)
                 .await?;
 
             Ok::<_, anyhow::Error>(client)
@@ -496,10 +453,7 @@ async fn get_stdio_capabilities(
                 server_id,
                 &resource.uri,
                 &resource.name,
-                &resource
-                    .mime_type
-                    .as_ref()
-                    .unwrap_or(&"unknown".to_string()),
+                &resource.mime_type.as_ref().unwrap_or(&"unknown".to_string()),
                 resource.description.as_deref(),
             ) {
                 println!("Failed to add resource {}: {}", resource.name, e);
@@ -625,10 +579,7 @@ async fn get_sse_capabilities(
                 server_id,
                 &resource.uri,
                 &resource.name,
-                &resource
-                    .mime_type
-                    .as_ref()
-                    .unwrap_or(&"unknown".to_string()),
+                &resource.mime_type.as_ref().unwrap_or(&"unknown".to_string()),
                 resource.description.as_deref(),
             ) {
                 println!("Failed to add resource {}: {}", resource.name, e);
@@ -751,10 +702,7 @@ async fn get_http_capabilities(
                 server_id,
                 &resource.uri,
                 &resource.name,
-                &resource
-                    .mime_type
-                    .as_ref()
-                    .unwrap_or(&"unknown".to_string()),
+                &resource.mime_type.as_ref().unwrap_or(&"unknown".to_string()),
                 resource.description.as_deref(),
             ) {
                 println!("Failed to add resource {}: {}", resource.name, e);

@@ -34,14 +34,14 @@ pub async fn add_attachment(
     }
 
     // 如果有 content 和其他必要参数，使用 add_attachment_content
-    if let (Some(content), Some(name), Some(att_type)) = (file_content, file_name, attachment_type) {
+    if let (Some(content), Some(name), Some(att_type)) = (file_content, file_name, attachment_type)
+    {
         return add_attachment_content(app_handle, content, name, att_type).await;
     }
 
     // 如果都没有提供有效参数，返回错误
     Err(AppError::Anyhow(
-        "无效的参数：需要提供文件URL或者（文件内容、文件名、附件类型）"
-            .to_string(),
+        "无效的参数：需要提供文件URL或者（文件内容、文件名、附件类型）".to_string(),
     ))
 }
 
@@ -83,11 +83,7 @@ pub async fn add_attachment_by_url(
                 "image/png" => "data:image/png;base64,".to_string() + &base64_str,
                 "image/gif" => "data:image/gif;base64,".to_string() + &base64_str,
                 "image/webp" => "data:image/webp;base64,".to_string() + &base64_str,
-                _ => {
-                    return Err(AppError::Anyhow(
-                        anyhow!("Unsupported file type").to_string(),
-                    ))
-                }
+                _ => return Err(AppError::Anyhow(anyhow!("Unsupported file type").to_string())),
             }
         }
         "text" => {
@@ -97,11 +93,7 @@ pub async fn add_attachment_by_url(
             file.read_to_string(&mut content)?;
             content
         }
-        _ => {
-            return Err(AppError::Anyhow(
-                anyhow!("Unsupported file type").to_string(),
-            ))
-        }
+        _ => return Err(AppError::Anyhow(anyhow!("Unsupported file type").to_string())),
     };
 
     let mut hasher = Sha256::new();
@@ -111,16 +103,12 @@ pub async fn add_attachment_by_url(
     println!("file hash: {}", hash_str);
 
     // 去数据库根据sha256的数据查看是否有相同的attachment
-    let option_attachment = db
-        .attachment_repo()
-        .unwrap()
-        .read_by_attachment_hash(hash_str.as_str())?;
+    let option_attachment =
+        db.attachment_repo().unwrap().read_by_attachment_hash(hash_str.as_str())?;
     match option_attachment {
         Some(attachment) => {
             println!("add_attachment 找到相同的sha256: {}", attachment.id);
-            return Ok(AttachmentResult {
-                attachment_id: attachment.id,
-            });
+            return Ok(AttachmentResult { attachment_id: attachment.id });
         }
         None => {
             // 5. 保存到数据库
@@ -156,11 +144,7 @@ pub async fn add_attachment_by_url(
                         })?;
                     message_attachment.id
                 }
-                _ => {
-                    return Err(AppError::Anyhow(
-                        anyhow!("Unsupported file type").to_string(),
-                    ))
-                }
+                _ => return Err(AppError::Anyhow(anyhow!("Unsupported file type").to_string())),
             };
 
             // 6. 返回到前端 attachment_id，等待之后的 message 创建和更新
@@ -185,17 +169,13 @@ pub async fn add_attachment_content(
     println!("file hash: {}", hash_str);
 
     // 去数据库根据sha256的数据查看是否有相同的attachment
-    let option_attachment = db
-        .attachment_repo()
-        .unwrap()
-        .read_by_attachment_hash(hash_str.as_str())?;
+    let option_attachment =
+        db.attachment_repo().unwrap().read_by_attachment_hash(hash_str.as_str())?;
 
     match option_attachment {
         Some(attachment) => {
             println!("add_attachment_content 找到相同的sha256: {}", attachment.id);
-            return Ok(AttachmentResult {
-                attachment_id: attachment.id,
-            });
+            return Ok(AttachmentResult { attachment_id: attachment.id });
         }
         None => {
             let message_attachment = db.attachment_repo().unwrap().create(&MessageAttachment {
@@ -218,11 +198,15 @@ pub async fn add_attachment_content(
 }
 
 #[tauri::command]
-pub async fn open_attachment_with_default_app(id: i64, app_handle: tauri::AppHandle) -> Result<(), AppError> {
+pub async fn open_attachment_with_default_app(
+    id: i64,
+    app_handle: tauri::AppHandle,
+) -> Result<(), AppError> {
     let db = ConversationDatabase::new(&app_handle).map_err(AppError::from)?;
     let attachment = db.attachment_repo().unwrap().read(id)?;
 
-    let file_path = Path::new("attachments").join(attachment.unwrap().attachment_url.as_ref().unwrap());
+    let file_path =
+        Path::new("attachments").join(attachment.unwrap().attachment_url.as_ref().unwrap());
     let file_path = file_path.to_str().unwrap();
     println!("file_path: {}", file_path);
 

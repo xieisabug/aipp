@@ -295,10 +295,7 @@ async fn test_parse_assistant_mentions_remove_mentions() {
     let result = parse_assistant_mentions(&assistants, content, &options).unwrap();
 
     assert_eq!(result.mentions.len(), 2);
-    assert_eq!(
-        result.cleaned_content,
-        "Hello can you help with integration?"
-    );
+    assert_eq!(result.cleaned_content, "Hello can you help with integration?");
     assert_eq!(result.original_content, content);
 }
 
@@ -631,10 +628,7 @@ async fn test_parse_assistant_mentions_performance_with_remove_mentions() {
     large_text.push_str("还需要 @claude 协助，");
 
     for i in 8000..10000 {
-        large_text.push_str(&format!(
-            "第{}段内容：继续添加更多的文本内容来测试性能表现。",
-            i + 1
-        ));
+        large_text.push_str(&format!("第{}段内容：继续添加更多的文本内容来测试性能表现。", i + 1));
     }
 
     large_text.push_str("最后请 @中文名称 来总结。");
@@ -671,9 +665,5 @@ async fn test_parse_assistant_mentions_performance_with_remove_mentions() {
     assert!(!result.cleaned_content.contains("@中文名称"));
 
     // 性能断言：移除@提及操作也应该在合理时间内完成（比如250ms内）
-    assert!(
-        elapsed.as_millis() < 250,
-        "解析和清理时间过长: {:?}",
-        elapsed
-    );
+    assert!(elapsed.as_millis() < 250, "解析和清理时间过长: {:?}", elapsed);
 }

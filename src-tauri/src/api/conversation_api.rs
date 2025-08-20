@@ -39,30 +39,27 @@ pub fn process_message_versions(mut message_details: Vec<MessageDetail>) -> Vec<
     // 1. 如果消息没有parent_id，它是原始消息
     // 2. 如果消息有parent_id，它是某条消息的新版本
     // 3. 我们需要显示：原始消息（如果没有更新版本）或最新的更新版本
-    
+
     // 构建parent_id到直接子消息的映射
     let mut direct_children: HashMap<i64, Vec<MessageDetail>> = HashMap::new();
     let mut child_message_ids: std::collections::HashSet<i64> = std::collections::HashSet::new();
-    
+
     for message in &message_details {
         if let Some(parent_id) = message.parent_id {
             child_message_ids.insert(message.id);
-            direct_children
-                .entry(parent_id)
-                .or_default()
-                .push(message.clone());
+            direct_children.entry(parent_id).or_default().push(message.clone());
         }
     }
-    
+
     // 对每个父消息的子消息按时间排序
     for children in direct_children.values_mut() {
         children.sort_by_key(|m| m.created_time);
     }
-    
+
     // 递归查找最终的最新版本
     fn find_latest_version(
-        message_id: i64, 
-        direct_children: &HashMap<i64, Vec<MessageDetail>>
+        message_id: i64,
+        direct_children: &HashMap<i64, Vec<MessageDetail>>,
     ) -> Option<MessageDetail> {
         if let Some(children) = direct_children.get(&message_id) {
             if let Some(latest_child) = children.last() {
@@ -76,7 +73,7 @@ pub fn process_message_versions(mut message_details: Vec<MessageDetail>) -> Vec<
             None
         }
     }
-    
+
     // 构建最终显示的消息列表
     let mut final_messages: Vec<MessageDetail> = Vec::new();
     for message in message_details {
@@ -84,7 +81,7 @@ pub fn process_message_versions(mut message_details: Vec<MessageDetail>) -> Vec<
             // 这是某个消息的子版本，跳过（会在后续处理中添加最新版本）
             continue;
         }
-        
+
         // 检查是否有这个消息的更新版本（递归查找）
         if let Some(latest_version) = find_latest_version(message.id, &direct_children) {
             // 有更新版本，使用最新版本
@@ -94,7 +91,7 @@ pub fn process_message_versions(mut message_details: Vec<MessageDetail>) -> Vec<
             final_messages.push(message);
         }
     }
-    
+
     // 按创建时间排序
     final_messages.sort_by_key(|m| m.created_time);
     final_messages
@@ -124,11 +121,8 @@ pub async fn list_conversations(
 ) -> Result<Vec<ConversationResult>, AppError> {
     let db = ConversationDatabase::new(&app_handle).map_err(AppError::from)?;
 
-    let conversations = db
-        .conversation_repo()
-        .unwrap()
-        .list(page, page_size)
-        .map_err(|e| e.to_string());
+    let conversations =
+        db.conversation_repo().unwrap().list(page, page_size).map_err(|e| e.to_string());
 
     let mut conversation_results = Vec::new();
     let assistant_name_cache = name_cache_state.assistant_names.lock().await.clone();
@@ -172,19 +166,13 @@ pub async fn get_conversation_with_messages(
 
     for (message, attachment) in messages.clone() {
         if let Some(attachment) = attachment {
-            attachment_map
-                .entry(message.id)
-                .or_default()
-                .push(attachment);
+            attachment_map.entry(message.id).or_default().push(attachment);
         }
     }
 
     // Convert messages to a HashMap to preserve it for the second pass
-    let message_map: HashMap<i64, Message> = messages
-        .clone()
-        .into_iter()
-        .map(|(message, _)| (message.id, message))
-        .collect();
+    let message_map: HashMap<i64, Message> =
+        messages.clone().into_iter().map(|(message, _)| (message.id, message)).collect();
 
     // Second pass: Create MessageDetail with the collected attachments
     for (message_id, message) in message_map {
@@ -235,14 +223,11 @@ pub fn delete_conversation(
     conversation_id: i64,
 ) -> Result<(), String> {
     let db = ConversationDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    db.conversation_repo()
-        .unwrap()
-        .delete(conversation_id)
-        .map_err(|e| e.to_string())?;
+    db.conversation_repo().unwrap().delete(conversation_id).map_err(|e| e.to_string())?;
 
     // 发送删除事件通知前端更新列表
     let _ = app_handle.emit("conversation_deleted", conversation_id);
-    
+
     Ok(())
 }
 
@@ -260,10 +245,7 @@ pub fn update_conversation(
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "Conversation not found".to_string())?;
     conversation.name = name.clone();
-    db.conversation_repo()
-        .unwrap()
-        .update(&conversation)
-        .map_err(|e| e.to_string())?;
+    db.conversation_repo().unwrap().update(&conversation).map_err(|e| e.to_string())?;
 
     let _ = app_handle.emit("title_change", (conversation_id, name));
     Ok(())
@@ -276,8 +258,5 @@ pub fn update_message_content(
     content: String,
 ) -> Result<(), String> {
     let db = ConversationDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    db.message_repo()
-        .unwrap()
-        .update_content(message_id, &content)
-        .map_err(|e| e.to_string())
+    db.message_repo().unwrap().update_content(message_id, &content).map_err(|e| e.to_string())
 }

@@ -16,7 +16,7 @@ pub fn send_error_to_appropriate_window(window: &Window, error_message: &str) {
             }
         }
     }
-    
+
     // ChatUI 窗口不存在或不可见，发送给 Ask 窗口
     if let Some(ask_window) = window.app_handle().get_webview_window("ask") {
         let _ = ask_window.emit(ERROR_NOTIFICATION_EVENT, error_message);

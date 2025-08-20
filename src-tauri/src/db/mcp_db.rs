@@ -57,14 +57,14 @@ pub struct MCPToolCall {
     pub server_id: i64,
     pub server_name: String,
     pub tool_name: String,
-    pub parameters: String, // JSON string of parameters
-    pub status: String,     // pending, executing, success, failed
+    pub parameters: String,     // JSON string of parameters
+    pub status: String,         // pending, executing, success, failed
     pub result: Option<String>, // JSON string of result
     pub error: Option<String>,
     pub created_time: String,
     pub started_time: Option<String>,
     pub finished_time: Option<String>,
-    pub llm_call_id: Option<String>, // LLM 原生 tool_call_id
+    pub llm_call_id: Option<String>,       // LLM 原生 tool_call_id
     pub assistant_message_id: Option<i64>, // 关联的 assistant 消息ID
 }
 
@@ -180,16 +180,16 @@ impl MCPDatabase {
     fn migrate_mcp_tool_call_table(&self) -> rusqlite::Result<()> {
         // Check if llm_call_id column exists
         let columns_result = self.conn.prepare("PRAGMA table_info(mcp_tool_call)");
-        
+
         match columns_result {
             Ok(mut stmt) => {
                 let column_info = stmt.query_map([], |row| {
                     Ok(row.get::<_, String>(1)?) // column name is at index 1
                 })?;
-                
+
                 let mut has_llm_call_id = false;
                 let mut has_assistant_message_id = false;
-                
+
                 for column in column_info {
                     match column {
                         Ok(name) => {
@@ -202,20 +202,24 @@ impl MCPDatabase {
                         Err(_) => continue,
                     }
                 }
-                
+
                 // Add missing columns
                 if !has_llm_call_id {
-                    self.conn.execute("ALTER TABLE mcp_tool_call ADD COLUMN llm_call_id TEXT", [])?;
+                    self.conn
+                        .execute("ALTER TABLE mcp_tool_call ADD COLUMN llm_call_id TEXT", [])?;
                 }
                 if !has_assistant_message_id {
-                    self.conn.execute("ALTER TABLE mcp_tool_call ADD COLUMN assistant_message_id INTEGER", [])?;
+                    self.conn.execute(
+                        "ALTER TABLE mcp_tool_call ADD COLUMN assistant_message_id INTEGER",
+                        [],
+                    )?;
                 }
             }
             Err(_) => {
                 // Table might not exist yet, which is fine
             }
         }
-        
+
         Ok(())
     }
 
@@ -301,8 +305,7 @@ impl MCPDatabase {
 
     pub fn delete_mcp_server(&self, id: i64) -> rusqlite::Result<()> {
         // Cascade delete will handle tools and resources
-        self.conn
-            .execute("DELETE FROM mcp_server WHERE id = ?", params![id])?;
+        self.conn.execute("DELETE FROM mcp_server WHERE id = ?", params![id])?;
         Ok(())
     }
 
@@ -621,7 +624,7 @@ impl MCPDatabase {
         ])?;
 
         let id = self.conn.last_insert_rowid();
-        
+
         // Return the created tool call
         self.get_mcp_tool_call(id)
     }
@@ -654,7 +657,7 @@ impl MCPDatabase {
         ])?;
 
         let id = self.conn.last_insert_rowid();
-        
+
         // Return the created tool call
         self.get_mcp_tool_call(id)
     }
@@ -695,7 +698,7 @@ impl MCPDatabase {
         error: Option<&str>,
     ) -> rusqlite::Result<()> {
         let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
-        
+
         match status {
             "executing" => {
                 self.conn.execute(
@@ -731,7 +734,10 @@ impl MCPDatabase {
         Ok(rows > 0)
     }
 
-    pub fn get_mcp_tool_calls_by_conversation(&self, conversation_id: i64) -> rusqlite::Result<Vec<MCPToolCall>> {
+    pub fn get_mcp_tool_calls_by_conversation(
+        &self,
+        conversation_id: i64,
+    ) -> rusqlite::Result<Vec<MCPToolCall>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, conversation_id, message_id, server_id, server_name, tool_name, 
              parameters, status, result, error, created_time, started_time, finished_time, llm_call_id, assistant_message_id
@@ -764,5 +770,4 @@ impl MCPDatabase {
         }
         Ok(result)
     }
-
 }

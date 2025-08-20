@@ -1,7 +1,7 @@
+use crate::api::conversation_api::process_message_versions;
+use crate::db::conversation_db::MessageDetail;
 use chrono::Utc;
 use uuid::Uuid;
-use crate::db::conversation_db::MessageDetail;
-use crate::api::conversation_api::process_message_versions;
 
 /// 创建测试用的 MessageDetail
 fn create_message_detail(
@@ -37,27 +37,51 @@ fn create_message_detail(
 async fn test_version_management_logic() {
     let base_time = Utc::now();
     let group_id = Uuid::new_v4().to_string();
-    
+
     // 创建测试消息：用户消息 -> AI回复 -> 重新生成1 -> 重新生成2（最新）
     let user_msg = create_message_detail(
-        1, 1, "user", "Original user message", 
-        None, Some(group_id.clone()), None, base_time
+        1,
+        1,
+        "user",
+        "Original user message",
+        None,
+        Some(group_id.clone()),
+        None,
+        base_time,
     );
     let ai_msg = create_message_detail(
-        2, 1, "assistant", "Original AI response", 
-        None, Some(group_id.clone()), None, base_time + chrono::Duration::seconds(1)
+        2,
+        1,
+        "assistant",
+        "Original AI response",
+        None,
+        Some(group_id.clone()),
+        None,
+        base_time + chrono::Duration::seconds(1),
     );
     let ai_msg_v2 = create_message_detail(
-        3, 1, "assistant", "Regenerated AI response v1", 
-        Some(2), Some(group_id.clone()), None, base_time + chrono::Duration::seconds(2)
+        3,
+        1,
+        "assistant",
+        "Regenerated AI response v1",
+        Some(2),
+        Some(group_id.clone()),
+        None,
+        base_time + chrono::Duration::seconds(2),
     );
     let ai_msg_v3 = create_message_detail(
-        4, 1, "assistant", "Regenerated AI response v2 (latest)", 
-        Some(3), Some(group_id.clone()), None, base_time + chrono::Duration::seconds(3)
+        4,
+        1,
+        "assistant",
+        "Regenerated AI response v2 (latest)",
+        Some(3),
+        Some(group_id.clone()),
+        None,
+        base_time + chrono::Duration::seconds(3),
     );
 
     let message_details = vec![user_msg, ai_msg, ai_msg_v2, ai_msg_v3];
-    
+
     // 测试核心业务逻辑
     let final_messages = process_message_versions(message_details);
 
@@ -82,8 +106,14 @@ async fn test_empty_message_list() {
 async fn test_single_user_message() {
     let base_time = Utc::now();
     let user_msg = create_message_detail(
-        1, 1, "user", "Hello", 
-        None, Some(Uuid::new_v4().to_string()), None, base_time
+        1,
+        1,
+        "user",
+        "Hello",
+        None,
+        Some(Uuid::new_v4().to_string()),
+        None,
+        base_time,
     );
 
     let message_details = vec![user_msg];

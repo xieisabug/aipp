@@ -1,9 +1,6 @@
 use crate::api::genai_client;
 use crate::db::llm_db::LLMDatabase;
-use crate::utils::share_utils::{
-    ProviderShareData, 
-    encrypt_provider_data, decrypt_provider_data
-};
+use crate::utils::share_utils::{decrypt_provider_data, encrypt_provider_data, ProviderShareData};
 use genai::Modality;
 use serde::{Deserialize, Serialize};
 
@@ -45,14 +42,7 @@ pub async fn get_llm_providers(app_handle: tauri::AppHandle) -> Result<Vec<LlmPr
     let providers = db.get_llm_providers().map_err(|e| e.to_string())?;
     let mut result = Vec::new();
     for (id, name, api_type, description, is_official, is_enabled) in providers {
-        result.push(LlmProvider {
-            id,
-            name,
-            api_type,
-            description,
-            is_official,
-            is_enabled,
-        });
+        result.push(LlmProvider { id, name, api_type, description, is_official, is_enabled });
     }
     Ok(result)
 }
@@ -64,8 +54,7 @@ pub async fn add_llm_provider(
     api_type: String,
 ) -> Result<(), String> {
     let db = LLMDatabase::new(&app).map_err(|e| e.to_string())?;
-    db.add_llm_provider(&*name, &*api_type, "", false, false)
-        .map_err(|e| e.to_string())?;
+    db.add_llm_provider(&*name, &*api_type, "", false, false).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -90,8 +79,7 @@ pub async fn delete_llm_provider(
     llm_provider_id: i64,
 ) -> Result<(), String> {
     let db = LLMDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    db.delete_llm_provider(llm_provider_id)
-        .map_err(|e| e.to_string())?;
+    db.delete_llm_provider(llm_provider_id).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -124,8 +112,7 @@ pub async fn update_llm_provider_config(
     value: String,
 ) -> Result<(), String> {
     let db = LLMDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    db.update_llm_provider_config(llm_provider_id, &*name, &*value)
-        .map_err(|e| e.to_string())?;
+    db.update_llm_provider_config(llm_provider_id, &*name, &*value).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -135,9 +122,7 @@ pub async fn get_llm_models(
     llm_provider_id: String,
 ) -> Result<Vec<LlmModel>, String> {
     let db = LLMDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    let models = db
-        .get_llm_models(llm_provider_id)
-        .map_err(|e| e.to_string())?;
+    let models = db.get_llm_models(llm_provider_id).map_err(|e| e.to_string())?;
     let mut result = Vec::new();
     for (
         id,
@@ -170,24 +155,26 @@ pub async fn fetch_model_list(
     llm_provider_id: i64,
 ) -> Result<Vec<LlmModel>, String> {
     let db = LLMDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    let llm_provider = db
-        .get_llm_provider(llm_provider_id)
-        .map_err(|e| e.to_string())?;
-    let llm_provider_config = db
-        .get_llm_provider_config(llm_provider_id)
-        .map_err(|e| e.to_string())?;
+    let llm_provider = db.get_llm_provider(llm_provider_id).map_err(|e| e.to_string())?;
+    let llm_provider_config =
+        db.get_llm_provider_config(llm_provider_id).map_err(|e| e.to_string())?;
 
     // 使用共用的客户端创建函数
-    let client =
-        genai_client::create_client_with_config(&llm_provider_config, "", &llm_provider.api_type, None, false, None)
-            .map_err(|e| e.to_string())?;
+    let client = genai_client::create_client_with_config(
+        &llm_provider_config,
+        "",
+        &llm_provider.api_type,
+        None,
+        false,
+        None,
+    )
+    .map_err(|e| e.to_string())?;
 
     let adapter_kind = genai_client::infer_adapter_kind_simple(&llm_provider.api_type);
 
     match client.all_models(adapter_kind).await {
         Ok(models) => {
-            db.delete_llm_model_by_provider(llm_provider_id)
-                .map_err(|e| e.to_string())?;
+            db.delete_llm_model_by_provider(llm_provider_id).map_err(|e| e.to_string())?;
 
             let mut result = Vec::new();
             for model in &models {
@@ -233,16 +220,8 @@ pub async fn add_llm_model(
 ) -> Result<(), String> {
     let db = LLMDatabase::new(&app_handle).map_err(|e| e.to_string())?;
     let code_str = code.as_str();
-    db.add_llm_model(
-        code_str,
-        llm_provider_id,
-        code_str,
-        code_str,
-        false,
-        false,
-        false,
-    )
-    .map_err(|e| e.to_string())?;
+    db.add_llm_model(code_str, llm_provider_id, code_str, code_str, false, false, false)
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -288,42 +267,40 @@ pub async fn preview_model_list(
     llm_provider_id: i64,
 ) -> Result<ModelSelectionResponse, String> {
     let db = LLMDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    let llm_provider = db
-        .get_llm_provider(llm_provider_id)
-        .map_err(|e| e.to_string())?;
-    let llm_provider_config = db
-        .get_llm_provider_config(llm_provider_id)
-        .map_err(|e| e.to_string())?;
+    let llm_provider = db.get_llm_provider(llm_provider_id).map_err(|e| e.to_string())?;
+    let llm_provider_config =
+        db.get_llm_provider_config(llm_provider_id).map_err(|e| e.to_string())?;
 
     // 获取现有的模型列表
-    let existing_models = db
-        .get_llm_models(llm_provider_id.to_string())
-        .map_err(|e| e.to_string())?;
-    let existing_model_codes: std::collections::HashSet<String> = existing_models
-        .iter()
-        .map(|(_, _, _, code, _, _, _, _)| code.clone())
-        .collect();
+    let existing_models =
+        db.get_llm_models(llm_provider_id.to_string()).map_err(|e| e.to_string())?;
+    let existing_model_codes: std::collections::HashSet<String> =
+        existing_models.iter().map(|(_, _, _, code, _, _, _, _)| code.clone()).collect();
 
     // 使用共用的客户端创建函数
-    let client =
-        genai_client::create_client_with_config(&llm_provider_config, "", &llm_provider.api_type, None, false, None)
-            .map_err(|e| e.to_string())?;
+    let client = genai_client::create_client_with_config(
+        &llm_provider_config,
+        "",
+        &llm_provider.api_type,
+        None,
+        false,
+        None,
+    )
+    .map_err(|e| e.to_string())?;
 
     let adapter_kind = genai_client::infer_adapter_kind_simple(&llm_provider.api_type);
 
     match client.all_models(adapter_kind).await {
         Ok(models) => {
             let mut available_models = Vec::new();
-            let remote_model_codes: std::collections::HashSet<String> = models
-                .iter()
-                .map(|model| model.id.to_string())
-                .collect();
+            let remote_model_codes: std::collections::HashSet<String> =
+                models.iter().map(|model| model.id.to_string()).collect();
 
             // 构建可选择的模型列表
             for model in &models {
                 let model_code = model.id.to_string();
                 let is_selected = existing_model_codes.contains(&model_code);
-                
+
                 available_models.push(ModelForSelection {
                     name: model.name.to_string(),
                     code: model_code,
@@ -336,15 +313,10 @@ pub async fn preview_model_list(
             }
 
             // 找出在数据库中但远程不存在的模型
-            let missing_models: Vec<String> = existing_model_codes
-                .difference(&remote_model_codes)
-                .cloned()
-                .collect();
+            let missing_models: Vec<String> =
+                existing_model_codes.difference(&remote_model_codes).cloned().collect();
 
-            Ok(ModelSelectionResponse {
-                available_models,
-                missing_models,
-            })
+            Ok(ModelSelectionResponse { available_models, missing_models })
         }
         Err(e) => {
             eprintln!("获取模型列表错误: {}", e);
@@ -376,11 +348,10 @@ pub async fn update_selected_models(
     selected_models: Vec<ModelForSelection>,
 ) -> Result<(), String> {
     let db = LLMDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    
+
     // 删除所有该提供商的现有模型
-    db.delete_llm_model_by_provider(llm_provider_id)
-        .map_err(|e| e.to_string())?;
-    
+    db.delete_llm_model_by_provider(llm_provider_id).map_err(|e| e.to_string())?;
+
     // 添加选中的模型
     for model in selected_models.iter().filter(|m| m.is_selected) {
         db.add_llm_model(
@@ -391,9 +362,10 @@ pub async fn update_selected_models(
             model.vision_support,
             model.audio_support,
             model.video_support,
-        ).map_err(|e| e.to_string())?;
+        )
+        .map_err(|e| e.to_string())?;
     }
-    
+
     Ok(())
 }
 
@@ -406,15 +378,15 @@ pub async fn export_llm_provider(
     password: String,
 ) -> Result<String, String> {
     let db = LLMDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    
+
     // Get provider information
     let provider = db.get_llm_provider(provider_id).map_err(|e| e.to_string())?;
     let configs = db.get_llm_provider_config(provider_id).map_err(|e| e.to_string())?;
-    
+
     // Extract endpoint and api_key from configs
     let mut endpoint = None;
     let mut api_key = String::new();
-    
+
     for config in configs {
         match config.name.as_str() {
             "endpoint" | "base_url" => endpoint = Some(config.value),
@@ -422,22 +394,19 @@ pub async fn export_llm_provider(
             _ => {}
         }
     }
-    
+
     if api_key.is_empty() {
         return Err("API Key is required for export".to_string());
     }
-    
+
     // Create share data
-    let share_data = ProviderShareData {
-        name: provider.name,
-        api_type: provider.api_type,
-        endpoint,
-        api_key,
-    };
-    
+    let share_data =
+        ProviderShareData { name: provider.name, api_type: provider.api_type, endpoint, api_key };
+
     // Encrypt with password
-    let encrypted_data = encrypt_provider_data(&share_data, &password).map_err(|e| e.to_string())?;
-    
+    let encrypted_data =
+        encrypt_provider_data(&share_data, &password).map_err(|e| e.to_string())?;
+
     // Return the base64 encoded string directly
     Ok(encrypted_data)
 }
@@ -452,41 +421,35 @@ pub async fn import_llm_provider(
     // Decrypt data directly from share code
     let provider_data = decrypt_provider_data(&share_code, &password)
         .map_err(|e| format!("Decryption failed: {}", e))?;
-    
+
     let db = LLMDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    
+
     // Use provided name or original name with suffix
-    let provider_name = new_name.unwrap_or_else(|| {
-        format!("{} (导入)", provider_data.name)
-    });
-    
+    let provider_name = new_name.unwrap_or_else(|| format!("{} (导入)", provider_data.name));
+
     // Create new provider
-    db.add_llm_provider(
-        &provider_name,
-        &provider_data.api_type,
-        "Imported provider",
-        false,
-        true,
-    ).map_err(|e| e.to_string())?;
-    
+    db.add_llm_provider(&provider_name, &provider_data.api_type, "Imported provider", false, true)
+        .map_err(|e| e.to_string())?;
+
     // Get the newly created provider ID
     let providers = db.get_llm_providers().map_err(|e| e.to_string())?;
-    let new_provider = providers.iter()
+    let new_provider = providers
+        .iter()
         .find(|(_, name, _, _, _, _)| name == &provider_name)
         .ok_or("Failed to find newly created provider")?;
-    
+
     let provider_id = new_provider.0;
-    
+
     // Add endpoint config if provided
     if let Some(endpoint) = provider_data.endpoint {
         db.add_llm_provider_config(provider_id, "endpoint", &endpoint, "header", false)
             .map_err(|e| e.to_string())?;
     }
-    
+
     // Add API key config
     db.add_llm_provider_config(provider_id, "api_key", &provider_data.api_key, "header", false)
         .map_err(|e| e.to_string())?;
-    
+
     // Return the created provider
     Ok(LlmProvider {
         id: provider_id,
