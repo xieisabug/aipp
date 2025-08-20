@@ -1,17 +1,11 @@
-import { useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
+import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 // form removed here; using a dedicated dialog component
-import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
     Dialog,
     DialogContent,
@@ -19,18 +13,18 @@ import {
     DialogFooter,
     DialogHeader,
     DialogTitle,
-} from '@/components/ui/dialog';
+} from "@/components/ui/dialog";
 import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { useToast } from '@/hooks/use-toast';
-import { useTheme } from '@/hooks/useTheme';
-import { formatIconDisplay } from '@/utils/emoji-utils';
-import { Search, MoreVertical, Folder, Grid, List } from 'lucide-react';
-import EditArtifactDialog from '@/components/EditArtifactDialog';
+} from "@/components/ui/dropdown-menu";
+import { useToast } from "@/hooks/use-toast";
+import { useTheme } from "@/hooks/useTheme";
+import { formatIconDisplay } from "@/utils/emojiUtils";
+import { Search, MoreVertical, Folder, Grid, List } from "lucide-react";
+import EditArtifactDialog from "@/components/EditArtifactDialog";
 
 interface ArtifactCollection {
     id: number;
@@ -51,9 +45,9 @@ export default function ArtifactCollectionsWindow() {
 
     const [artifacts, setArtifacts] = useState<ArtifactCollection[]>([]);
     const [filteredArtifacts, setFilteredArtifacts] = useState<ArtifactCollection[]>([]);
-    const [searchQuery, setSearchQuery] = useState('');
-    const [selectedType, setSelectedType] = useState<string>('all');
-    const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+    const [searchQuery, setSearchQuery] = useState("");
+    const [selectedType, setSelectedType] = useState<string>("all");
+    const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
     const [isLoading, setIsLoading] = useState(true);
     const [showEditDialog, setShowEditDialog] = useState(false);
     const [editingArtifact, setEditingArtifact] = useState<ArtifactCollection | null>(null);
@@ -61,22 +55,21 @@ export default function ArtifactCollectionsWindow() {
     const [deletingArtifact, setDeletingArtifact] = useState<ArtifactCollection | null>(null);
     const { toast } = useToast();
 
-
     // 加载所有 artifacts
     const loadArtifacts = async () => {
         try {
             setIsLoading(true);
-            const result = await invoke<ArtifactCollection[]>('get_artifacts_collection', {
-                artifactType: selectedType === 'all' ? null : selectedType
+            const result = await invoke<ArtifactCollection[]>("get_artifacts_collection", {
+                artifactType: selectedType === "all" ? null : selectedType,
             });
             setArtifacts(result);
             setFilteredArtifacts(result);
         } catch (error) {
-            console.error('加载 artifacts 失败:', error);
+            console.error("加载 artifacts 失败:", error);
             toast({
-                title: '加载失败',
+                title: "加载失败",
                 description: error as string,
-                variant: 'destructive',
+                variant: "destructive",
             });
         } finally {
             setIsLoading(false);
@@ -88,17 +81,18 @@ export default function ArtifactCollectionsWindow() {
         let filtered = artifacts;
 
         // 按类型过滤
-        if (selectedType !== 'all') {
-            filtered = filtered.filter(artifact => artifact.artifact_type === selectedType);
+        if (selectedType !== "all") {
+            filtered = filtered.filter((artifact) => artifact.artifact_type === selectedType);
         }
 
         // 按搜索词过滤
         if (searchQuery.trim()) {
             const query = searchQuery.toLowerCase();
-            filtered = filtered.filter(artifact =>
-                artifact.name.toLowerCase().includes(query) ||
-                artifact.description.toLowerCase().includes(query) ||
-                artifact.tags?.toLowerCase().includes(query)
+            filtered = filtered.filter(
+                (artifact) =>
+                    artifact.name.toLowerCase().includes(query) ||
+                    artifact.description.toLowerCase().includes(query) ||
+                    artifact.tags?.toLowerCase().includes(query)
             );
         }
 
@@ -110,7 +104,7 @@ export default function ArtifactCollectionsWindow() {
         const unlisteners: (() => void)[] = [];
 
         const setupListeners = async () => {
-            const artifactDeletedUnlisten = await listen('artifact-collection-updated', () => {
+            const artifactDeletedUnlisten = await listen("artifact-collection-updated", () => {
                 loadArtifacts();
             });
 
@@ -121,20 +115,20 @@ export default function ArtifactCollectionsWindow() {
         loadArtifacts();
 
         return () => {
-            unlisteners.forEach(unlisten => unlisten());
+            unlisteners.forEach((unlisten) => unlisten());
         };
     }, [selectedType]);
 
     // 打开 artifact
     const openArtifact = async (artifact: ArtifactCollection) => {
         try {
-            await invoke('open_artifact_window', { artifactId: artifact.id });
+            await invoke("open_artifact_window", { artifactId: artifact.id });
         } catch (error) {
-            console.error('打开 artifact 失败:', error);
+            console.error("打开 artifact 失败:", error);
             toast({
-                title: '打开失败',
+                title: "打开失败",
                 description: error as string,
-                variant: 'destructive',
+                variant: "destructive",
             });
         }
     };
@@ -159,10 +153,10 @@ export default function ArtifactCollectionsWindow() {
         if (!deletingArtifact) return;
 
         try {
-            await invoke('delete_artifact_collection', { id: deletingArtifact.id });
+            await invoke("delete_artifact_collection", { id: deletingArtifact.id });
 
             toast({
-                title: '删除成功',
+                title: "删除成功",
                 description: `已删除 "${deletingArtifact.name}"`,
             });
 
@@ -170,17 +164,17 @@ export default function ArtifactCollectionsWindow() {
             setDeletingArtifact(null);
             loadArtifacts();
         } catch (error) {
-            console.error('删除失败:', error);
+            console.error("删除失败:", error);
             toast({
-                title: '删除失败',
+                title: "删除失败",
                 description: error as string,
-                variant: 'destructive',
+                variant: "destructive",
             });
         }
     };
 
     // 获取唯一的类型列表
-    const artifactTypes = Array.from(new Set(artifacts.map(a => a.artifact_type)));
+    const artifactTypes = Array.from(new Set(artifacts.map((a) => a.artifact_type)));
 
     return (
         <div className="flex flex-col h-screen bg-background p-6">
@@ -195,16 +189,16 @@ export default function ArtifactCollectionsWindow() {
                     </div>
                     <div className="flex items-center gap-2">
                         <Button
-                            variant={viewMode === 'grid' ? 'default' : 'outline'}
+                            variant={viewMode === "grid" ? "default" : "outline"}
                             size="sm"
-                            onClick={() => setViewMode('grid')}
+                            onClick={() => setViewMode("grid")}
                         >
                             <Grid className="w-4 h-4" />
                         </Button>
                         <Button
-                            variant={viewMode === 'list' ? 'default' : 'outline'}
+                            variant={viewMode === "list" ? "default" : "outline"}
                             size="sm"
-                            onClick={() => setViewMode('list')}
+                            onClick={() => setViewMode("list")}
                         >
                             <List className="w-4 h-4" />
                         </Button>
@@ -228,7 +222,7 @@ export default function ArtifactCollectionsWindow() {
                         className="px-3 py-2 border border-border rounded-md bg-background"
                     >
                         <option value="all">所有类型</option>
-                        {artifactTypes.map(type => (
+                        {artifactTypes.map((type) => (
                             <option key={type} value={type}>
                                 {type.toUpperCase()}
                             </option>
@@ -251,17 +245,19 @@ export default function ArtifactCollectionsWindow() {
                         <div className="text-center">
                             <Folder className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
                             <p className="text-muted-foreground">
-                                {searchQuery ? '没有找到匹配的 artifacts' : '还没有保存任何 artifacts'}
+                                {searchQuery ? "没有找到匹配的 artifacts" : "还没有保存任何 artifacts"}
                             </p>
                         </div>
                     </div>
                 ) : (
-                    <div className={
-                        viewMode === 'grid'
-                            ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4'
-                            : 'space-y-2'
-                    }>
-                        {filteredArtifacts.map(artifact => (
+                    <div
+                        className={
+                            viewMode === "grid"
+                                ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
+                                : "space-y-2"
+                        }
+                    >
+                        {filteredArtifacts.map((artifact) => (
                             <Card
                                 key={artifact.id}
                                 className="cursor-pointer hover:bg-accent/50 transition-colors"
@@ -273,9 +269,9 @@ export default function ArtifactCollectionsWindow() {
                                             {(() => {
                                                 const iconDisplay = formatIconDisplay(artifact.icon);
                                                 return iconDisplay.isImage ? (
-                                                    <img 
-                                                        src={iconDisplay.display} 
-                                                        alt={`Icon for ${artifact.name}`} 
+                                                    <img
+                                                        src={iconDisplay.display}
+                                                        alt={`Icon for ${artifact.name}`}
                                                         className="w-6 h-6 object-cover rounded border"
                                                     />
                                                 ) : (
@@ -292,25 +288,26 @@ export default function ArtifactCollectionsWindow() {
                                             </div>
                                         </div>
                                         <DropdownMenu>
-                                            <DropdownMenuTrigger
-                                                asChild
-                                                onClick={(e) => e.stopPropagation()}
-                                            >
+                                            <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                                                 <Button variant="ghost" size="sm">
                                                     <MoreVertical className="w-4 h-4" />
                                                 </Button>
                                             </DropdownMenuTrigger>
                                             <DropdownMenuContent align="end">
-                                                <DropdownMenuItem onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    openArtifact(artifact);
-                                                }}>
+                                                <DropdownMenuItem
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        openArtifact(artifact);
+                                                    }}
+                                                >
                                                     打开
                                                 </DropdownMenuItem>
-                                                <DropdownMenuItem onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleEdit(artifact);
-                                                }}>
+                                                <DropdownMenuItem
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleEdit(artifact);
+                                                    }}
+                                                >
                                                     编辑
                                                 </DropdownMenuItem>
                                                 <DropdownMenuItem
@@ -328,7 +325,7 @@ export default function ArtifactCollectionsWindow() {
                                 </CardHeader>
                                 <CardContent className="pt-0">
                                     <CardDescription className="text-xs line-clamp-2 mb-2">
-                                        {artifact.description || '暂无描述'}
+                                        {artifact.description || "暂无描述"}
                                     </CardDescription>
                                     <div className="flex items-center justify-between text-xs text-muted-foreground">
                                         <span>使用 {artifact.use_count} 次</span>

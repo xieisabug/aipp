@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { useForm } from 'react-hook-form';
-import { Button } from '@/components/ui/button';
+import React, { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { useForm } from "react-hook-form";
+import { Button } from "@/components/ui/button";
 import {
     Dialog,
     DialogContent,
@@ -9,14 +9,14 @@ import {
     DialogFooter,
     DialogHeader,
     DialogTitle,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { useToast } from '@/hooks/use-toast';
-import EmojiPicker from '@/components/ui/emoji-picker';
-import { getDefaultIcon } from '@/utils/emoji-utils';
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { useToast } from "@/hooks/use-toast";
+import EmojiPicker from "@/components/ui/emoji-picker";
+import { getDefaultIcon } from "@/utils/emojiUtils";
 
 interface SaveArtifactDialogProps {
     isOpen: boolean;
@@ -25,22 +25,17 @@ interface SaveArtifactDialogProps {
     code: string;
 }
 
-export default function SaveArtifactDialog({ 
-    isOpen, 
-    onClose, 
-    artifactType, 
-    code 
-}: SaveArtifactDialogProps) {
+export default function SaveArtifactDialog({ isOpen, onClose, artifactType, code }: SaveArtifactDialogProps) {
     const [isLoading, setIsLoading] = useState(false);
     const { toast } = useToast();
 
     const form = useForm({
         defaultValues: {
-            name: '',
+            name: "",
             icon: getDefaultIcon(),
-            description: '',
-            tags: '',
-        }
+            description: "",
+            tags: "",
+        },
     });
 
     const handleSave = async (data: any) => {
@@ -55,21 +50,21 @@ export default function SaveArtifactDialog({
                 tags: data.tags.trim() || null,
             };
 
-            await invoke<number>('save_artifact_to_collection', { request });
-            
+            await invoke<number>("save_artifact_to_collection", { request });
+
             toast({
-                title: '保存成功',
+                title: "保存成功",
                 description: `Artifact "${data.name}" 已保存到合集中`,
             });
 
             form.reset();
             onClose();
         } catch (error) {
-            console.error('保存失败:', error);
+            console.error("保存失败:", error);
             toast({
-                title: '保存失败',
+                title: "保存失败",
                 description: error as string,
-                variant: 'destructive',
+                variant: "destructive",
             });
         } finally {
             setIsLoading(false);
@@ -97,7 +92,7 @@ export default function SaveArtifactDialog({
                         将当前的 {artifactType.toUpperCase()} artifact 保存到您的合集中，方便以后快速访问。
                     </DialogDescription>
                 </DialogHeader>
-                
+
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(handleSave)} className="space-y-6 py-4">
                         {/* 图标选择 */}
@@ -110,7 +105,7 @@ export default function SaveArtifactDialog({
                                         图标
                                     </FormLabel>
                                     <FormControl>
-                                        <EmojiPicker 
+                                        <EmojiPicker
                                             className="focus:ring-ring/20 focus:border-ring"
                                             value={field.value}
                                             onChange={field.onChange}
@@ -125,7 +120,7 @@ export default function SaveArtifactDialog({
                         <FormField
                             control={form.control}
                             name="name"
-                            rules={{ required: '请输入 artifact 名称' }}
+                            rules={{ required: "请输入 artifact 名称" }}
                             render={({ field }) => (
                                 <FormItem className="space-y-3">
                                     <FormLabel className="flex items-center font-semibold text-sm text-foreground">
@@ -219,11 +214,8 @@ export default function SaveArtifactDialog({
                     <Button variant="outline" onClick={handleCancel}>
                         取消
                     </Button>
-                    <Button 
-                        onClick={form.handleSubmit(handleSave)} 
-                        disabled={isLoading}
-                    >
-                        {isLoading ? '保存中...' : '保存'}
+                    <Button onClick={form.handleSubmit(handleSave)} disabled={isLoading}>
+                        {isLoading ? "保存中..." : "保存"}
                     </Button>
                 </DialogFooter>
             </DialogContent>
