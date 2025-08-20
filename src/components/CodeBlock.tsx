@@ -4,7 +4,7 @@ import IconButton from "./IconButton";
 import Ok from "../assets/ok.svg?react";
 import Copy from "../assets/copy.svg?react";
 import Run from "../assets/run.svg?react";
-import CodeBlockEventManager from "../utils/CodeBlockEventManager";
+import CodeBlockEventManager from "../utils/codeBlockEventManager";
 import { useCodeTheme } from "../hooks/useCodeTheme";
 import { listen } from "@tauri-apps/api/event";
 

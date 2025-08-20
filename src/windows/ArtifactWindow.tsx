@@ -709,7 +709,7 @@ export default function ArtifactWindow() {
                                 <iframe
                                     srcDoc={htmlContent}
                                     className="flex-1 w-full border-0 bg-background"
-                                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation"
+                                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
                                     style={{
                                         minHeight: "400px",
                                     }}
@@ -719,7 +719,7 @@ export default function ArtifactWindow() {
                                 <iframe
                                     src={previewUrl || ""}
                                     className="flex-1 w-full border-0"
-                                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation"
+                                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
                                     onLoad={() => {}}
                                     onError={() => {}}
                                 />

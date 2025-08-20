@@ -7,20 +7,31 @@ interface CodeThemeLoaderProps {
     children: React.ReactNode;
 }
 
+// 导入所有主题CSS文件
+import githubLight from '../assets/highlight-themes/github.css?url';
+import vs from '../assets/highlight-themes/vs.css?url';
+import atomOneLight from '../assets/highlight-themes/atom-one-light.css?url';
+import base16Github from '../assets/highlight-themes/base16/github.css?url';
+import githubDark from '../assets/highlight-themes/github-dark.css?url';
+import githubDarkDimmed from '../assets/highlight-themes/github-dark-dimmed.css?url';
+import vs2015 from '../assets/highlight-themes/vs2015.css?url';
+import atomOneDark from '../assets/highlight-themes/atom-one-dark.css?url';
+import atomOneDarkReasonable from '../assets/highlight-themes/atom-one-dark-reasonable.css?url';
+
 // 主题文件映射
 const THEME_FILES: Record<string, string> = {
     // Light themes
-    'github': '/node_modules/highlight.js/styles/github.css',
-    'vs': '/node_modules/highlight.js/styles/vs.css',
-    'atom-one-light': '/node_modules/highlight.js/styles/atom-one-light.css',
-    'base16/github': '/node_modules/highlight.js/styles/base16/github.css',
+    'github': githubLight,
+    'vs': vs,
+    'atom-one-light': atomOneLight,
+    'base16/github': base16Github,
     
     // Dark themes
-    'github-dark': '/node_modules/highlight.js/styles/github-dark.css',
-    'github-dark-dimmed': '/node_modules/highlight.js/styles/github-dark-dimmed.css',
-    'vs2015': '/node_modules/highlight.js/styles/vs2015.css',
-    'atom-one-dark': '/node_modules/highlight.js/styles/atom-one-dark.css',
-    'atom-one-dark-reasonable': '/node_modules/highlight.js/styles/atom-one-dark-reasonable.css',
+    'github-dark': githubDark,
+    'github-dark-dimmed': githubDarkDimmed,
+    'vs2015': vs2015,
+    'atom-one-dark': atomOneDark,
+    'atom-one-dark-reasonable': atomOneDarkReasonable,
 };
 
 const CodeThemeLoader: React.FC<CodeThemeLoaderProps> = ({ children }) => {
