@@ -14,7 +14,9 @@ import rehypeRaw from 'rehype-raw';
 import '../styles/ArtifactPreviewWIndow.css';
 import 'katex/dist/katex.min.css';
 import EnvironmentInstallDialog from '../components/EnvironmentInstallDialog';
+import SaveArtifactDialog from '../components/SaveArtifactDialog';
 import { useTheme } from '../hooks/useTheme';
+import { Button } from '@/components/ui/button';
 
 interface LogLine {
     type: 'log' | 'error' | 'success';
@@ -57,6 +59,10 @@ export default function ArtifactPreviewWindow() {
     const [environmentMessage, setEnvironmentMessage] = useState<string>('');
     const [currentLang, setCurrentLang] = useState<string>('');
     const [currentInputStr, setCurrentInputStr] = useState<string>('');
+    
+    // 保存 artifact 相关状态
+    const [showSaveDialog, setShowSaveDialog] = useState<boolean>(false);
+    const [originalCode, setOriginalCode] = useState<string>(''); // 存储原始代码
     
     // 使用 refs 来存储最新的值，避免闭包陷阱
     const currentLangRef = useRef<string>('');
@@ -260,49 +266,46 @@ export default function ArtifactPreviewWindow() {
             const addLog = (type: LogLine['type']) => (event: { payload: any }) => {
                 const message = event.payload as string;
                 setLogs(prev => [...prev, { type, message }]);
+            };
 
-                // 根据日志内容检测预览类型
-                if (message.includes('Vue') || message.includes('vue')) {
-                    setPreviewType('vue');
-                } else if (message.includes('React') || message.includes('react')) {
-                    setPreviewType('react');
-                } else if (message.includes('Mermaid') || message.includes('mermaid')) {
-                    setPreviewType('mermaid');
-                    // 如果是 mermaid，从日志中提取内容
-                    const mermaidMatch = message.match(/mermaid content: ([\s\S]+)/);
-                    if (mermaidMatch && mermaidMatch[1]) {
-                        setMermaidContent(mermaidMatch[1]);
-                        setIsPreviewReady(true);
+            const handleArtifactData = (event: { payload: any }) => {
+                const data = event.payload;
+                if (data.original_code && data.type) {
+                    switch (data.type) {
+                        case 'vue':
+                        case 'react':
+                            setPreviewType(data.type);
+                            break;
+                        case 'mermaid':
+                            setPreviewType('mermaid');
+                            setMermaidContent(data.original_code);
+                            setIsPreviewReady(true);
+                            break;
+                        case 'html':
+                            setPreviewType('html');
+                            setHtmlContent(data.original_code);
+                            setIsPreviewReady(true);
+                            break;
+                        case 'svg':
+                            setPreviewType('svg');
+                            setHtmlContent(data.original_code);
+                            setIsPreviewReady(true);
+                            break;
+                        case 'xml':
+                            setPreviewType('xml');
+                            setHtmlContent(data.original_code);
+                            setIsPreviewReady(true);
+                            break;
+                        case 'markdown':
+                        case 'md':
+                            setPreviewType(data.type);
+                            setMarkdownContent(data.original_code);
+                            setIsPreviewReady(true);
+                            break;
+                        default:
+                            break;
                     }
-                } else if (message.includes('html content:')) {
-                    setPreviewType('html');
-                    const htmlMatch = message.match(/html content: ([\s\S]+)/);
-                    if (htmlMatch && htmlMatch[1]) {
-                        setHtmlContent(htmlMatch[1]);
-                        setIsPreviewReady(true);
-                    }
-                } else if (message.includes('svg content:')) {
-                    setPreviewType('svg');
-                    const svgMatch = message.match(/svg content: ([\s\S]+)/);
-                    if (svgMatch && svgMatch[1]) {
-                        setHtmlContent(svgMatch[1]);
-                        setIsPreviewReady(true);
-                    }
-                } else if (message.includes('xml content:')) {
-                    setPreviewType('xml');
-                    const xmlMatch = message.match(/xml content: ([\s\S]+)/);
-                    if (xmlMatch && xmlMatch[1]) {
-                        setHtmlContent(xmlMatch[1]);
-                        setIsPreviewReady(true);
-                    }
-                } else if (message.includes('markdown content:') || message.includes('md content:')) {
-                    const type = message.includes('markdown content:') ? 'markdown' : 'md';
-                    setPreviewType(type);
-                    const contentMatch = message.match(/(markdown|md) content: ([\s\S]+)/);
-                    if (contentMatch && contentMatch[2]) {
-                        setMarkdownContent(contentMatch[2]);
-                        setIsPreviewReady(true);
-                    }
+                    setOriginalCode(data.original_code);
                 }
             };
 
@@ -373,15 +376,18 @@ export default function ArtifactPreviewWindow() {
 
             try {
                 const unlisteners = await Promise.all([
-                    listen('artifact-log', addLog('log')),
-                    listen('artifact-error', addLog('error')),
-                    listen('artifact-success', addLog('success')),
-                    listen('artifact-redirect', handleRedirect),
+                    listen('artifact-preview-data', handleArtifactData),
+                    listen('artifact-preview-log', addLog('log')),
+                    listen('artifact-preview-error', addLog('error')),
+                    listen('artifact-preview-success', addLog('success')),
+                    listen('artifact-preview-redirect', handleRedirect),
                     listen('environment-check', handleEnvironmentCheck),
                     listen('environment-install-started', handleEnvironmentInstallStarted),
                     listen('bun-install-finished', handleBunInstallFinished),
                     listen('uv-install-finished', handleUvInstallFinished)
                 ]);
+
+                console.log("🔧 [ArtifactPreviewWindow] 监听器注册成功");
 
                 // 检查是否已被取消
                 if (isCancelled) {
@@ -486,6 +492,17 @@ export default function ArtifactPreviewWindow() {
         }
     };
 
+    // 保存当前 artifact 到合集
+    const handleSaveArtifact = () => {
+        const currentType = previewTypeRef.current;
+        if (currentType && (currentType === 'vue' || currentType === 'react' || currentType === 'html')) {
+            setShowSaveDialog(true);
+        }
+    };
+
+    // 检查是否可以保存（仅支持 vue, react, html）
+    const canSave = previewTypeRef.current && ['vue', 'react', 'html'].includes(previewTypeRef.current);
+
     return (
         <div className="flex h-screen bg-background">
             <div className="flex flex-col flex-1 bg-background rounded-xl m-2 shadow-lg border border-border">
@@ -502,30 +519,44 @@ export default function ArtifactPreviewWindow() {
                                                     `预览地址: ${previewUrl}`}
                         </div>
                         <div className="flex gap-2">
+                            {/* 保存按钮 - 仅在预览模式且可保存时显示 */}
+                            {currentView === 'preview' && canSave && (
+                                <Button
+                                    onClick={handleSaveArtifact}
+                                    variant="default"
+                                    size="sm"
+                                    title="保存到合集"
+                                >
+                                    保存
+                                </Button>
+                            )}
                             {previewType !== 'mermaid' && previewType !== 'html' && previewType !== 'svg' && previewType !== 'xml' && previewType !== 'markdown' && previewType !== 'md' && (
                                 <>
-                                    <button
+                                    <Button
                                         onClick={handleRefresh}
-                                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
+                                        variant="outline"
+                                        size="sm"
                                         title="刷新预览"
                                     >
                                         刷新
-                                    </button>
-                                    <button
+                                    </Button>
+                                    <Button
                                         onClick={handleOpenInBrowser}
-                                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
+                                        variant="outline"
+                                        size="sm"
                                         title="在浏览器中打开"
                                     >
                                         打开浏览器
-                                    </button>
+                                    </Button>
                                 </>
                             )}
-                            <button
+                            <Button
                                 onClick={handleToggleView}
-                                className="px-6 py-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-md hover:shadow-lg transition-all rounded-md text-sm font-medium"
+                                variant="default"
+                                size="sm"
                             >
                                 {currentView === 'logs' ? '查看预览' : '查看日志'}
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 )}
@@ -573,12 +604,13 @@ export default function ArtifactPreviewWindow() {
                                         <div className="text-sm text-muted-foreground">
                                             缩放: {Math.round(mermaidScale * 100)}% | 提示: 滚轮缩放，空格键+拖动
                                         </div>
-                                        <button
+                                        <Button
                                             onClick={resetMermaidView}
-                                            className="px-3 py-1 bg-secondary hover:bg-secondary/80 text-secondary-foreground text-xs rounded transition-colors"
+                                            variant="ghost"
+                                            size="sm"
                                         >
                                             重置视图
-                                        </button>
+                                        </Button>
                                     </div>
                                     <div
                                         ref={mermaidContainerRef}
@@ -649,7 +681,7 @@ export default function ArtifactPreviewWindow() {
                                 <iframe
                                     srcDoc={htmlContent}
                                     className="flex-1 w-full border-0 bg-background"
-                                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation"
+                                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
                                     style={{
                                         minHeight: '400px'
                                     }}
@@ -659,7 +691,7 @@ export default function ArtifactPreviewWindow() {
                                 <iframe
                                     src={previewUrl || ''}
                                     className="flex-1 w-full border-0"
-                                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation"
+                                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
                                     onLoad={() => {
                                     }}
                                     onError={() => {
@@ -679,6 +711,16 @@ export default function ArtifactPreviewWindow() {
                 onConfirm={handleEnvironmentInstallConfirm}
                 onCancel={handleEnvironmentInstallCancel}
             />
+            
+            {/* Artifact 保存对话框 */}
+            {previewTypeRef.current && (
+                <SaveArtifactDialog
+                    isOpen={showSaveDialog}
+                    onClose={() => setShowSaveDialog(false)}
+                    artifactType={previewTypeRef.current}
+                    code={originalCode || htmlContent || mermaidContent || markdownContent}
+                />
+            )}
         </div>
     );
 } 

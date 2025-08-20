@@ -3,16 +3,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
 import ConfigForm from "../ConfigForm";
 import { MessageSquare, Eye, FolderOpen, Settings, Wifi, Monitor } from "lucide-react";
-import { toast } from 'sonner';
+import { toast } from "sonner";
 import { useForm } from "react-hook-form";
+import { AVAILABLE_CODE_THEMES } from "../../hooks/useCodeTheme";
 
 // 导入公共组件
-import {
-    ConfigPageLayout,
-    SidebarList,
-    ListItemButton,
-    SelectOption
-} from "../common";
+import { ConfigPageLayout, SidebarList, ListItemButton, SelectOption } from "../common";
 
 interface ModelForSelect {
     name: string;
@@ -42,40 +38,40 @@ const FeatureAssistantConfig: React.FC = () => {
     // 功能列表定义
     const featureList: FeatureItem[] = [
         {
-            id: 'display',
-            name: '显示',
-            description: '配置系统外观主题、深浅色模式和用户消息渲染方式',
+            id: "display",
+            name: "显示",
+            description: "配置系统外观主题、深浅色模式和用户消息渲染方式",
             icon: <Monitor className="h-5 w-5" />,
-            code: 'display'
+            code: "display",
         },
         {
-            id: 'conversation_summary',
-            name: '对话总结',
-            description: '对话开始时总结该对话并且生成标题',
+            id: "conversation_summary",
+            name: "AI总结",
+            description: "对话开始时总结该对话并且生成标题，表单自动填写",
             icon: <MessageSquare className="h-5 w-5" />,
-            code: 'conversation_summary'
+            code: "conversation_summary",
         },
         {
-            id: 'preview',
-            name: '预览配置',
-            description: '在大模型编写完react或者vue组件之后，能够快速预览',
+            id: "preview",
+            name: "预览配置",
+            description: "在大模型编写完react或者vue组件之后，能够快速预览",
             icon: <Eye className="h-5 w-5" />,
-            code: 'preview'
+            code: "preview",
         },
         {
-            id: 'data_folder',
-            name: '数据目录',
-            description: '管理和同步数据文件夹',
+            id: "data_folder",
+            name: "数据目录",
+            description: "管理和同步数据文件夹",
             icon: <FolderOpen className="h-5 w-5" />,
-            code: 'data_folder'
+            code: "data_folder",
         },
         {
-            id: 'network_config',
-            name: '网络配置',
-            description: '配置请求超时、重试次数和网络代理',
+            id: "network_config",
+            name: "网络配置",
+            description: "配置请求超时、重试次数和网络代理",
             icon: <Wifi className="h-5 w-5" />,
-            code: 'network_config'
-        }
+            code: "network_config",
+        },
     ];
 
     const [selectedFeature, setSelectedFeature] = useState<FeatureItem>(featureList[0]);
@@ -84,20 +80,19 @@ const FeatureAssistantConfig: React.FC = () => {
     // 模型数据
     const [models, setModels] = useState<ModelForSelect[]>([]);
     useEffect(() => {
-        invoke<Array<ModelForSelect>>("get_models_for_select").then(
-            (modelList) => {
+        invoke<Array<ModelForSelect>>("get_models_for_select")
+            .then((modelList) => {
                 setModels(modelList);
-            }).catch((e) => {
-                toast.error('获取模型列表失败: ' + e);
+            })
+            .catch((e) => {
+                toast.error("获取模型列表失败: " + e);
             });
     }, []);
 
-    const [featureConfig, setFeatureConfig] = useState<FeatureConfig>(
-        new Map(),
-    );
+    const [featureConfig, setFeatureConfig] = useState<FeatureConfig>(new Map());
     useEffect(() => {
-        invoke<Array<FeatureConfigListItem>>("get_all_feature_config").then(
-            (feature_config_list) => {
+        invoke<Array<FeatureConfigListItem>>("get_all_feature_config")
+            .then((feature_config_list) => {
                 const newFeatureConfig = new Map<string, Map<string, string>>();
                 for (let feature_config of feature_config_list) {
                     let feature_code = feature_config.feature_code;
@@ -109,10 +104,10 @@ const FeatureAssistantConfig: React.FC = () => {
                     newFeatureConfig.get(feature_code)?.set(key, value);
                 }
                 setFeatureConfig(newFeatureConfig);
-            },
-        ).catch((e) => {
-            toast.error('获取配置失败: ' + e);
-        });
+            })
+            .catch((e) => {
+                toast.error("获取配置失败: " + e);
+            });
     }, []);
 
     // 选择功能
@@ -121,51 +116,93 @@ const FeatureAssistantConfig: React.FC = () => {
     }, []);
 
     // 显示配置相关
-    const themeOptions = useMemo(() => [
-        { value: 'default', label: '默认主题' }
-    ], []);
+    const themeOptions = useMemo(() => [{ value: "default", label: "默认主题" }], []);
 
-    const colorModeOptions = useMemo(() => [
-        { value: 'light', label: '浅色' },
-        { value: 'dark', label: '深色' },
-        { value: 'system', label: '跟随系统' }
-    ], []);
+    const colorModeOptions = useMemo(
+        () => [
+            { value: "light", label: "浅色" },
+            { value: "dark", label: "深色" },
+            { value: "system", label: "跟随系统" },
+        ],
+        []
+    );
 
-    const markdownRenderOptions = useMemo(() => [
-        { value: 'enabled', label: '开启' },
-        { value: 'disabled', label: '关闭' }
-    ], []);
+    const markdownRenderOptions = useMemo(
+        () => [
+            { value: "enabled", label: "开启" },
+            { value: "disabled", label: "关闭" },
+        ],
+        []
+    );
 
-    const DISPLAY_FORM_CONFIG = useMemo(() => [
-        {
-            key: "theme",
-            config: {
-                type: "select" as const,
-                label: "系统外观主题",
-                options: themeOptions,
-            }
-        },
-        {
-            key: "color_mode",
-            config: {
-                type: "select" as const,
-                label: "深浅色模式",
-                options: colorModeOptions,
-            }
-        },
-        {
-            key: "user_message_markdown_render",
-            config: {
-                type: "select" as const,
-                label: "用户消息Markdown渲染",
-                options: markdownRenderOptions,
-            }
-        }
-    ], [themeOptions, colorModeOptions, markdownRenderOptions]);
+    // 代码主题选项
+    const lightCodeThemeOptions = useMemo(
+        () =>
+            AVAILABLE_CODE_THEMES.filter((theme) => theme.category === "light").map((theme) => ({
+                value: theme.id,
+                label: theme.name,
+            })),
+        []
+    );
+
+    const darkCodeThemeOptions = useMemo(
+        () =>
+            AVAILABLE_CODE_THEMES.filter((theme) => theme.category === "dark").map((theme) => ({
+                value: theme.id,
+                label: theme.name,
+            })),
+        []
+    );
+
+    const DISPLAY_FORM_CONFIG = useMemo(
+        () => [
+            {
+                key: "theme",
+                config: {
+                    type: "select" as const,
+                    label: "系统外观主题",
+                    options: themeOptions,
+                },
+            },
+            {
+                key: "color_mode",
+                config: {
+                    type: "select" as const,
+                    label: "深浅色模式",
+                    options: colorModeOptions,
+                },
+            },
+            {
+                key: "user_message_markdown_render",
+                config: {
+                    type: "select" as const,
+                    label: "用户消息Markdown渲染",
+                    options: markdownRenderOptions,
+                },
+            },
+            {
+                key: "code_theme_light",
+                config: {
+                    type: "select" as const,
+                    label: "浅色模式代码主题",
+                    options: lightCodeThemeOptions,
+                },
+            },
+            {
+                key: "code_theme_dark",
+                config: {
+                    type: "select" as const,
+                    label: "深色模式代码主题",
+                    options: darkCodeThemeOptions,
+                },
+            },
+        ],
+        [themeOptions, colorModeOptions, markdownRenderOptions, lightCodeThemeOptions, darkCodeThemeOptions]
+    );
 
     const handleSaveDisplayConfig = useCallback(async () => {
         const values = displayFormReturnData.getValues();
-        
+
         try {
             await invoke("save_feature_config", {
                 featureCode: "display",
@@ -173,22 +210,28 @@ const FeatureAssistantConfig: React.FC = () => {
                     theme: values.theme,
                     color_mode: values.color_mode,
                     user_message_markdown_render: values.user_message_markdown_render,
-                }
+                    code_theme_light: values.code_theme_light,
+                    code_theme_dark: values.code_theme_dark,
+                },
             });
-            
-            // 发出主题变化事件，通知其他窗口
-            await emit('theme-changed', { mode: values.color_mode });
-            
-            toast.success('显示配置保存成功');
+
+            // 发出主题变化事件，通知其他窗口和组件
+            await emit("theme-changed", {
+                mode: values.color_mode,
+                code_theme_light: values.code_theme_light,
+                code_theme_dark: values.code_theme_dark,
+            });
+
+            toast.success("显示配置保存成功");
         } catch (e) {
-            toast.error('保存显示配置失败: ' + e);
+            toast.error("保存显示配置失败: " + e);
         }
     }, []);
 
     // 总结相关表单
     const handleSaveSummary = useCallback(() => {
         const values = summaryFormReturnData.getValues();
-        if (!values.model || values.model === '-1') {
+        if (!values.model || values.model === "-1") {
             toast.error("请选择一个模型");
             return;
         }
@@ -200,74 +243,99 @@ const FeatureAssistantConfig: React.FC = () => {
                 provider_id,
                 model_code,
                 summary_length: values.summary_length,
+                form_autofill_model: values.form_autofill_model,
                 prompt: values.prompt,
-            }
+            },
         }).then(() => {
-            toast.success('保存成功');
+            toast.success("保存成功");
         });
     }, []);
 
-    const modelOptions = useMemo(() =>
-        models.map((m) => ({
-            value: `${m.llm_provider_id}%%${m.code}`,
-            label: m.name,
-        }))
-        , [models]);
+    const modelOptions = useMemo(
+        () =>
+            models.map((m) => ({
+                value: `${m.llm_provider_id}%%${m.code}`,
+                label: m.name,
+            })),
+        [models]
+    );
 
-    const summaryLengthOptions = useMemo(() =>
-        [50, 100, 300, 500, 1000, -1].map((m) => ({
-            value: m.toString(),
-            label: m === -1 ? "所有" : m.toString(),
-        }))
-        , []);
+    const summaryLengthOptions = useMemo(
+        () =>
+            [50, 100, 300, 500, 1000, -1].map((m) => ({
+                value: m.toString(),
+                label: m === -1 ? "所有" : m.toString(),
+            })),
+        []
+    );
 
-    const SUMMARY_FORM_CONFIG = useMemo(() => [
-        {
-            key: "model",
-            config: {
-                type: "select" as const,
-                label: "Model",
-                options: modelOptions,
-            }
-        },
-        {
-            key: "summary_length",
-            config: {
-                type: "select" as const,
-                label: "总结文本长度",
-                options: summaryLengthOptions,
-            }
-        },
-        {
-            key: "prompt",
-            config: {
-                type: "textarea" as const,
-                className: "h-64",
-                label: "Prompt",
-            }
-        }
-    ], [modelOptions, summaryLengthOptions]);
+    const SUMMARY_FORM_CONFIG = useMemo(
+        () => [
+            {
+                key: "model",
+                config: {
+                    type: "select" as const,
+                    label: "总结 Model",
+                    options: modelOptions,
+                },
+            },
+            {
+                key: "summary_length",
+                config: {
+                    type: "select" as const,
+                    label: "总结文本长度",
+                    options: summaryLengthOptions,
+                },
+            },
+            {
+                key: "form_autofill_model",
+                config: {
+                    type: "select" as const,
+                    label: "表单填写 Model",
+                    options: modelOptions,
+                },
+            },
+            {
+                key: "prompt",
+                config: {
+                    type: "textarea" as const,
+                    className: "h-64",
+                    label: "总结 Prompt",
+                },
+            },
+        ],
+        [modelOptions, summaryLengthOptions]
+    );
 
     const displayFormReturnData = useForm<{
         theme: string;
         color_mode: string;
         user_message_markdown_render: string;
+        code_theme_light: string;
+        code_theme_dark: string;
     }>({
         defaultValues: {
             theme: featureConfig.get("display")?.get("theme") || "default",
             color_mode: featureConfig.get("display")?.get("color_mode") || "system",
-            user_message_markdown_render: featureConfig.get("display")?.get("user_message_markdown_render") || "disabled",
+            user_message_markdown_render:
+                featureConfig.get("display")?.get("user_message_markdown_render") || "disabled",
+            code_theme_light: featureConfig.get("display")?.get("code_theme_light") || "github",
+            code_theme_dark: featureConfig.get("display")?.get("code_theme_dark") || "github-dark",
         },
     });
 
     const summaryFormReturnData = useForm<{
         model: string;
         summary_length: string;
+        form_autofill_model: string;
         prompt: string;
     }>({
         defaultValues: {
-            model: `${featureConfig.get("conversation_summary")?.get("provider_id") || ''}%%${featureConfig.get("conversation_summary")?.get("model_code") || ''}`,
+            model: `${featureConfig.get("conversation_summary")?.get("provider_id") || ""}%%${
+                featureConfig.get("conversation_summary")?.get("model_code") || ""
+            }`,
             summary_length: featureConfig.get("conversation_summary")?.get("summary_length") || "100",
+            form_autofill_model: featureConfig.get("conversation_summary")?.get("form_autofill_model") || "",
             prompt: featureConfig.get("conversation_summary")?.get("prompt") || "",
         },
     });
@@ -297,11 +365,11 @@ const FeatureAssistantConfig: React.FC = () => {
         checkBunVersion();
         checkUvVersion();
 
-        const unlistenBunLog = listen('bun-install-log', (event) => {
-            setBunInstallLog(prev => prev + "\n" + event.payload);
+        const unlistenBunLog = listen("bun-install-log", (event) => {
+            setBunInstallLog((prev) => prev + "\n" + event.payload);
         });
 
-        const unlistenBunFinished = listen('bun-install-finished', (event) => {
+        const unlistenBunFinished = listen("bun-install-finished", (event) => {
             setTimeout(() => {
                 setIsInstallingBun(false);
             }, 1000);
@@ -313,11 +381,11 @@ const FeatureAssistantConfig: React.FC = () => {
             }
         });
 
-        const unlistenUvLog = listen('uv-install-log', (event) => {
-            setUvInstallLog(prev => prev + "\n" + event.payload);
+        const unlistenUvLog = listen("uv-install-log", (event) => {
+            setUvInstallLog((prev) => prev + "\n" + event.payload);
         });
 
-        const unlistenUvFinished = listen('uv-install-finished', (event) => {
+        const unlistenUvFinished = listen("uv-install-finished", (event) => {
             setTimeout(() => {
                 setIsInstallingUv(false);
             }, 1000);
@@ -330,79 +398,82 @@ const FeatureAssistantConfig: React.FC = () => {
         });
 
         return () => {
-            unlistenBunLog.then(f => f());
-            unlistenBunFinished.then(f => f());
-            unlistenUvLog.then(f => f());
-            unlistenUvFinished.then(f => f());
+            unlistenBunLog.then((f) => f());
+            unlistenBunFinished.then((f) => f());
+            unlistenUvLog.then((f) => f());
+            unlistenUvFinished.then((f) => f());
         };
     }, [checkBunVersion, checkUvVersion]);
 
-    const PREVIEW_FORM_CONFIG = useMemo(() => [
-        bunVersion === "Not Installed" ?
+    const PREVIEW_FORM_CONFIG = useMemo(
+        () => [
+            bunVersion === "Not Installed"
+                ? {
+                      key: "bun_install",
+                      config: {
+                          type: "button" as const,
+                          label: "安装 Bun",
+                          value: isInstallingBun ? "安装中..." : "安装",
+                          onClick: () => {
+                              setIsInstallingBun(true);
+                              setBunInstallLog("开始进行 Bun 安装...");
+                              invoke("install_bun");
+                          },
+                          disabled: isInstallingBun,
+                      },
+                  }
+                : {
+                      key: "bun_version",
+                      config: {
+                          type: "static" as const,
+                          label: "Bun 版本",
+                          value: bunVersion,
+                      },
+                  },
             {
-                key: "bun_install",
-                config: {
-                    type: "button" as const,
-                    label: "安装 Bun",
-                    value: isInstallingBun ? "安装中..." : "安装",
-                    onClick: () => {
-                        setIsInstallingBun(true);
-                        setBunInstallLog("开始进行 Bun 安装...");
-                        invoke("install_bun");
-                    },
-                    disabled: isInstallingBun,
-                }
-            } :
-            {
-                key: "bun_version",
-                config: {
-                    type: "static" as const,
-                    label: "Bun 版本",
-                    value: bunVersion,
-                }
-            },
-        {
-            key: "bun_log",
-            config: {
-                type: "static" as const,
-                label: "Bun 安装日志",
-                value: bunInstallLog || "",
-                hidden: !isInstallingBun,
-            }
-        },
-        uvVersion === "Not Installed" ?
-            {
-                key: "uv_install",
-                config: {
-                    type: "button" as const,
-                    label: "安装 UV",
-                    value: isInstallingUv ? "安装中..." : "安装",
-                    onClick: () => {
-                        setIsInstallingUv(true);
-                        setUvInstallLog("Starting uv installation...");
-                        invoke("install_uv");
-                    },
-                    disabled: isInstallingUv,
-                }
-            } :
-            {
-                key: "uv_version",
+                key: "bun_log",
                 config: {
                     type: "static" as const,
-                    label: "UV 版本",
-                    value: uvVersion,
-                }
+                    label: "Bun 安装日志",
+                    value: bunInstallLog || "",
+                    hidden: !isInstallingBun,
+                },
             },
-        {
-            key: "uv_log",
-            config: {
-                type: "static" as const,
-                label: "UV 安装日志",
-                value: uvInstallLog || "",
-                hidden: !isInstallingUv,
-            }
-        }
-    ], [bunVersion, uvVersion, isInstallingBun, isInstallingUv, bunInstallLog, uvInstallLog]);
+            uvVersion === "Not Installed"
+                ? {
+                      key: "uv_install",
+                      config: {
+                          type: "button" as const,
+                          label: "安装 UV",
+                          value: isInstallingUv ? "安装中..." : "安装",
+                          onClick: () => {
+                              setIsInstallingUv(true);
+                              setUvInstallLog("Starting uv installation...");
+                              invoke("install_uv");
+                          },
+                          disabled: isInstallingUv,
+                      },
+                  }
+                : {
+                      key: "uv_version",
+                      config: {
+                          type: "static" as const,
+                          label: "UV 版本",
+                          value: uvVersion,
+                      },
+                  },
+            {
+                key: "uv_log",
+                config: {
+                    type: "static" as const,
+                    label: "UV 安装日志",
+                    value: uvInstallLog || "",
+                    hidden: !isInstallingUv,
+                },
+            },
+        ],
+        [bunVersion, uvVersion, isInstallingBun, isInstallingUv, bunInstallLog, uvInstallLog]
+    );
 
     const previewFormReturnData = useForm<{
         preview_type: string;
@@ -424,77 +495,85 @@ const FeatureAssistantConfig: React.FC = () => {
     }, []);
 
     const handleSyncData = useCallback(() => {
-        toast.info('暂未实现，敬请期待');
+        toast.info("暂未实现，敬请期待");
     }, []);
 
-    const DATA_FOLDER_CONFIG = useMemo(() => [
-        {
-            key: "openDataFolder",
-            config: {
-                type: "button" as const,
-                label: "数据文件夹",
-                value: "打开",
-                onClick: handleOpenDataFolder,
-            }
-        },
-        {
-            key: "syncData",
-            config: {
-                type: "button" as const,
-                label: "远程数据",
-                value: "同步",
-                onClick: handleSyncData,
-            }
-        }
-    ], [handleOpenDataFolder, handleSyncData]);
+    const DATA_FOLDER_CONFIG = useMemo(
+        () => [
+            {
+                key: "openDataFolder",
+                config: {
+                    type: "button" as const,
+                    label: "数据文件夹",
+                    value: "打开",
+                    onClick: handleOpenDataFolder,
+                },
+            },
+            {
+                key: "syncData",
+                config: {
+                    type: "button" as const,
+                    label: "远程数据",
+                    value: "同步",
+                    onClick: handleSyncData,
+                },
+            },
+        ],
+        [handleOpenDataFolder, handleSyncData]
+    );
 
     // 网络配置相关表单
     const handleSaveNetworkConfig = useCallback(() => {
         const values = networkConfigFormReturnData.getValues();
-        
+
         invoke("save_feature_config", {
             featureCode: "network_config",
             config: {
                 request_timeout: values.request_timeout,
                 retry_attempts: values.retry_attempts,
                 network_proxy: values.network_proxy,
-            }
-        }).then(() => {
-            toast.success('网络配置保存成功');
-        }).catch((e) => {
-            toast.error('保存网络配置失败: ' + e);
-        });
+            },
+        })
+            .then(() => {
+                toast.success("网络配置保存成功");
+            })
+            .catch((e) => {
+                toast.error("保存网络配置失败: " + e);
+            });
     }, []);
 
-    const NETWORK_FORM_CONFIG = useMemo(() => [
-        {
-            key: "request_timeout",
-            config: {
-                type: "input" as const,
-                label: "请求超时时间（秒）",
-                placeholder: "180",
-                description: "思考模型返回较慢，不建议设置过低"
-            }
-        },
-        {
-            key: "retry_attempts",
-            config: {
-                type: "input" as const,
-                label: "失败重试次数",
-                placeholder: "3",
-                description: "请求失败时的重试次数"
-            }
-        },
-        {
-            key: "network_proxy",
-            config: {
-                type: "input" as const,
-                label: "网络代理",
-                placeholder: "http://127.0.0.1:7890",
-                description: "支持 http、https 和 socks 协议，例如：http://127.0.0.1:7890"
-            }
-        }
-    ], []);
+    const NETWORK_FORM_CONFIG = useMemo(
+        () => [
+            {
+                key: "request_timeout",
+                config: {
+                    type: "input" as const,
+                    label: "请求超时时间（秒）",
+                    placeholder: "180",
+                    description: "思考模型返回较慢，不建议设置过低",
+                },
+            },
+            {
+                key: "retry_attempts",
+                config: {
+                    type: "input" as const,
+                    label: "失败重试次数",
+                    placeholder: "3",
+                    description: "请求失败时的重试次数",
+                },
+            },
+            {
+                key: "network_proxy",
+                config: {
+                    type: "input" as const,
+                    label: "网络代理",
+                    placeholder: "http://127.0.0.1:7890",
+                    description: "支持 http、https 和 socks 协议，例如：http://127.0.0.1:7890",
+                },
+            },
+        ],
+        []
+    );
 
     const networkConfigFormReturnData = useForm<{
         request_timeout: string;
@@ -503,7 +582,7 @@ const FeatureAssistantConfig: React.FC = () => {
     }>({
         defaultValues: {
             request_timeout: featureConfig.get("network_config")?.get("request_timeout") || "180",
-            retry_attempts: featureConfig.get("network_config")?.get("retry_attempts") || "3", 
+            retry_attempts: featureConfig.get("network_config")?.get("retry_attempts") || "3",
             network_proxy: featureConfig.get("network_config")?.get("network_proxy") || "",
         },
     });
@@ -516,13 +595,25 @@ const FeatureAssistantConfig: React.FC = () => {
             if (displayConfig) {
                 displayFormReturnData.setValue("theme", displayConfig.get("theme") || "default");
                 displayFormReturnData.setValue("color_mode", displayConfig.get("color_mode") || "system");
-                displayFormReturnData.setValue("user_message_markdown_render", displayConfig.get("user_message_markdown_render") || "disabled");
+                displayFormReturnData.setValue(
+                    "user_message_markdown_render",
+                    displayConfig.get("user_message_markdown_render") || "disabled"
+                );
+                displayFormReturnData.setValue("code_theme_light", displayConfig.get("code_theme_light") || "github");
+                displayFormReturnData.setValue(
+                    "code_theme_dark",
+                    displayConfig.get("code_theme_dark") || "github-dark"
+                );
             }
 
             const summaryConfig = featureConfig.get("conversation_summary");
             if (summaryConfig) {
-                summaryFormReturnData.setValue("model", `${summaryConfig.get("provider_id") || ''}%%${summaryConfig.get("model_code") || ''}`);
+                summaryFormReturnData.setValue(
+                    "model",
+                    `${summaryConfig.get("provider_id") || ""}%%${summaryConfig.get("model_code") || ""}`
+                );
                 summaryFormReturnData.setValue("summary_length", summaryConfig.get("summary_length") || "100");
+                summaryFormReturnData.setValue("form_autofill_model", summaryConfig.get("form_autofill_model") || "");
                 summaryFormReturnData.setValue("prompt", summaryConfig.get("prompt") || "");
             }
 
@@ -541,28 +632,40 @@ const FeatureAssistantConfig: React.FC = () => {
                 networkConfigFormReturnData.setValue("network_proxy", networkConfig.get("network_proxy") || "");
             }
         }
-    }, [featureConfig, displayFormReturnData, summaryFormReturnData, previewFormReturnData, networkConfigFormReturnData]);
+    }, [
+        featureConfig,
+        displayFormReturnData,
+        summaryFormReturnData,
+        previewFormReturnData,
+        networkConfigFormReturnData,
+    ]);
 
     // 下拉菜单选项
-    const selectOptions: SelectOption[] = useMemo(() =>
-        featureList.map(feature => ({
-            id: feature.id,
-            label: feature.name,
-            icon: feature.icon
-        })), []);
+    const selectOptions: SelectOption[] = useMemo(
+        () =>
+            featureList.map((feature) => ({
+                id: feature.id,
+                label: feature.name,
+                icon: feature.icon,
+            })),
+        []
+    );
 
     // 下拉菜单选择回调
-    const handleSelectFromDropdown = useCallback((featureId: string) => {
-        const feature = featureList.find(f => f.id === featureId);
-        if (feature) {
-            handleSelectFeature(feature);
-        }
-    }, [handleSelectFeature]);
+    const handleSelectFromDropdown = useCallback(
+        (featureId: string) => {
+            const feature = featureList.find((f) => f.id === featureId);
+            if (feature) {
+                handleSelectFeature(feature);
+            }
+        },
+        [handleSelectFeature]
+    );
 
     // 渲染对应的配置表单
     const renderConfigForm = () => {
         switch (selectedFeature.id) {
-            case 'display':
+            case "display":
                 return (
                     <ConfigForm
                         title={selectedFeature.name}
@@ -574,7 +677,7 @@ const FeatureAssistantConfig: React.FC = () => {
                         onSave={handleSaveDisplayConfig}
                     />
                 );
-            case 'conversation_summary':
+            case "conversation_summary":
                 return (
                     <ConfigForm
                         title={selectedFeature.name}
@@ -586,7 +689,7 @@ const FeatureAssistantConfig: React.FC = () => {
                         onSave={handleSaveSummary}
                     />
                 );
-            case 'preview':
+            case "preview":
                 return (
                     <ConfigForm
                         title={selectedFeature.name}
@@ -597,7 +700,7 @@ const FeatureAssistantConfig: React.FC = () => {
                         useFormReturn={previewFormReturnData}
                     />
                 );
-            case 'data_folder':
+            case "data_folder":
                 return (
                     <ConfigForm
                         title={selectedFeature.name}
@@ -608,7 +711,7 @@ const FeatureAssistantConfig: React.FC = () => {
                         useFormReturn={dataFolderFormReturnData}
                     />
                 );
-            case 'network_config':
+            case "network_config":
                 return (
                     <ConfigForm
                         title={selectedFeature.name}
@@ -627,11 +730,7 @@ const FeatureAssistantConfig: React.FC = () => {
 
     // 侧边栏内容
     const sidebar = (
-        <SidebarList
-            title="功能列表"
-            description="选择功能进行配置"
-            icon={<Settings className="h-5 w-5" />}
-        >
+        <SidebarList title="功能列表" description="选择功能进行配置" icon={<Settings className="h-5 w-5" />}>
             {featureList.map((feature) => {
                 return (
                     <ListItemButton
@@ -654,11 +753,7 @@ const FeatureAssistantConfig: React.FC = () => {
     );
 
     // 右侧内容
-    const content = (
-        <div className="space-y-6">
-            {renderConfigForm()}
-        </div>
-    );
+    const content = <div className="space-y-6">{renderConfigForm()}</div>;
 
     return (
         <ConfigPageLayout

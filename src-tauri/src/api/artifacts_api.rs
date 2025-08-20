@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use tauri::Emitter;
@@ -6,7 +5,6 @@ use tauri::Manager;
 
 use crate::utils::bun_utils::BunUtils;
 use crate::utils::uv_utils::UvUtils;
-use crate::FeatureConfigState;
 
 use crate::{
     artifacts::{
@@ -16,11 +14,10 @@ use crate::{
         vue_preview::create_vue_preview_for_artifact,
     },
     errors::AppError,
-    window::{open_preview_react_window, open_preview_vue_window},
 };
 
 // 检查是否是完整的 React 组件代码
-fn is_react_component(code: &str) -> bool {
+pub fn is_react_component(code: &str) -> bool {
     // 检查代码是否包含 React 组件的特征
     let has_import = code.contains("import") && (code.contains("react") || code.contains("React"));
     let has_function_component = code.contains("function ") && code.contains("return");
@@ -35,7 +32,7 @@ fn is_react_component(code: &str) -> bool {
 }
 
 // 从代码中提取组件名称
-fn extract_component_name(code: &str) -> Option<String> {
+pub fn extract_component_name(code: &str) -> Option<String> {
     use regex::Regex;
 
     // 尝试匹配函数组件名称
@@ -69,24 +66,24 @@ fn extract_component_name(code: &str) -> Option<String> {
 }
 
 // 检查是否是完整的 Vue 组件代码
-fn is_vue_component(code: &str) -> bool {
+pub fn is_vue_component(code: &str) -> bool {
     // 检查代码是否包含 Vue 组件的特征
     let has_template = code.contains("<template>");
     let has_script = code.contains("<script");
     let _has_style = code.contains("<style");
-    
+
     // 检查是否有 Vue 3 Composition API 或者 Options API
     let has_setup = code.contains("setup") || code.contains("defineComponent");
     let has_export_default = code.contains("export default");
-    
+
     // 至少要有 template 和 script 标签
     has_template && has_script && (has_setup || has_export_default)
 }
 
 // 从 Vue 组件代码中提取组件名称
-fn extract_vue_component_name(code: &str) -> Option<String> {
+pub fn extract_vue_component_name(code: &str) -> Option<String> {
     use regex::Regex;
-    
+
     // 尝试匹配 export default 中的 name 属性
     if let Ok(re) = Regex::new(r#"name\s*:\s*['"]([A-Z][a-zA-Z0-9_]*)['"]"#) {
         if let Some(caps) = re.captures(code) {
@@ -95,23 +92,24 @@ fn extract_vue_component_name(code: &str) -> Option<String> {
             }
         }
     }
-    
+
     // 尝试匹配 defineComponent 中的 name
-    if let Ok(re) = Regex::new(r#"defineComponent\s*\(\s*\{\s*name\s*:\s*['"]([A-Z][a-zA-Z0-9_]*)['"]"#) {
+    if let Ok(re) =
+        Regex::new(r#"defineComponent\s*\(\s*\{\s*name\s*:\s*['"]([A-Z][a-zA-Z0-9_]*)['"]"#)
+    {
         if let Some(caps) = re.captures(code) {
             if let Some(name) = caps.get(1) {
                 return Some(name.as_str().to_string());
             }
         }
     }
-    
+
     None
 }
 
 #[tauri::command]
 pub async fn run_artifacts(
     app_handle: tauri::AppHandle,
-    state: tauri::State<'_, FeatureConfigState>,
     lang: &str,
     input_str: &str,
 ) -> Result<String, AppError> {
@@ -124,67 +122,64 @@ pub async fn run_artifacts(
     // 等待窗口加载（延长到 1 秒，避免日志在窗口完成加载前发送导致丢失）
     tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 
-    let config_map = state.config_feature_map.lock().await;
-    let preview_config = config_map
-        .get("preview")
-        .map(|c| c.to_owned())
-        .unwrap_or_else(HashMap::new);
-
-    let nextjs_port = preview_config
-        .get("nextjs_port")
-        .and_then(|config| config.value.parse::<u16>().ok())
-        .unwrap_or(3001); // 默认端口如果解析失败
-
-    let nuxtjs_port = preview_config
-        .get("nuxtjs_port")
-        .and_then(|config| config.value.parse::<u16>().ok())
-        .unwrap_or(3002); // 默认端口如果解析失败
-
     match lang {
         "powershell" => {
             if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-log", "执行 PowerShell 脚本...");
+                let _ = window.emit("artifact-preview-log", "执行 PowerShell 脚本...");
             }
             return Ok(run_powershell(input_str).map_err(|e| {
                 let error_msg = "PowerShell 脚本执行失败:".to_owned() + &e.to_string();
                 if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                    let _ = window.emit("artifact-error", &error_msg);
+                    let _ = window.emit("artifact-preview-error", &error_msg);
                 }
                 AppError::RunCodeError(error_msg)
             })?);
         }
         "applescript" => {
             if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-log", "执行 AppleScript 脚本...");
+                let _ = window.emit("artifact-preview-log", "执行 AppleScript 脚本...");
             }
             return Ok(run_applescript(input_str).map_err(|e| {
                 let error_msg = "AppleScript 脚本执行失败:".to_owned() + &e.to_string();
                 if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                    let _ = window.emit("artifact-error", &error_msg);
+                    let _ = window.emit("artifact-preview-error", &error_msg);
                 }
                 AppError::RunCodeError(error_msg)
             })?);
         }
         "mermaid" => {
             if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-log", "准备预览 Mermaid 图表...");
+                let _ = window.emit("artifact-preview-log", "准备预览 Mermaid 图表...");
             }
-            
+
             // 发送 mermaid 内容到前端
             if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-log", format!("mermaid content: {}", input_str));
-                let _ = window.emit("artifact-success", "Mermaid 图表预览已准备完成");
+                let _ = window.emit(
+                    "artifact-preview-data",
+                    serde_json::json!({
+                        "type": "mermaid",
+                        "original_code": input_str,
+                    }),
+                );
+                let _ = window.emit("artifact-preview-log", format!("mermaid content: {}", input_str));
+                let _ = window.emit("artifact-preview-success", "Mermaid 图表预览已准备完成");
             }
         }
         "xml" | "svg" | "html" | "markdown" | "md" => {
             if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-log", format!("准备预览 {} 内容...", lang));
-            }
-            
-            // 发送 HTML/SVG/XML/Markdown 内容到前端
-            if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-log", format!("{} content: {}", lang, input_str));
-                let _ = window.emit("artifact-success", format!("{} 预览已准备完成", lang.to_uppercase()));
+                let _ = window.emit("artifact-preview-log", format!("准备预览 {} 内容...", lang));
+                let _ = window.emit(
+                    "artifact-preview-data",
+                    serde_json::json!({
+                        "type": lang,
+                        "original_code": input_str,
+                    }),
+                );
+                let _ = window.emit("artifact-preview-log", format!("{} content: {}", lang, input_str));
+                let _ = window.emit(
+                    "artifact-preview-success",
+                    format!("{} 预览已准备完成", lang.to_uppercase()),
+                );
             }
         }
         "react" | "jsx" => {
@@ -192,7 +187,12 @@ pub async fn run_artifacts(
 
             // 检查是否需要 bun 环境
             let bun_version = BunUtils::get_bun_version(&app_handle);
-            if bun_version.is_err() || bun_version.as_ref().unwrap_or(&String::new()).contains("Not Installed") {
+            if bun_version.is_err()
+                || bun_version
+                    .as_ref()
+                    .unwrap_or(&String::new())
+                    .contains("Not Installed")
+            {
                 println!("🎯 [Artifacts] 检测到需要 bun 环境但未安装");
                 if let Some(window) = app_handle.get_webview_window("artifact_preview") {
                     let _ = window.emit("environment-check", serde_json::json!({
@@ -215,6 +215,15 @@ pub async fn run_artifacts(
                     "UserComponent".to_string()
                 });
                 println!("🎯 [Artifacts] 组件名称: {}", component_name);
+                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                    let _ = window.emit(
+                        "artifact-preview-data",
+                        serde_json::json!({
+                            "type": "react",
+                            "original_code": input_str,
+                        }),
+                    );
+                }
 
                 let preview_id = create_react_preview_for_artifact(
                     app_handle.clone(),
@@ -226,7 +235,7 @@ pub async fn run_artifacts(
                     println!("❌ [Artifacts] React 组件预览失败: {}", e);
                     let error_msg = format!("React 组件预览失败: {}", e);
                     if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                        let _ = window.emit("artifact-error", &error_msg);
+                        let _ = window.emit("artifact-preview-error", &error_msg);
                     }
                     AppError::RunCodeError(error_msg)
                 })?;
@@ -235,28 +244,11 @@ pub async fn run_artifacts(
 
                 return Ok(success_msg);
             } else {
-                println!("🎯 [Artifacts] 检测到代码片段，使用旧预览方式");
                 if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                    let _ = window.emit("artifact-log", "检测到代码片段，使用传统预览方式...");
-                }
-
-                // 使用旧的预览方式（代码片段）
-                let _ = open_preview_react_window(
-                    app_handle.clone(),
-                    input_str.to_string(),
-                    nextjs_port,
-                )
-                .await;
-                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                    let _ = window.emit("artifact-success", "React 代码片段预览已准备完成");
-                }
-                // 发送跳转事件
-                let preview_url = format!(
-                    "http://preview.teafakedomain.com:{}/previews/react",
-                    nextjs_port
-                );
-                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                    let _ = window.emit("artifact-redirect", preview_url);
+                    let _ = window.emit(
+                        "artifact-preview-error",
+                        "React 代码片段预览暂不支持，请提供完整的 React 组件代码。",
+                    );
                 }
             }
         }
@@ -265,7 +257,12 @@ pub async fn run_artifacts(
 
             // 检查是否需要 bun 环境
             let bun_version = BunUtils::get_bun_version(&app_handle);
-            if bun_version.is_err() || bun_version.as_ref().unwrap_or(&String::new()).contains("Not Installed") {
+            if bun_version.is_err()
+                || bun_version
+                    .as_ref()
+                    .unwrap_or(&String::new())
+                    .contains("Not Installed")
+            {
                 println!("🎯 [Artifacts] 检测到需要 bun 环境但未安装");
                 if let Some(window) = app_handle.get_webview_window("artifact_preview") {
                     let _ = window.emit("environment-check", serde_json::json!({
@@ -288,7 +285,15 @@ pub async fn run_artifacts(
                     "UserComponent".to_string()
                 });
                 println!("🎯 [Artifacts] 组件名称: {}", component_name);
-
+                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
+                    let _ = window.emit(
+                        "artifact-preview-data",
+                        serde_json::json!({
+                            "type": "vue",
+                            "original_code": input_str,
+                        }),
+                    );
+                }
                 let preview_id = create_vue_preview_for_artifact(
                     app_handle.clone(),
                     input_str.to_string(),
@@ -299,7 +304,7 @@ pub async fn run_artifacts(
                     println!("❌ [Artifacts] Vue 组件预览失败: {}", e);
                     let error_msg = format!("Vue 组件预览失败: {}", e);
                     if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                        let _ = window.emit("artifact-error", &error_msg);
+                        let _ = window.emit("artifact-preview-error", &error_msg);
                     }
                     AppError::RunCodeError(error_msg)
                 })?;
@@ -308,24 +313,11 @@ pub async fn run_artifacts(
 
                 return Ok(success_msg);
             } else {
-                println!("🎯 [Artifacts] 检测到代码片段，使用旧预览方式");
                 if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                    let _ = window.emit("artifact-log", "检测到Vue代码片段，使用传统预览方式...");
-                }
-
-                // 使用旧的预览方式（代码片段）
-                let _ = open_preview_vue_window(app_handle.clone(), input_str.to_string(), nuxtjs_port)
-                    .await;
-                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                    let _ = window.emit("artifact-success", "Vue 代码片段预览已准备完成");
-                }
-                // 发送跳转事件
-                let preview_url = format!(
-                    "http://preview.teafakedomain.com:{}/previews/vue",
-                    nuxtjs_port
-                );
-                if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                    let _ = window.emit("artifact-redirect", preview_url);
+                    let _ = window.emit(
+                        "artifact-preview-error",
+                        "Vue 代码片段预览暂不支持，请提供完整的 Vue 组件代码。",
+                    );
                 }
             }
         }
@@ -333,7 +325,7 @@ pub async fn run_artifacts(
             // Handle other languages here
             let error_msg = "暂不支持该语言的代码执行".to_owned();
             if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-                let _ = window.emit("artifact-error", &error_msg);
+                let _ = window.emit("artifact-preview-error", &error_msg);
             }
             return Err(AppError::RunCodeError(error_msg));
         }
@@ -352,7 +344,10 @@ pub fn check_uv_version(app: tauri::AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn install_bun(app_handle: tauri::AppHandle, target_window: Option<String>) -> Result<(), String> {
+pub fn install_bun(
+    app_handle: tauri::AppHandle,
+    target_window: Option<String>,
+) -> Result<(), String> {
     // 获取事件前缀和目标窗口
     let (event_prefix, emit_to_window) = if let Some(ref window) = target_window {
         if window == "artifact_preview" {
@@ -363,7 +358,7 @@ pub fn install_bun(app_handle: tauri::AppHandle, target_window: Option<String>) 
     } else {
         ("bun-install", false)
     };
-    
+
     std::thread::spawn(move || {
         let bun_version = "1.2.18";
         let (os, arch) = if cfg!(target_os = "windows") {
@@ -434,7 +429,7 @@ pub fn install_bun(app_handle: tauri::AppHandle, target_window: Option<String>) 
             .expect("无法获取应用数据目录");
         let bun_install_dir = app_data_dir.join("bun");
         let bun_bin_dir = bun_install_dir.join("bin");
-        
+
         if let Err(e) = std::fs::create_dir_all(&bun_bin_dir) {
             emit_error(&format!("创建目录失败: {}", e));
             return;
@@ -444,21 +439,19 @@ pub fn install_bun(app_handle: tauri::AppHandle, target_window: Option<String>) 
 
         // Download
         match reqwest::blocking::get(&url) {
-            Ok(mut response) => {
-                match std::fs::File::create(&zip_path) {
-                    Ok(mut file) => {
-                        if let Err(e) = std::io::copy(&mut response, &mut file) {
-                            emit_error(&format!("下载失败: {}", e));
-                            return;
-                        }
-                        emit_log("下载完成");
-                    }
-                    Err(e) => {
-                        emit_error(&format!("创建文件失败: {}", e));
+            Ok(mut response) => match std::fs::File::create(&zip_path) {
+                Ok(mut file) => {
+                    if let Err(e) = std::io::copy(&mut response, &mut file) {
+                        emit_error(&format!("下载失败: {}", e));
                         return;
                     }
+                    emit_log("下载完成");
                 }
-            }
+                Err(e) => {
+                    emit_error(&format!("创建文件失败: {}", e));
+                    return;
+                }
+            },
             Err(e) => {
                 emit_error(&format!("下载失败: {}", e));
                 return;
@@ -467,7 +460,7 @@ pub fn install_bun(app_handle: tauri::AppHandle, target_window: Option<String>) 
 
         // Unzip 到安装目录
         emit_log("开始解压...");
-        
+
         match std::fs::File::open(&zip_path) {
             Ok(zip_file) => {
                 if let Err(e) = zip_extract::extract(zip_file, &bun_install_dir, true) {
@@ -497,15 +490,13 @@ pub fn install_bun(app_handle: tauri::AppHandle, target_window: Option<String>) 
                 .join(&bun_executable_name),
         ];
 
-        let bun_executable_path = match candidate_paths
-            .iter()
-            .find(|p| p.exists()) {
-                Some(path) => path.to_path_buf(),
-                None => {
-                    emit_error("未找到 bun 可执行文件");
-                    return;
-                }
-            };
+        let bun_executable_path = match candidate_paths.iter().find(|p| p.exists()) {
+            Some(path) => path.to_path_buf(),
+            None => {
+                emit_error("未找到 bun 可执行文件");
+                return;
+            }
+        };
 
         let dest_path = bun_bin_dir.join(&bun_executable_name);
         // 如果目标已存在则先删除
@@ -515,7 +506,7 @@ pub fn install_bun(app_handle: tauri::AppHandle, target_window: Option<String>) 
                 return;
             }
         }
-        
+
         if let Err(e) = std::fs::rename(bun_executable_path, &dest_path) {
             emit_error(&format!("移动文件失败: {}", e));
             return;
@@ -528,7 +519,10 @@ pub fn install_bun(app_handle: tauri::AppHandle, target_window: Option<String>) 
 }
 
 #[tauri::command]
-pub fn install_uv(app_handle: tauri::AppHandle, target_window: Option<String>) -> Result<(), String> {
+pub fn install_uv(
+    app_handle: tauri::AppHandle,
+    target_window: Option<String>,
+) -> Result<(), String> {
     // 获取事件前缀和目标窗口
     let (event_prefix, emit_to_window) = if let Some(ref window) = target_window {
         if window == "artifact_preview" {
@@ -543,7 +537,7 @@ pub fn install_uv(app_handle: tauri::AppHandle, target_window: Option<String>) -
     std::thread::spawn(move || {
         let max_retries = 3;
         let mut success = false;
-        
+
         // 发送日志到指定窗口或全局
         let emit_log = |msg: &str| {
             println!("uv-install-log: {}", msg);
@@ -583,11 +577,11 @@ pub fn install_uv(app_handle: tauri::AppHandle, target_window: Option<String>) -
                 let _ = app_handle.emit("uv-install-log", msg);
             }
         };
-        
+
         for attempt in 1..=max_retries {
             let log_msg = format!("正在尝试安装 uv (第 {} 次尝试)...", attempt);
             emit_log(&log_msg);
-            
+
             let (command, args) = if cfg!(target_os = "windows") {
                 (
                     "powershell",
@@ -596,13 +590,19 @@ pub fn install_uv(app_handle: tauri::AppHandle, target_window: Option<String>) -
             } else {
                 (
                     "sh",
-                    vec!["-c", "curl -LsSf --retry 3 --retry-delay 2 https://astral.sh/uv/install.sh | sh"],
+                    vec![
+                        "-c",
+                        "curl -LsSf --retry 3 --retry-delay 2 https://astral.sh/uv/install.sh | sh",
+                    ],
                 )
             };
 
             let mut child = match Command::new(command)
                 .args(args)
-                .env("UV_INSTALLER_GHE_BASE_URL", "https://ghfast.top/https://github.com")
+                .env(
+                    "UV_INSTALLER_GHE_BASE_URL",
+                    "https://ghfast.top/https://github.com",
+                )
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()
@@ -631,15 +631,15 @@ pub fn install_uv(app_handle: tauri::AppHandle, target_window: Option<String>) -
                 for line in reader.lines() {
                     if let Ok(line) = line {
                         // 检查是否有关键错误
-                        if line.contains("curl:") && (
-                            line.contains("Error in the HTTP2 framing layer") ||
-                            line.contains("Recv failure: Connection reset by peer") ||
-                            line.contains("Failed to connect") ||
-                            line.contains("Could not resolve host")
-                        ) {
+                        if line.contains("curl:")
+                            && (line.contains("Error in the HTTP2 framing layer")
+                                || line.contains("Recv failure: Connection reset by peer")
+                                || line.contains("Failed to connect")
+                                || line.contains("Could not resolve host"))
+                        {
                             has_critical_error = true;
                         }
-                        
+
                         emit_log(&line);
                     }
                 }
@@ -657,10 +657,14 @@ pub fn install_uv(app_handle: tauri::AppHandle, target_window: Option<String>) -
                         let error_msg = if has_critical_error {
                             format!("第 {} 次尝试失败：检测到网络错误", attempt)
                         } else {
-                            format!("第 {} 次尝试失败，退出码: {}", attempt, status.code().unwrap_or(-1))
+                            format!(
+                                "第 {} 次尝试失败，退出码: {}",
+                                attempt,
+                                status.code().unwrap_or(-1)
+                            )
                         };
                         emit_error(&error_msg);
-                        
+
                         if attempt < max_retries {
                             let retry_msg = format!("等待 2 秒后重试...");
                             emit_log(&retry_msg);
@@ -696,11 +700,6 @@ pub fn install_uv(app_handle: tauri::AppHandle, target_window: Option<String>) -
     Ok(())
 }
 
-#[tauri::command]
-pub async fn open_react_component_preview(app_handle: tauri::AppHandle) -> Result<(), String> {
-    use crate::window::open_preview_frontend_window;
-    open_preview_frontend_window(app_handle).await
-}
 
 #[tauri::command]
 pub async fn preview_react_component(
@@ -726,28 +725,31 @@ pub async fn confirm_environment_install(
     if !confirmed {
         // 用户选择取消，停止预览
         if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-            let _ = window.emit("artifact-error", "用户取消了环境安装，预览已停止");
+            let _ = window.emit("artifact-preview-error", "用户取消了环境安装，预览已停止");
         }
         return Ok("用户取消安装".to_string());
     }
 
     // 用户确认安装，开始安装过程
     if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-        let _ = window.emit("artifact-log", format!("开始安装 {} 环境...", tool));
-        
+        let _ = window.emit("artifact-preview-log", format!("开始安装 {} 环境...", tool));
+
         if tool == "bun" {
             let _ = install_bun(app_handle.clone(), Some("artifact_preview".to_string()));
         } else if tool == "uv" {
             let _ = install_uv(app_handle.clone(), Some("artifact_preview".to_string()));
         }
-        
+
         // 保存原始参数，等待安装完成后重新调用
         if let Some(window) = app_handle.get_webview_window("artifact_preview") {
-            let _ = window.emit("environment-install-started", serde_json::json!({
-                "tool": tool,
-                "lang": lang,
-                "input_str": input_str
-            }));
+            let _ = window.emit(
+                "environment-install-started",
+                serde_json::json!({
+                    "tool": tool,
+                    "lang": lang,
+                    "input_str": input_str
+                }),
+            );
         }
     }
 
@@ -760,16 +762,19 @@ pub async fn retry_preview_after_install(
     lang: String,
     input_str: String,
 ) -> Result<String, String> {
-    println!("🔧 [ArtifactsAPI] 收到重新启动预览事件: lang={}, input_str={}", lang, input_str);
+    println!(
+        "🔧 [ArtifactsAPI] 收到重新启动预览事件: lang={}, input_str={}",
+        lang, input_str
+    );
     // 重新调用 run_artifacts 函数
     match run_artifacts(
         app_handle.clone(),
-        app_handle.state::<FeatureConfigState>(),
         &lang,
         &input_str,
-    ).await {
+    )
+    .await
+    {
         Ok(result) => Ok(result),
         Err(e) => Err(e.to_string()),
     }
 }
-

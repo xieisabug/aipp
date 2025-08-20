@@ -1,19 +1,19 @@
-import React, { useMemo } from 'react';
-import ReactMarkdown from 'react-markdown';
-import ReasoningMessage from './ReasoningMessage';
-import ErrorMessage from './MessageItem/ErrorMessage';
-import MessageActionButtons from './MessageItem/MessageActionButtons';
-import ImageAttachments from './MessageItem/ImageAttachments';
-import RawTextRenderer from './RawTextRenderer';
-import { ShineBorder } from './magicui/shine-border';
-import { DEFAULT_SHINE_BORDER_CONFIG } from '@/lib/shine-config';
-import { Message, StreamEvent, MCPToolCallUpdateEvent } from '../data/Conversation';
-import { usePerformanceMonitor, measureSync } from '../hooks/usePerformanceMonitor';
-import { useCopyHandler } from '../hooks/useCopyHandler';
-import { useCustomTagParser } from '../hooks/useCustomTagParser';
-import { useMarkdownConfig } from '../hooks/useMarkdownConfig';
-import { useMcpToolCallProcessor } from '../hooks/useMcpToolCallProcessor';
-import { useDisplayConfig } from '../hooks/useDisplayConfig';
+import React, { useMemo } from "react";
+import ReactMarkdown from "react-markdown";
+import ReasoningMessage from "./ReasoningMessage";
+import ErrorMessage from "./message-item/ErrorMessage";
+import MessageActionButtons from "./message-item/MessageActionButtons";
+import ImageAttachments from "./message-item/ImageAttachments";
+import RawTextRenderer from "./RawTextRenderer";
+import { ShineBorder } from "./magicui/shine-border";
+import { DEFAULT_SHINE_BORDER_CONFIG } from "@/utils/shineConfig";
+import { Message, StreamEvent, MCPToolCallUpdateEvent } from "../data/Conversation";
+import { usePerformanceMonitor, measureSync } from "../hooks/usePerformanceMonitor";
+import { useCopyHandler } from "../hooks/useCopyHandler";
+import { useCustomTagParser } from "../hooks/useCustomTagParser";
+import { useMarkdownConfig } from "../hooks/useMarkdownConfig";
+import { useMcpToolCallProcessor } from "../hooks/useMcpToolCallProcessor";
+import { useDisplayConfig } from "../hooks/useDisplayConfig";
 
 interface MessageItemProps {
     message: Message;
@@ -28,138 +28,130 @@ interface MessageItemProps {
     mcpToolCallStates?: Map<number, MCPToolCallUpdateEvent>; // Add MCP states
 }
 
-const MessageItem = React.memo<MessageItemProps>(({
-    message,
-    streamEvent,
-    onCodeRun,
-    onMessageRegenerate,
-    onMessageEdit,
-    isReasoningExpanded = false,
-    onToggleReasoningExpand,
-    shouldShowShineBorder = false,
-    conversationId,
-    mcpToolCallStates,
-}) => {
-    // 性能监控
-    usePerformanceMonitor(
-        'MessageItem',
-        [
-            message.id,
-            message.content,
-            message.message_type,
-            streamEvent?.is_done,
-            isReasoningExpanded,
-        ],
-        false,
-    );
-
-    const { copyIconState, handleCopy } = useCopyHandler(message.content);
-    const { parseCustomTags } = useCustomTagParser();
-    const { isUserMessageMarkdownEnabled } = useDisplayConfig();
-    
-    // 统一的 Markdown 配置，根据用户消息类型和配置决定是否禁用 Markdown 语法
-    const isUserMessage = message.message_type === 'user';
-    const markdownConfig = useMarkdownConfig({ 
+const MessageItem = React.memo<MessageItemProps>(
+    ({
+        message,
+        streamEvent,
         onCodeRun,
-        disableMarkdownSyntax: isUserMessage && !isUserMessageMarkdownEnabled
-    });
-    
-    const mcpProcessor = useMcpToolCallProcessor(markdownConfig, { 
-        conversationId, 
-        messageId: message.id,
-        mcpToolCallStates
-    });
+        onMessageRegenerate,
+        onMessageEdit,
+        isReasoningExpanded = false,
+        onToggleReasoningExpand,
+        shouldShowShineBorder = false,
+        conversationId,
+        mcpToolCallStates,
+    }) => {
+        // 性能监控
+        usePerformanceMonitor(
+            "MessageItem",
+            [message.id, message.content, message.message_type, streamEvent?.is_done, isReasoningExpanded],
+            false
+        );
 
-    // 处理自定义标签解析
-    const markdownContent = useMemo(
-        () => measureSync(
-            `markdown-parsing-${message.id}`,
-            () => parseCustomTags(message.content),
-            false,
-        ),
-        [message.content, parseCustomTags, message.id],
-    );
+        const { copyIconState, handleCopy } = useCopyHandler(message.content);
+        const { parseCustomTags } = useCustomTagParser();
+        const { isUserMessageMarkdownEnabled } = useDisplayConfig();
 
-    // 渲染内容 - 根据用户消息类型和配置选择渲染方式
-    const contentElement = useMemo(
-        () => measureSync(
-            `content-render-${message.id}`,
-            () => {
-                // 如果是用户消息且禁用了 Markdown 渲染，使用 RawTextRenderer
-                if (isUserMessage && !isUserMessageMarkdownEnabled) {
-                    return <RawTextRenderer content={markdownContent} />;
-                }
+        // 统一的 Markdown 配置，根据用户消息类型和配置决定是否禁用 Markdown 语法
+        const isUserMessage = message.message_type === "user";
+        const markdownConfig = useMarkdownConfig({
+            onCodeRun,
+            disableMarkdownSyntax: isUserMessage && !isUserMessageMarkdownEnabled,
+        });
 
-                // 否则使用统一的 ReactMarkdown 渲染
-                const element = (
-                    <ReactMarkdown
-                        children={markdownContent}
-                        remarkPlugins={markdownConfig.remarkPlugins as any}
-                        rehypePlugins={markdownConfig.rehypePlugins as any}
-                        components={markdownConfig.markdownComponents}
-                    />
-                );
+        const mcpProcessor = useMcpToolCallProcessor(markdownConfig, {
+            conversationId,
+            messageId: message.id,
+            mcpToolCallStates,
+        });
 
-                // MCP 工具调用后处理
-                return mcpProcessor.processContent(markdownContent, element);
-            },
-            false,
-        ),
-        [markdownContent, markdownConfig, mcpProcessor, message.id, isUserMessage, isUserMessageMarkdownEnabled],
-    );
+        // 处理自定义标签解析
+        const markdownContent = useMemo(
+            () => measureSync(`markdown-parsing-${message.id}`, () => parseCustomTags(message.content), false),
+            [message.content, parseCustomTags, message.id]
+        );
 
-    // 早期返回：reasoning 类型消息
-    if (message.message_type === 'reasoning') {
+        // 渲染内容 - 根据用户消息类型和配置选择渲染方式
+        const contentElement = useMemo(
+            () =>
+                measureSync(
+                    `content-render-${message.id}`,
+                    () => {
+                        // 如果是用户消息且禁用了 Markdown 渲染，使用 RawTextRenderer
+                        if (isUserMessage && !isUserMessageMarkdownEnabled) {
+                            return <RawTextRenderer content={markdownContent} />;
+                        }
+
+                        // 否则使用统一的 ReactMarkdown 渲染
+                        const element = (
+                            <ReactMarkdown
+                                children={markdownContent}
+                                remarkPlugins={markdownConfig.remarkPlugins as any}
+                                rehypePlugins={markdownConfig.rehypePlugins as any}
+                                components={markdownConfig.markdownComponents}
+                            />
+                        );
+
+                        // MCP 工具调用后处理
+                        return mcpProcessor.processContent(markdownContent, element);
+                    },
+                    false
+                ),
+            [markdownContent, markdownConfig, mcpProcessor, message.id, isUserMessage, isUserMessageMarkdownEnabled]
+        );
+
+        // 早期返回：reasoning 类型消息
+        if (message.message_type === "reasoning") {
+            return (
+                <ReasoningMessage
+                    message={message}
+                    streamEvent={streamEvent}
+                    displayedContent={message.content}
+                    isReasoningExpanded={isReasoningExpanded}
+                    onToggleReasoningExpand={onToggleReasoningExpand}
+                />
+            );
+        }
+
+        // 早期返回：错误类型消息
+        if (message.message_type === "error") {
+            return <ErrorMessage content={message.content} />;
+        }
+
+        // 常规消息渲染
         return (
-            <ReasoningMessage
-                message={message}
-                streamEvent={streamEvent}
-                displayedContent={message.content}
-                isReasoningExpanded={isReasoningExpanded}
-                onToggleReasoningExpand={onToggleReasoningExpand}
-            />
+            <div
+                className={`group relative py-4 px-5 rounded-2xl inline-block max-w-[65%] transition-all duration-200 bg-background text-foreground border border-border ${
+                    isUserMessage ? "self-end" : "self-start"
+                }`}
+            >
+                {shouldShowShineBorder && (
+                    <ShineBorder
+                        shineColor={DEFAULT_SHINE_BORDER_CONFIG.shineColor}
+                        borderWidth={DEFAULT_SHINE_BORDER_CONFIG.borderWidth}
+                        duration={DEFAULT_SHINE_BORDER_CONFIG.duration}
+                    />
+                )}
+
+                <div className="prose prose-sm max-w-none text-foreground">
+                    {/* RawTextRenderer 已包含 prose 样式，条件渲染避免重复包装 */}
+                    {isUserMessage && !isUserMessageMarkdownEnabled ? contentElement : <div>{contentElement}</div>}
+                </div>
+
+                <ImageAttachments attachments={message.attachment_list} />
+
+                <MessageActionButtons
+                    messageType={message.message_type}
+                    isUserMessage={isUserMessage}
+                    copyIconState={copyIconState}
+                    onCopy={handleCopy}
+                    onEdit={onMessageEdit}
+                    onRegenerate={onMessageRegenerate}
+                />
+            </div>
         );
     }
-
-    // 早期返回：错误类型消息
-    if (message.message_type === 'error') {
-        return <ErrorMessage content={message.content} />;
-    }
-
-    // 常规消息渲染
-    return (
-        <div
-            className={`group relative py-4 px-5 rounded-2xl inline-block max-w-[65%] transition-all duration-200 bg-background text-foreground border border-border ${isUserMessage
-                    ? 'self-end'
-                    : 'self-start'
-                }`}
-        >
-            {shouldShowShineBorder && (
-                <ShineBorder
-                    shineColor={DEFAULT_SHINE_BORDER_CONFIG.shineColor}
-                    borderWidth={DEFAULT_SHINE_BORDER_CONFIG.borderWidth}
-                    duration={DEFAULT_SHINE_BORDER_CONFIG.duration}
-                />
-            )}
-
-            <div className="prose prose-sm max-w-none text-foreground">
-                {/* RawTextRenderer 已包含 prose 样式，条件渲染避免重复包装 */}
-                {isUserMessage && !isUserMessageMarkdownEnabled ? contentElement : <div>{contentElement}</div>}
-            </div>
-
-            <ImageAttachments attachments={message.attachment_list} />
-
-            <MessageActionButtons
-                messageType={message.message_type}
-                isUserMessage={isUserMessage}
-                copyIconState={copyIconState}
-                onCopy={handleCopy}
-                onEdit={onMessageEdit}
-                onRegenerate={onMessageRegenerate}
-            />
-        </div>
-    );
-});
+);
 
 // 自定义比较函数，只在关键属性变化时才重新渲染
 const areEqual = (prevProps: MessageItemProps, nextProps: MessageItemProps) => {
@@ -194,6 +186,6 @@ const areEqual = (prevProps: MessageItemProps, nextProps: MessageItemProps) => {
     return true;
 };
 
-MessageItem.displayName = 'MessageItem';
+MessageItem.displayName = "MessageItem";
 
 export default React.memo(MessageItem, areEqual);

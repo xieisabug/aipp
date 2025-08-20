@@ -4,10 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ShineBorder } from "@/components/magicui/shine-border";
-import { DEFAULT_SHINE_BORDER_CONFIG } from "@/lib/shine-config";
-import { invoke } from '@tauri-apps/api/core';
-import { MCPToolCall } from '@/data/MCPToolCall';
-import { MCPToolCallUpdateEvent } from '@/data/Conversation';
+import { DEFAULT_SHINE_BORDER_CONFIG } from "@/utils/shineConfig";
+import { invoke } from "@tauri-apps/api/core";
+import { MCPToolCall } from "@/data/MCPToolCall";
+import { MCPToolCallUpdateEvent } from "@/data/Conversation";
 
 interface McpToolCallProps {
     serverName?: string;
@@ -21,7 +21,11 @@ interface McpToolCallProps {
 
 type ExecutionState = "idle" | "pending" | "executing" | "success" | "failed";
 
-const JsonDisplay: React.FC<{ content: string; maxHeight?: string; className?: string }> = ({ content, maxHeight = "120px", className = "" }) => {
+const JsonDisplay: React.FC<{ content: string; maxHeight?: string; className?: string }> = ({
+    content,
+    maxHeight = "120px",
+    className = "",
+}) => {
     const formattedJson = useMemo(() => {
         try {
             const parsed = JSON.parse(content);
@@ -34,9 +38,7 @@ const JsonDisplay: React.FC<{ content: string; maxHeight?: string; className?: s
     return (
         <div className={`border rounded ${className}`} style={{ maxHeight: maxHeight }}>
             <ScrollArea>
-                <pre className="text-xs font-mono p-2 whitespace-pre-wrap break-words mt-0 mb-0">
-                    {formattedJson}
-                </pre>
+                <pre className="text-xs font-mono p-2 whitespace-pre-wrap break-words mt-0 mb-0">{formattedJson}</pre>
             </ScrollArea>
         </div>
     );
@@ -44,16 +46,41 @@ const JsonDisplay: React.FC<{ content: string; maxHeight?: string; className?: s
 
 const StatusIndicator: React.FC<{ state: ExecutionState }> = ({ state }) => {
     switch (state) {
-        case "idle": return null;
+        case "idle":
+            return null;
         case "pending":
-            return <Badge variant="secondary" className="flex items-center gap-1 ml-3"><Loader2 className="h-3 w-3 animate-spin" />等待中</Badge>;
+            return (
+                <Badge variant="secondary" className="flex items-center gap-1 ml-3">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    等待中
+                </Badge>
+            );
         case "executing":
-            return <Badge variant="secondary" className="flex items-center gap-1 ml-3"><Loader2 className="h-3 w-3 animate-spin" />执行中</Badge>;
+            return (
+                <Badge variant="secondary" className="flex items-center gap-1 ml-3">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    执行中
+                </Badge>
+            );
         case "success":
-            return <Badge variant="default" className="flex items-center gap-1 bg-green-100 text-green-800 border-green-200 ml-3"><CheckCircle className="h-3 w-3" />成功</Badge>;
+            return (
+                <Badge
+                    variant="default"
+                    className="flex items-center gap-1 bg-green-100 text-green-800 border-green-200 ml-3"
+                >
+                    <CheckCircle className="h-3 w-3" />
+                    成功
+                </Badge>
+            );
         case "failed":
-            return <Badge variant="destructive" className="flex items-center gap-1 ml-3"><XCircle className="h-3 w-3" />失败</Badge>;
-        default: return null;
+            return (
+                <Badge variant="destructive" className="flex items-center gap-1 ml-3">
+                    <XCircle className="h-3 w-3" />
+                    失败
+                </Badge>
+            );
+        default:
+            return null;
     }
 };
 
@@ -64,7 +91,7 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
     conversationId,
     messageId,
     callId,
-    mcpToolCallStates
+    mcpToolCallStates,
 }) => {
     const [executionState, setExecutionState] = useState<ExecutionState>("idle");
     const [executionResult, setExecutionResult] = useState<string | null>(null);
@@ -81,19 +108,19 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
 
             // 同步全局状态到本地状态
             switch (globalState.status) {
-                case 'pending':
-                    setExecutionState('pending');
+                case "pending":
+                    setExecutionState("pending");
                     break;
-                case 'executing':
-                    setExecutionState('executing');
+                case "executing":
+                    setExecutionState("executing");
                     break;
-                case 'success':
-                    setExecutionState('success');
+                case "success":
+                    setExecutionState("success");
                     setExecutionResult(globalState.result || null);
                     setExecutionError(null);
                     break;
-                case 'failed':
-                    setExecutionState('failed');
+                case "failed":
+                    setExecutionState("failed");
                     setExecutionError(globalState.error || null);
                     setExecutionResult(null);
                     break;
@@ -112,19 +139,19 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
         if (callId && executionState === "idle") {
             const fetchExistingResult = async () => {
                 try {
-                    const result = await invoke<MCPToolCall>('get_mcp_tool_call', {
-                        callId: callId
+                    const result = await invoke<MCPToolCall>("get_mcp_tool_call", {
+                        callId: callId,
                     });
 
-                    if (result.status === 'success' && result.result) {
+                    if (result.status === "success" && result.result) {
                         setExecutionResult(result.result);
                         setExecutionState("success");
-                    } else if (result.status === 'failed' && result.error) {
+                    } else if (result.status === "failed" && result.error) {
                         setExecutionError(result.error);
                         setExecutionState("failed");
                     }
                 } catch (error) {
-                    console.warn('Failed to fetch existing tool call result:', error);
+                    console.warn("Failed to fetch existing tool call result:", error);
                 }
             };
 
@@ -137,33 +164,34 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
         if (!callId && conversationId && messageId && executionState === "idle") {
             const findExistingToolCall = async () => {
                 try {
-                    const allCalls = await invoke<MCPToolCall[]>('get_mcp_tool_calls_by_conversation', {
-                        conversationId: conversationId
+                    const allCalls = await invoke<MCPToolCall[]>("get_mcp_tool_calls_by_conversation", {
+                        conversationId: conversationId,
                     });
 
                     // 查找匹配的工具调用（相同的消息ID、服务器名和工具名）
-                    const matchingCall = allCalls.find(call =>
-                        call.message_id === messageId &&
-                        call.server_name === serverName &&
-                        call.tool_name === toolName &&
-                        call.parameters === parameters
+                    const matchingCall = allCalls.find(
+                        (call) =>
+                            call.message_id === messageId &&
+                            call.server_name === serverName &&
+                            call.tool_name === toolName &&
+                            call.parameters === parameters
                     );
 
                     if (matchingCall) {
                         setToolCallId(matchingCall.id);
 
-                        if (matchingCall.status === 'success' && matchingCall.result) {
+                        if (matchingCall.status === "success" && matchingCall.result) {
                             setExecutionResult(matchingCall.result);
                             setExecutionState("success");
-                        } else if (matchingCall.status === 'failed' && matchingCall.error) {
+                        } else if (matchingCall.status === "failed" && matchingCall.error) {
                             setExecutionError(matchingCall.error);
                             setExecutionState("failed");
-                        } else if (matchingCall.status === 'executing') {
+                        } else if (matchingCall.status === "executing") {
                             setExecutionState("executing");
                         }
                     }
                 } catch (error) {
-                    console.warn('Failed to find existing tool call:', error);
+                    console.warn("Failed to find existing tool call:", error);
                 }
             };
 
@@ -175,7 +203,7 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
 
     const handleExecute = useCallback(async () => {
         if (!conversationId) {
-            console.error('conversation_id is required for execution');
+            console.error("conversation_id is required for execution");
             return;
         }
 
@@ -188,7 +216,7 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
 
             // Create tool call if it doesn't exist
             if (!currentCallId) {
-                const createdCall = await invoke<MCPToolCall>('create_mcp_tool_call', {
+                const createdCall = await invoke<MCPToolCall>("create_mcp_tool_call", {
                     conversationId: conversationId,
                     messageId: messageId,
                     serverName: serverName,
@@ -200,14 +228,14 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
             }
 
             // Execute the tool call
-            const result = await invoke<MCPToolCall>('execute_mcp_tool_call', {
-                callId: currentCallId
+            const result = await invoke<MCPToolCall>("execute_mcp_tool_call", {
+                callId: currentCallId,
             });
 
-            if (result.status === 'success' && result.result) {
+            if (result.status === "success" && result.result) {
                 setExecutionResult(result.result);
                 setExecutionState("success");
-            } else if (result.status === 'failed' && result.error) {
+            } else if (result.status === "failed" && result.error) {
                 setExecutionError(result.error);
                 setExecutionState("failed");
             }
@@ -225,9 +253,7 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
                     <span className="text-xs text-muted-foreground">结果:</span>
                     <div className="border rounded mt-1">
                         <ScrollArea className="h-72">
-                            <pre className="whitespace-pre-wrap break-words mt-0 mb-0">
-                                {executionResult}
-                            </pre>
+                            <pre className="whitespace-pre-wrap break-words mt-0 mb-0">{executionResult}</pre>
                         </ScrollArea>
                     </div>
                 </div>
@@ -238,10 +264,15 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
             return (
                 <div className="mt-2">
                     <span className="text-xs text-muted-foreground">错误:</span>
-                    <div className="border rounded mt-1" style={{ height: fixedHeight ? "200px" : "auto", maxHeight: fixedHeight ? "none" : "200px" }}>
+                    <div
+                        className="border rounded mt-1"
+                        style={{ height: fixedHeight ? "200px" : "auto", maxHeight: fixedHeight ? "none" : "200px" }}
+                    >
                         <ScrollArea className="h-full w-full">
                             <div className="text-xs font-mono bg-muted p-2">
-                                <div className="text-red-600 whitespace-pre-wrap break-words"><strong>错误:</strong> {executionError}</div>
+                                <div className="text-red-600 whitespace-pre-wrap break-words">
+                                    <strong>错误:</strong> {executionError}
+                                </div>
                             </div>
                         </ScrollArea>
                     </div>
@@ -307,7 +338,12 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
                     </div>
                     {canExecute && (
                         <div className="flex items-center gap-2">
-                            <Button onClick={handleExecute} disabled={isExecuting} size="sm" className="flex items-center gap-1 h-7 text-xs">
+                            <Button
+                                onClick={handleExecute}
+                                disabled={isExecuting}
+                                size="sm"
+                                className="flex items-center gap-1 h-7 text-xs"
+                            >
                                 {isExecuting ? (
                                     <Loader2 className="h-3 w-3 animate-spin" />
                                 ) : isFailed ? (
@@ -319,9 +355,7 @@ const McpToolCall: React.FC<McpToolCallProps> = ({
                             </Button>
                         </div>
                     )}
-                    <div className="max-w-full overflow-hidden">
-                        {renderResult()}
-                    </div>
+                    <div className="max-w-full overflow-hidden">{renderResult()}</div>
                 </div>
             )}
         </div>

@@ -186,3 +186,111 @@
     overflow-y: auto;
     z-index: 1000;
 }
+
+.artifact-completion-list {
+    position: absolute;
+    background-color: hsl(var(--background));
+    border: 1px solid hsl(var(--border));
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    max-height: 300px;
+    min-width: 280px;
+    max-width: 400px;
+    overflow-y: auto;
+    z-index: 1000;
+}
+
+.artifact-completion-hint {
+    padding: 8px 12px;
+    font-size: 11px;
+    color: hsl(var(--muted-foreground));
+    border-bottom: 1px solid hsl(var(--border));
+    background-color: hsl(var(--muted) / 0.3);
+    text-align: center;
+    font-weight: 500;
+}
+
+.completion-artifact-container {
+    padding: 12px;
+    cursor: pointer;
+    border-bottom: 1px solid hsl(var(--border));
+    transition: background-color 0.15s ease;
+}
+
+.completion-artifact-container:last-child {
+    border-bottom: none;
+}
+
+.completion-artifact-container.selected {
+    background-color: hsl(var(--muted));
+}
+
+.completion-artifact-container:hover {
+    background-color: hsl(var(--muted) / 0.8);
+}
+
+.artifact-completion-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.artifact-completion-icon {
+    font-size: 16px;
+    flex-shrink: 0;
+}
+
+.artifact-completion-name {
+    font-weight: 500;
+    font-size: 14px;
+    color: hsl(var(--foreground));
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.artifact-completion-type {
+    font-size: 10px;
+    font-weight: 600;
+    color: hsl(var(--muted-foreground));
+    background-color: hsl(var(--muted));
+    padding: 2px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+}
+
+.artifact-completion-description {
+    font-size: 12px;
+    color: hsl(var(--muted-foreground));
+    margin-bottom: 4px;
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.artifact-completion-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    color: hsl(var(--muted-foreground));
+}
+
+.artifact-completion-uses {
+    flex-shrink: 0;
+}
+
+.artifact-completion-tags {
+    max-width: 150px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: right;
+}

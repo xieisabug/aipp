@@ -8,6 +8,7 @@ use semver::Version;
 use system_db::SystemDatabase;
 use tauri::Manager;
 
+pub mod artifacts_db;
 pub mod assistant_db;
 pub mod conversation_db;
 pub mod llm_db;

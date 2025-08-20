@@ -1,12 +1,12 @@
 import React, { ReactNode, useEffect, useState } from "react";
-import LLMProviderConfig from "./components/config/LLMProviderConfig";
-import AssistantConfig from "./components/config/AssistantConfig";
-import FeatureAssistantConfig from "./components/config/FeatureAssistantConfig";
-import MCPConfig from "./components/config/MCPConfig";
+import LLMProviderConfig from "../components/config/LLMProviderConfig";
+import AssistantConfig from "../components/config/AssistantConfig";
+import FeatureAssistantConfig from "../components/config/FeatureAssistantConfig";
+import MCPConfig from "../components/config/MCPConfig";
 import { appDataDir } from "@tauri-apps/api/path";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { Blocks, Bot, ServerCrash, Settings } from "lucide-react";
-import { useTheme } from "./hooks/useTheme";
+import { useTheme } from "../hooks/useTheme";
 
 interface MenuItem {
     id: string;
@@ -32,9 +32,7 @@ function ConfigWindow() {
             id: "llm-provider-config",
             name: "大模型配置",
             icon: <ServerCrash className="w-full h-full text-muted-foreground" />,
-            iconSelected: (
-                <ServerCrash className="w-full h-full text-foreground" />
-            ),
+            iconSelected: <ServerCrash className="w-full h-full text-foreground" />,
         },
         {
             id: "assistant-config",
@@ -44,7 +42,7 @@ function ConfigWindow() {
         },
         {
             id: "mcp-config",
-            name: "MCP管理",
+            name: "MCP配置",
             icon: <Blocks className="w-full h-full text-muted-foreground" />,
             iconSelected: <Blocks className="w-full h-full text-foreground" />,
         },
@@ -52,15 +50,11 @@ function ConfigWindow() {
             id: "feature-assistant-config",
             name: "程序配置",
             icon: <Settings className="w-full h-full text-muted-foreground" />,
-            iconSelected: (
-                <Settings className="w-full h-full text-foreground" />
-            ),
+            iconSelected: <Settings className="w-full h-full text-foreground" />,
         },
     ];
 
-    const [selectedMenu, setSelectedMenu] = useState<string>(
-        "llm-provider-config",
-    );
+    const [selectedMenu, setSelectedMenu] = useState<string>("llm-provider-config");
     const [pluginList, setPluginList] = useState<any[]>([]);
 
     useEffect(() => {
@@ -76,8 +70,7 @@ function ConfigWindow() {
         const initPlugin = async () => {
             const dirPath = await appDataDir();
             pluginLoadList.forEach(async (plugin) => {
-                const convertFilePath =
-                    dirPath + "/plugin/" + plugin.code + "/dist/main.js";
+                const convertFilePath = dirPath + "/plugin/" + plugin.code + "/dist/main.js";
 
                 // 加载脚本
                 const script = document.createElement("script");
@@ -140,13 +133,9 @@ function ConfigWindow() {
                                 )}
                                 <div className="flex items-center">
                                     <div className="w-4 h-4 md:w-5 md:h-5 flex-shrink-0 mr-2 md:mr-3 lg:mr-3.5">
-                                        {selectedMenu === item.id
-                                            ? item.iconSelected
-                                            : item.icon}
+                                        {selectedMenu === item.id ? item.iconSelected : item.icon}
                                     </div>
-                                    <span className="truncate">
-                                        {item.name}
-                                    </span>
+                                    <span className="truncate">{item.name}</span>
                                 </div>
                             </div>
                         ))}
@@ -156,10 +145,7 @@ function ConfigWindow() {
                 {/* 内容区域 */}
                 <div className="bg-card px-4 md:px-6 lg:px-8 py-6 overflow-y-auto max-h-screen">
                     {/* 配置组件内容 */}
-                    <SelectedComponent
-                        pluginList={pluginList}
-                        navigateTo={navigateTo}
-                    />
+                    <SelectedComponent pluginList={pluginList} navigateTo={navigateTo} />
                 </div>
             </div>
         </div>

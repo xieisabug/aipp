@@ -57,7 +57,7 @@ export function getCaretCoordinates(element: HTMLTextAreaElement, position: numb
         height: span.offsetHeight,
         width: span.offsetWidth,
         cursorLeft: cursorSpan.offsetLeft,
-        cursorTop: cursorSpan.offsetTop
+        cursorTop: cursorSpan.offsetTop,
     };
     document.body.removeChild(div);
 

@@ -7,20 +7,13 @@
     },
     "bundle": {
         "active": true,
-        "targets": [
-            "msi",
-            "deb",
-            "rpm",
-            "dmg",
-            "app"
-        ],
-        "resources": [
-            "artifacts/templates/**/*"
-        ]
+        "targets": ["msi", "deb", "rpm", "dmg", "app"],
+        "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+        "resources": ["artifacts/templates/**/*"]
     },
     "productName": "Aipp",
     "mainBinaryName": "Aipp",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "identifier": "com.xieisabug.aipp",
     "plugins": {},
     "app": {
@@ -30,10 +23,7 @@
             "iconPath": "icons/favicon.ico"
         },
         "security": {
-            "dangerousDisableAssetCspModification": [
-                "style-src",
-                "img-src"
-            ],
+            "dangerousDisableAssetCspModification": ["style-src", "img-src"],
             "csp": {
                 "default-src": "'self'",
                 "frame-src": "'self' http://localhost:* https://localhost:*",
@@ -44,9 +34,7 @@
                 "script-src": "'self' 'unsafe-eval'"
             },
             "assetProtocol": {
-                "scope": [
-                    "**"
-                ],
+                "scope": ["**"],
                 "enable": true
             }
         }

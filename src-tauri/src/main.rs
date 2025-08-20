@@ -16,8 +16,18 @@ mod window;
 use crate::api::ai_api::{ask_ai, cancel_ai, regenerate_ai, regenerate_conversation_title, tool_result_continue_ask_ai};
 use crate::api::artifacts_api::{
     check_bun_version, check_uv_version, confirm_environment_install, install_bun, install_uv,
-    open_react_component_preview, preview_react_component, retry_preview_after_install,
+    preview_react_component, retry_preview_after_install,
     run_artifacts,
+};
+use crate::api::artifacts_collection_api::{
+    delete_artifact_collection, get_artifact_by_id, get_artifacts_collection,
+    get_artifacts_for_completion, get_artifacts_statistics, generate_artifact_metadata,
+    open_artifact_window, save_artifact_to_collection, search_artifacts_collection,
+    update_artifact_collection,
+};
+use crate::artifacts::{
+    react_runner::{run_react_artifact, close_react_artifact},
+    vue_runner::{run_vue_artifact, close_vue_artifact},
 };
 use crate::api::assistant_api::{
     add_assistant, copy_assistant, delete_assistant, get_assistant, get_assistant_field_value,
@@ -54,13 +64,15 @@ use crate::artifacts::react_preview::{
 use crate::artifacts::vue_preview::{
     close_vue_preview, create_vue_preview, create_vue_preview_for_artifact,
 };
+use crate::db::artifacts_db::ArtifactsDatabase;
 use crate::db::assistant_db::AssistantDatabase;
 use crate::db::llm_db::LLMDatabase;
 use crate::db::mcp_db::MCPDatabase;
 use crate::db::system_db::SystemDatabase;
 use crate::window::{
     awaken_aipp, create_ask_window, handle_open_ask_window, open_artifact_preview_window,
-    open_chat_ui_window, open_config_window, open_plugin_window, open_preview_frontend_window,
+    open_chat_ui_window, open_config_window, open_plugin_window,
+    open_artifact_collections_window,
 };
 use chrono::Local;
 use db::conversation_db::ConversationDatabase;
@@ -252,12 +264,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let conversation_db = ConversationDatabase::new(&app_handle)?;
             let plugin_db = PluginDatabase::new(&app_handle)?;
             let mcp_db = MCPDatabase::new(&app_handle)?;
+            let artifacts_db = ArtifactsDatabase::new(&app_handle)?;
+            
             system_db.create_tables()?;
             llm_db.create_tables()?;
             assistant_db.create_tables()?;
             conversation_db.create_tables()?;
             plugin_db.create_tables()?;
             mcp_db.create_tables()?;
+            artifacts_db.create_tables()?;
 
             let _ = database_upgrade(
                 &app_handle,
@@ -285,12 +300,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             tool_result_continue_ask_ai,
             regenerate_ai,
             regenerate_conversation_title,
+            generate_artifact_metadata,
             cancel_ai,
             get_selected,
             open_config_window,
             open_chat_ui_window,
             open_plugin_window,
-            open_preview_frontend_window,
             open_artifact_preview_window,
             save_config,
             get_config,
@@ -329,13 +344,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             update_conversation,
             update_message_content,
             run_artifacts,
+            save_artifact_to_collection,
+            get_artifacts_collection,
+            get_artifact_by_id,
+            search_artifacts_collection,
+            update_artifact_collection,
+            delete_artifact_collection,
+            open_artifact_window,
+            open_artifact_collections_window,
+            get_artifacts_statistics,
+            get_artifacts_for_completion,
             get_bang_list,
             get_selected_text_api,
             check_bun_version,
             check_uv_version,
             install_bun,
             install_uv,
-            open_react_component_preview,
             preview_react_component,
             create_react_preview,
             create_react_preview_for_artifact,
@@ -343,6 +367,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             create_vue_preview,
             create_vue_preview_for_artifact,
             close_vue_preview,
+            run_react_artifact,
+            close_react_artifact,
+            run_vue_artifact,
+            close_vue_artifact,
             confirm_environment_install,
             retry_preview_after_install,
             get_mcp_servers,
