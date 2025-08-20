@@ -36,23 +36,13 @@ function ChatUIInfomation() {
     };
 
     return (
-        <div className="flex justify-between py-4 px-5 border-border">
-            <div className="flex items-center gap-2">
-                <AnimatedLogo
-                    state={logoState}
-                    size={32}
-                    onClick={showNormal}
-                />
+        <div className="flex justify-between py-4 px-5 border-border bg-secondary ">
+            <div className="flex items-center gap-2 bg-secondary">
+                <AnimatedLogo state={logoState} size={32} onClick={showNormal} />
             </div>
             <div className="flex items-center gap-2">
-                <IconButton
-                    icon={<Setting className="fill-foreground" />}
-                    onClick={openConfig}
-                />
-                <IconButton
-                    icon={<Experiment className="fill-foreground" />}
-                    onClick={openArtifactsCollections}
-                />
+                <IconButton icon={<Setting className="fill-foreground" />} onClick={openConfig} />
+                <IconButton icon={<Experiment className="fill-foreground" />} onClick={openArtifactsCollections} />
             </div>
         </div>
     );

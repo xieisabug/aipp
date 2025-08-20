@@ -90,7 +90,7 @@ function ChatUIWindow() {
 
     return (
         <div className="flex h-screen bg-background">
-            <div className="flex-none w-[280px] flex flex-col shadow-lg box-border rounded-r-xl my-2 mr-2">
+            <div className="flex-none w-[280px] flex flex-col shadow-lg box-border rounded-r-xl mb-2 mr-2">
                 <ChatUIInfomation />
                 <ChatUIToolbar onNewConversation={() => setSelectedConversation("")} />
                 <ConversationList
