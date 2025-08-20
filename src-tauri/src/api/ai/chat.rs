@@ -13,8 +13,48 @@ use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
+use tauri_plugin_notification::NotificationExt;
 use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
+
+/// 发送消息完成通知
+async fn send_completion_notification(
+    app_handle: &tauri::AppHandle,
+    content: &str,
+    assistant_name: Option<String>,
+    config_feature_map: &HashMap<String, HashMap<String, FeatureConfig>>,
+) {
+    // 检查通知是否启用
+    if let Some(display_config) = config_feature_map.get("display") {
+        if let Some(FeatureConfig { value, .. }) = display_config.get("notification_on_completion") {
+            if value == "true" {
+                // 准备通知内容
+                let title = if let Some(name) = assistant_name {
+                    format!("AI 消息完成 - {}", name)
+                } else {
+                    "AI 消息完成".to_string()
+                };
+
+                let body = if content.len() > 100 {
+                    format!("{}...", &content[..97])
+                } else {
+                    content.to_string()
+                };
+
+                // 发送系统通知
+                if let Err(e) = app_handle
+                    .notification()
+                    .builder()
+                    .title(&title)
+                    .body(&body)
+                    .show()
+                {
+                    eprintln!("[[failed_to_send_notification]]: {}", e);
+                }
+            }
+        }
+    }
+}
 
 /// 助手提及信息
 #[derive(Debug, Clone)]
@@ -1251,6 +1291,32 @@ async fn attempt_stream_chat(
                                     });
                                 }
 
+                                // 获取助手名称并发送完成通知
+                                let assistant_name = if let Ok(Some(conv)) = conversation_db
+                                    .conversation_repo()
+                                    .unwrap()
+                                    .read(conversation_id)
+                                {
+                                    if let Some(assistant_id) = conv.assistant_id {
+                                        if let Ok(assistant) = crate::api::assistant_api::get_assistant(app_handle.clone(), assistant_id) {
+                                            Some(assistant.assistant.name.clone())
+                                        } else {
+                                            None
+                                        }
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                };
+
+                                send_completion_notification(
+                                    app_handle,
+                                    &response_content,
+                                    assistant_name,
+                                    &config_feature_map,
+                                ).await;
+
                                 return Ok(());
                             }
                         }
@@ -1676,6 +1742,32 @@ pub async fn handle_non_stream_chat(
                     }
                 });
             }
+
+            // 获取助手名称并发送完成通知
+            let assistant_name = if let Ok(Some(conv)) = conversation_db
+                .conversation_repo()
+                .unwrap()
+                .read(conversation_id)
+            {
+                if let Some(assistant_id) = conv.assistant_id {
+                    if let Ok(assistant) = crate::api::assistant_api::get_assistant(app_handle.clone(), assistant_id) {
+                        Some(assistant.assistant.name.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            send_completion_notification(
+                app_handle,
+                &content,
+                assistant_name,
+                &config_feature_map,
+            ).await;
 
             Ok(())
         }

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
+import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 import ConfigForm from "../ConfigForm";
 import { MessageSquare, Eye, FolderOpen, Settings, Wifi, Monitor } from "lucide-react";
 import { toast } from "sonner";
@@ -181,6 +182,14 @@ const FeatureAssistantConfig: React.FC = () => {
                 },
             },
             {
+                key: "notification_on_completion",
+                config: {
+                    type: "checkbox" as const,
+                    label: "消息完成时发送系统通知",
+                    tooltip: "AI消息生成完成时发送系统通知提醒",
+                },
+            },
+            {
                 key: "code_theme_light",
                 config: {
                     type: "select" as const,
@@ -203,6 +212,36 @@ const FeatureAssistantConfig: React.FC = () => {
     const handleSaveDisplayConfig = useCallback(async () => {
         const values = displayFormReturnData.getValues();
 
+        // 如果用户开启了通知，需要检查和申请权限
+        if (values.notification_on_completion) {
+            try {
+                let permissionGranted = await isPermissionGranted();
+                
+                if (!permissionGranted) {
+                    const permission = await requestPermission();
+                    permissionGranted = permission === 'granted';
+                }
+
+                if (!permissionGranted) {
+                    toast.error("通知权限未获取，无法开启系统通知功能");
+                    // 重置开关状态
+                    displayFormReturnData.setValue("notification_on_completion", false);
+                    return;
+                }
+
+                // 权限获取成功，发送测试通知
+                await sendNotification({
+                    title: "AIPP - 系统通知已开启",
+                    body: "AI 消息完成时将发送系统通知",
+                });
+                toast.success("通知权限获取成功，已发送测试通知");
+            } catch (e) {
+                toast.error("获取通知权限时发生错误: " + e);
+                displayFormReturnData.setValue("notification_on_completion", false);
+                return;
+            }
+        }
+
         try {
             await invoke("save_feature_config", {
                 featureCode: "display",
@@ -210,6 +249,7 @@ const FeatureAssistantConfig: React.FC = () => {
                     theme: values.theme,
                     color_mode: values.color_mode,
                     user_message_markdown_render: values.user_message_markdown_render,
+                    notification_on_completion: values.notification_on_completion.toString(),
                     code_theme_light: values.code_theme_light,
                     code_theme_dark: values.code_theme_dark,
                 },
@@ -311,6 +351,7 @@ const FeatureAssistantConfig: React.FC = () => {
         theme: string;
         color_mode: string;
         user_message_markdown_render: string;
+        notification_on_completion: boolean;
         code_theme_light: string;
         code_theme_dark: string;
     }>({
@@ -319,6 +360,7 @@ const FeatureAssistantConfig: React.FC = () => {
             color_mode: featureConfig.get("display")?.get("color_mode") || "system",
             user_message_markdown_render:
                 featureConfig.get("display")?.get("user_message_markdown_render") || "disabled",
+            notification_on_completion: featureConfig.get("display")?.get("notification_on_completion") === "true",
             code_theme_light: featureConfig.get("display")?.get("code_theme_light") || "github",
             code_theme_dark: featureConfig.get("display")?.get("code_theme_dark") || "github-dark",
         },
@@ -598,6 +640,10 @@ const FeatureAssistantConfig: React.FC = () => {
                 displayFormReturnData.setValue(
                     "user_message_markdown_render",
                     displayConfig.get("user_message_markdown_render") || "disabled"
+                );
+                displayFormReturnData.setValue(
+                    "notification_on_completion",
+                    displayConfig.get("notification_on_completion") === "true"
                 );
                 displayFormReturnData.setValue("code_theme_light", displayConfig.get("code_theme_light") || "github");
                 displayFormReturnData.setValue(
