@@ -232,27 +232,37 @@ const ConversationUI = forwardRef<ConversationUIRef, ConversationUIProps>(({
         [conversation?.id],
     );
 
+    // 滚动管理 - 移除依赖项，改为手动调用
+    const {
+        messagesEndRef,
+        scrollContainerRef,
+        handleScroll,
+        smartScroll,
+    } = useScrollManagement();
+
     // 使用 useMemo 稳定 options 对象，避免频繁触发 useConversationEvents 内部的 useEffect
     const conversationEventsOptions = useMemo(() => {
         const handleMessageUpdate = (streamEvent: StreamEvent) => {
-            // 处理插件兼容性
-            const streamMessageListener = functionMap.get(
-                streamEvent.message_id,
-            )?.onStreamMessageListener;
-            if (streamMessageListener) {
-                streamMessageListener(
-                    streamEvent.content,
-                    { conversation_id: +conversationId, request_prompt_result_with_context: "" },
-                    setAiIsResponsing,
-                );
-            }
+            // 处理插件兼容性 - 现在从 ref 中获取最新的 functionMap
+            // 这里需要从 useConversationEvents 内部处理，所以暂时移除
+            // const streamMessageListener = functionMap.get(
+            //     streamEvent.message_id,
+            // )?.onStreamMessageListener;
+            // if (streamMessageListener) {
+            //     streamMessageListener(
+            //         streamEvent.content,
+            //         { conversation_id: +conversationId, request_prompt_result_with_context: "" },
+            //         setAiIsResponsing,
+            //     );
+            // }
 
             if (streamEvent.is_done) {
                 // 在清理streamingMessages之前，先将消息添加到messages状态
                 handleMessageCompletion(streamEvent);
             }
 
-            smartScroll();
+            // 每次消息更新时手动触发滚动
+            setTimeout(() => smartScroll(), 0);
         };
 
         return {
@@ -271,8 +281,9 @@ const ConversationUI = forwardRef<ConversationUIRef, ConversationUIProps>(({
         handleMCPToolCallUpdate,
         handleAiResponseComplete,
         handleError,
-        functionMap,
         handleMessageCompletion,
+        smartScroll,
+        // 移除 functionMap 依赖，改为在回调内部访问
     ]);
 
     // 使用共享的消息事件处理 hook
@@ -282,37 +293,36 @@ const ConversationUI = forwardRef<ConversationUIRef, ConversationUIProps>(({
         setShiningMessageIds,
         mcpToolCallStates,
         updateShiningMessages,
+        updateFunctionMap,
     } = useConversationEvents(conversationEventsOptions);
 
-    // 滚动管理 - 需要在定义后再使用
-    const {
-        messagesEndRef,
-        scrollContainerRef,
-        handleScroll,
-        smartScroll,
-    } = useScrollManagement([messages, streamingMessages]);
+    // 当 functionMap 变化时更新事件处理器
+    useEffect(() => {
+        updateFunctionMap(functionMap);
+    }, [functionMap, updateFunctionMap]);
 
     // 消息处理 - 首先需要获取 groupMergeMap
     const [groupMergeMap, setGroupMergeMap] = useState<Map<string, string>>(
         new Map(),
     );
 
-    // 使用自定义钩子获取所有分组相关的数据和逻辑  
-    const messageGroupsData = useMessageGroups({ 
-        allDisplayMessages: messages, // 先用 messages，后面会更新
-        groupMergeMap 
-    });
-
-    // 消息处理
+    // 第一步：消息处理 - 获取合并的消息用于分组
     const {
+        combinedMessagesForGrouping,
         allDisplayMessages,
     } = useMessageProcessing({
         messages,
         streamingMessages,
         conversation,
-        generationGroups: messageGroupsData.generationGroups,
-        groupRootMessageIds: messageGroupsData.groupRootMessageIds,
-        getMessageVersionInfo: messageGroupsData.getMessageVersionInfo,
+        generationGroups: new Map(), // 初始为空，后续会更新
+        groupRootMessageIds: new Map(), // 初始为空，后续会更新
+        getMessageVersionInfo: () => ({ shouldShow: true }), // 默认显示所有消息
+    });
+
+    // 第二步：使用合并后的消息进行分组计算
+    const messageGroupsData = useMessageGroups({ 
+        allDisplayMessages: combinedMessagesForGrouping,
+        groupMergeMap 
     });
 
     // 助手运行时API
@@ -396,6 +406,9 @@ const ConversationUI = forwardRef<ConversationUIRef, ConversationUIProps>(({
             return;
         }
 
+        // 防止重复请求
+        const currentLoadingRef = { cancelled: false };
+        
         // 加载指定对话的消息和信息
         setIsLoadingShow(true);
         setGroupMergeMap(new Map()); // 切换对话时清理组合并状态
@@ -405,17 +418,32 @@ const ConversationUI = forwardRef<ConversationUIRef, ConversationUIProps>(({
         invoke<ConversationWithMessages>("get_conversation_with_messages", {
             conversationId: +conversationId,
         }).then((res: ConversationWithMessages) => {
+            // 检查请求是否已被取消
+            if (currentLoadingRef.cancelled) {
+                return;
+            }
+            
             setMessages(res.messages);
             setConversation(res.conversation);
             setIsLoadingShow(false); // 这里会触发 useLayoutEffect 中的聚焦
 
             if (res.messages.length === 2) {
                 if (res.messages[0].message_type === "system" && res.messages[1].message_type === "user") {
-                    setShiningMessageIds(new Set([...shiningMessageIds, res.messages[1].id]));
+                    setShiningMessageIds(prev => new Set([...prev, res.messages[1].id]));
                 }
             }
+        }).catch((error) => {
+            if (!currentLoadingRef.cancelled) {
+                console.error("Failed to load conversation:", error);
+                setIsLoadingShow(false);
+            }
         });
-    }, [conversationId, setGroupMergeMap, setShiningMessageIds, shiningMessageIds]);
+
+        // 清理函数，防止组件卸载时的状态更新
+        return () => {
+            currentLoadingRef.cancelled = true;
+        };
+    }, [conversationId]);
 
     // 监听对话标题变化
     useEffect(() => {

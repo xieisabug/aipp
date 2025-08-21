@@ -92,14 +92,21 @@ export function useMessageProcessing({
                 return false;
             }
             
-            // 检查版本可见性
-            const versionInfo = getMessageVersionInfo(message);
-            if (versionInfo && !versionInfo.shouldShow) {
-                return false;
+            // 如果有版本信息检查函数，则检查版本可见性
+            if (getMessageVersionInfo) {
+                const versionInfo = getMessageVersionInfo(message);
+                if (versionInfo && !versionInfo.shouldShow) {
+                    return false;
+                }
             }
             
             return true;
         });
+
+        // 如果没有分组信息，直接按ID排序返回
+        if (generationGroups.size === 0) {
+            return visibleMessages.sort((a, b) => a.id - b.id);
+        }
 
         // 创建消息到根组的映射，包括子分组的消息
         const messageToRootGroupMap = new Map<number, string>();

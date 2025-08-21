@@ -7,9 +7,7 @@ export interface UseScrollManagementReturn {
     smartScroll: () => void;
 }
 
-export function useScrollManagement(
-    dependencies: any[] = [] // 触发智能滚动的依赖项
-): UseScrollManagementReturn {
+export function useScrollManagement(): UseScrollManagementReturn {
     // 滚动相关状态和逻辑
     const messagesEndRef = useRef<HTMLDivElement | null>(null);
     const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -78,18 +76,15 @@ export function useScrollManagement(
         }
     }, []); // 依赖项为空，函数是稳定的
 
-    // 当依赖项变化时自动滚动到底部
+    // 组件卸载时清理资源
     useEffect(() => {
-        smartScroll();
-
-        // 返回一个清理函数，在组件卸载或依赖变化时，清理最后的观察器
         return () => {
             if (resizeObserverRef.current) {
                 resizeObserverRef.current.disconnect();
                 resizeObserverRef.current = null;
             }
         };
-    }, dependencies); // 使用传入的依赖项
+    }, []); // 只在组件卸载时清理
 
     return {
         messagesEndRef,

@@ -89,8 +89,8 @@ export function useConversationOperations({
             // 设置AI响应状态
             setAiIsResponsing(true);
 
-            // 设置被点击的消息显示shine-border
-            setShiningMessageIds(new Set([regenerateMessageId]));
+            // 使用函数式更新设置被点击的消息显示shine-border
+            setShiningMessageIds(() => new Set([regenerateMessageId]));
 
             invoke<AiResponse>("regenerate_ai", {
                 messageId: regenerateMessageId,
@@ -108,7 +108,7 @@ export function useConversationOperations({
                     // 错误信息将在对话框中显示
                 });
         },
-        [setAiIsResponsing, setShiningMessageIds, updateShiningMessages],
+        [setAiIsResponsing, updateShiningMessages],
     );
 
     // 消息编辑相关处理函数
