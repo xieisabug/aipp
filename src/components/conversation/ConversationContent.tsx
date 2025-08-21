@@ -19,6 +19,7 @@ export interface ConversationContentProps {
     onCodeRun: (lang: string, inputStr: string) => void;
     onMessageRegenerate: (messageId: number) => void;
     onMessageEdit: (message: Message) => void;
+    onMessageFork: (messageId: number) => void;
     onToggleReasoningExpand: (messageId: number) => void;
     // NewChatComponent props
     selectedText: string;
@@ -42,6 +43,7 @@ const ConversationContent: React.FC<ConversationContentProps> = ({
     onCodeRun,
     onMessageRegenerate,
     onMessageEdit,
+    onMessageFork,
     onToggleReasoningExpand,
     // NewChatComponent props
     selectedText,
@@ -64,6 +66,7 @@ const ConversationContent: React.FC<ConversationContentProps> = ({
                 onCodeRun={onCodeRun}
                 onMessageRegenerate={onMessageRegenerate}
                 onMessageEdit={onMessageEdit}
+                onMessageFork={onMessageFork}
                 onToggleReasoningExpand={onToggleReasoningExpand}
             />
         );

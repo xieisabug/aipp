@@ -16,6 +16,7 @@ export interface MessageListProps {
     onCodeRun: (lang: string, inputStr: string) => void;
     onMessageRegenerate: (messageId: number) => void;
     onMessageEdit: (message: Message) => void;
+    onMessageFork: (messageId: number) => void;
     onToggleReasoningExpand: (messageId: number) => void;
 }
 
@@ -35,6 +36,7 @@ const MessageList: React.FC<MessageListProps> = ({
     onCodeRun,
     onMessageRegenerate,
     onMessageEdit,
+    onMessageFork,
     onToggleReasoningExpand,
 }) => {
     // 将消息渲染逻辑拆分为更小的部分
@@ -59,6 +61,7 @@ const MessageList: React.FC<MessageListProps> = ({
                         onCodeRun={onCodeRun}
                         onMessageRegenerate={() => onMessageRegenerate(message.id)}
                         onMessageEdit={() => onMessageEdit(message)}
+                        onMessageFork={() => onMessageFork(message.id)}
                         // Reasoning 展开状态相关 props
                         isReasoningExpanded={
                             reasoningExpandStates.get(message.id) || false

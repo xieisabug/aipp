@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { throttle } from "lodash";
 import { Message, Conversation, FileInfo } from "../data/Conversation";
 import { AssistantListItem } from "../data/Assistant";
+import useConversationManager from "./useConversationManager";
 
 // 从 plugin.d.ts 导入的接口类型
 interface AiResponse {
@@ -36,6 +37,7 @@ export interface UseConversationOperationsReturn {
     // 消息操作
     handleMessageRegenerate: (regenerateMessageId: number) => void;
     handleMessageEdit: (message: Message) => void;
+    handleMessageFork: (messageId: number) => void;
     handleEditSave: (content: string) => void;
     handleEditSaveAndRegenerate: (content: string) => void;
     handleSend: () => void;
@@ -109,6 +111,28 @@ export function useConversationOperations({
                 });
         },
         [setAiIsResponsing, updateShiningMessages],
+    );
+
+    // 消息分支处理函数
+    const { forkConversation } = useConversationManager();
+    const handleMessageFork = useCallback(
+        async (messageId: number) => {
+            if (!conversation?.id) {
+                toast.error("无法分支对话：当前对话不存在");
+                return;
+            }
+
+            try {
+                const newConversationId = await forkConversation(conversation.id, messageId);
+                toast.success("对话分支创建成功");
+                // 导航到新对话
+                onChangeConversationId(newConversationId.toString());
+            } catch (error) {
+                console.error("Fork conversation error:", error);
+                toast.error("创建对话分支失败: " + error);
+            }
+        },
+        [conversation?.id, forkConversation, onChangeConversationId]
     );
 
     // 消息编辑相关处理函数
@@ -273,6 +297,7 @@ export function useConversationOperations({
         // 消息操作
         handleMessageRegenerate,
         handleMessageEdit,
+        handleMessageFork,
         handleEditSave,
         handleEditSaveAndRegenerate,
         handleSend,

@@ -343,6 +343,7 @@ const ConversationUI = forwardRef<ConversationUIRef, ConversationUIProps>(({
         handleDeleteConversationSuccess,
         handleMessageRegenerate,
         handleMessageEdit,
+        handleMessageFork,
         handleEditSave,
         handleEditSaveAndRegenerate,
         handleSend,
@@ -529,6 +530,7 @@ const ConversationUI = forwardRef<ConversationUIRef, ConversationUIProps>(({
                     onCodeRun={handleArtifact}
                     onMessageRegenerate={handleMessageRegenerate}
                     onMessageEdit={handleMessageEdit}
+                    onMessageFork={handleMessageFork}
                     onToggleReasoningExpand={toggleReasoningExpand}
                     // NewChatComponent props
                     selectedText={selectedText}

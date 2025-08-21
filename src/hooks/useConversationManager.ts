@@ -41,9 +41,17 @@ function useConversationManager() {
     return invoke<Array<Conversation>>("list_conversations", { page, pageSize });
   }, []);
 
+  const forkConversation = useCallback(async (
+    conversationId: number,
+    messageId: number
+  ): Promise<number> => {
+    return invoke<number>("fork_conversation", { conversationId, messageId });
+  }, []);
+
   return {
     deleteConversation,
-    listConversations
+    listConversations,
+    forkConversation
   };
 }
 

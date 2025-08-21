@@ -21,6 +21,7 @@ interface MessageItemProps {
     onCodeRun?: (lang: string, code: string) => void;
     onMessageRegenerate?: () => void;
     onMessageEdit?: () => void;
+    onMessageFork?: () => void;
     isReasoningExpanded?: boolean;
     onToggleReasoningExpand?: () => void;
     shouldShowShineBorder?: boolean;
@@ -35,6 +36,7 @@ const MessageItem = React.memo<MessageItemProps>(
         onCodeRun,
         onMessageRegenerate,
         onMessageEdit,
+        onMessageFork,
         isReasoningExpanded = false,
         onToggleReasoningExpand,
         shouldShowShineBorder = false,
@@ -147,6 +149,7 @@ const MessageItem = React.memo<MessageItemProps>(
                     onCopy={handleCopy}
                     onEdit={onMessageEdit}
                     onRegenerate={onMessageRegenerate}
+                    onFork={onMessageFork}
                 />
             </div>
         );
