@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import React, {
+import {
     useCallback,
     useEffect,
     useMemo,
@@ -9,11 +9,9 @@ import React, {
     useImperativeHandle,
     useLayoutEffect,
 } from "react";
-import { toast } from "sonner";
 
 import {
     Conversation,
-    FileInfo,
     Message,
     StreamEvent,
     ConversationWithMessages,
@@ -22,12 +20,7 @@ import {
 } from "../data/Conversation";
 import "katex/dist/katex.min.css";
 import { listen } from "@tauri-apps/api/event";
-import { throttle } from "lodash";
-import NewChatComponent from "./NewChatComponent";
 import FileDropArea from "./FileDropArea";
-import MessageItem from "./MessageItem";
-import VersionPagination from "./VersionPagination";
-import ConversationTitle from "./conversation/ConversationTitle";
 import useFileDropHandler from "../hooks/useFileDropHandler";
 import InputArea, { InputAreaRef } from "./conversation/InputArea";
 import MessageEditDialog from "./MessageEditDialog";
@@ -37,6 +30,19 @@ import useFileManagement from "@/hooks/useFileManagement";
 import { useConversationEvents } from "@/hooks/useConversationEvents";
 import { useAssistantListListener } from "@/hooks/useAssistantListListener";
 import { AssistantListItem } from "@/data/Assistant";
+
+// 导入新创建的 hooks
+import { usePluginManagement } from "@/hooks/usePluginManagement";
+import { useScrollManagement } from "@/hooks/useScrollManagement";
+import { useTextSelection } from "@/hooks/useTextSelection";
+import { useAssistantRuntime } from "@/hooks/useAssistantRuntime";
+import { useMessageProcessing } from "@/hooks/useMessageProcessing";
+import { useReasoningExpand } from "@/hooks/useReasoningExpand";
+import { useConversationOperations } from "@/hooks/useConversationOperations";
+
+// 导入新创建的组件
+import ConversationHeader from "./conversation/ConversationHeader";
+import ConversationContent from "./conversation/ConversationContent";
 
 // 暴露给外部的方法接口
 export interface ConversationUIRef {
@@ -49,67 +55,13 @@ interface ConversationUIProps {
     pluginList: any[];
 }
 
-// 用于存储AskAssistantApi中对应的处理函数
-interface AskAssistantApiFunctions {
-    onCustomUserMessage?: (
-        question: string,
-        assistantId: string,
-        conversationId?: string,
-    ) => any;
-    onCustomUserMessageComing?: (aiResponse: AiResponse) => void;
-    onStreamMessageListener?: (
-        payload: string,
-        aiResponse: AiResponse,
-        responseIsResponsingFunction: (isFinish: boolean) => void,
-    ) => void;
-}
-
 const ConversationUI = forwardRef<ConversationUIRef, ConversationUIProps>(({
     conversationId,
     onChangeConversationId,
     pluginList,
 }, ref) => {
-    // ============= 插件管理相关状态和逻辑 =============
-
-    // 助手类型插件映射表，key为助手类型，value为插件实例
-    const [assistantTypePluginMap, setAssistantTypePluginMap] = useState<
-        Map<number, TeaAssistantTypePlugin>
-    >(new Map());
-
-    // 插件函数映射表，用于存储每个消息对应的处理函数
-    const [functionMap, setFunctionMap] = useState<
-        Map<number, AskAssistantApiFunctions>
-    >(new Map());
-
-    // 助手类型API接口，提供给插件使用
-    const assistantTypeApi: AssistantTypeApi = {
-        typeRegist: (
-            code: number,
-            _: string,
-            pluginInstance: TeaAssistantTypePlugin & TeaPlugin,
-        ) => {
-            setAssistantTypePluginMap((prev) => {
-                const newMap = new Map(prev);
-                newMap.set(code, pluginInstance);
-                return newMap;
-            });
-        },
-        markdownRemarkRegist: (_: any) => { },
-        changeFieldLabel: (_: string, __: string) => { },
-        addField: (
-            _: string,
-            __: string,
-            ___: string,
-            ____?: FieldConfig,
-        ) => { },
-        addFieldTips: (_: string, __: string) => { },
-        hideField: (_: string) => { },
-        runLogic: (_: (assistantRunApi: AssistantRunApi) => void) => { },
-        forceFieldValue: (_: string, __: string) => { },
-    };
-
-    // ============= 对话管理相关状态和逻辑 =============
-
+    // ============= 基础状态管理 =============
+    
     // 当前对话信息和助手列表
     const [conversation, setConversation] = useState<Conversation>();
     const [assistants, setAssistants] = useState<AssistantListItem[]>([]);
@@ -118,26 +70,49 @@ const ConversationUI = forwardRef<ConversationUIRef, ConversationUIProps>(({
     // 对话加载状态
     const [isLoadingShow, setIsLoadingShow] = useState(false);
 
-    // ============= 消息管理和流式处理相关状态 =============
-
     // 常规消息列表
     const [messages, setMessages] = useState<Array<Message>>([]);
 
     // AI响应状态管理
     const [aiIsResponsing, setAiIsResponsing] = useState<boolean>(false);
 
-    // 使用 useCallback 确保回调函数稳定
+    // 输入相关状态
+    const [inputText, setInputText] = useState("");
+    const inputAreaRef = useRef<InputAreaRef>(null);
+
+    // ============= 使用新创建的 hooks =============
+
+    // 插件管理
+    const {
+        assistantTypePluginMap,
+        functionMap,
+        setFunctionMapForMessage,
+    } = usePluginManagement(pluginList);
+
+    // 文本选择
+    const { selectedText } = useTextSelection();
+
+    // 文件管理
+    const {
+        fileInfoList,
+        clearFileInfoList,
+        handleChooseFile,
+        handleDeleteFile,
+        handlePaste,
+    } = useFileManagement();
+
+    // 文件拖拽
+    const { isDragging, setIsDragging, dropRef } =
+        useFileDropHandler(handleChooseFile);
+
+    // Reasoning 展开状态
+    const { reasoningExpandStates, toggleReasoningExpand } = useReasoningExpand();
+
+    // ============= 事件处理逻辑 =============
+
     const handleMessageAdd = useCallback((messageAddData: any) => {
         // 设置函数映射
-        setFunctionMap((prev) => {
-            const newMap = new Map(prev);
-            newMap.set(messageAddData.message_id, {
-                onCustomUserMessage: undefined,
-                onCustomUserMessageComing: undefined,
-                onStreamMessageListener: undefined,
-            });
-            return newMap;
-        });
+        setFunctionMapForMessage(messageAddData.message_id);
 
         // 重新获取对话消息，以确保获得完整的消息数据（包括generation_group_id等）
         invoke<ConversationWithMessages>(
@@ -176,9 +151,7 @@ const ConversationUI = forwardRef<ConversationUIRef, ConversationUIProps>(({
                     newMessage,
                 ]);
             });
-    }, [conversationId]);
-
-    // handleMessageUpdate 将在其依赖的函数之后定义
+    }, [conversationId, setFunctionMapForMessage]);
 
     const handleGroupMerge = useCallback((groupMergeData: GroupMergeEvent) => {
         // 设置组合并关系
@@ -203,594 +176,12 @@ const ConversationUI = forwardRef<ConversationUIRef, ConversationUIProps>(({
         // 不再显示toast，错误信息将在对话框中显示
     }, []);
 
-    // handleMessageUpdate 将在后面定义，这里先声明一个空的引用
-    let handleMessageUpdateRef: ((streamEvent: StreamEvent) => void) | undefined;
-
-    // 添加MCP工具调用状态更新的处理函数
     const handleMCPToolCallUpdate = useCallback((mcpUpdateData: MCPToolCallUpdateEvent) => {
         console.log("ConversationUI received MCP update:", mcpUpdateData);
         // MCP状态更新已经在useConversationEvents中处理，这里可以添加额外的逻辑
     }, []);
 
-    // 使用 useMemo 稳定 options 对象，避免频繁触发 useConversationEvents 内部的 useEffect
-    const conversationEventsOptions = useMemo(
-        () => ({
-            conversationId: conversationId,
-            onMessageAdd: handleMessageAdd,
-            onMessageUpdate: (streamEvent: StreamEvent) => handleMessageUpdateRef?.(streamEvent),
-            onGroupMerge: handleGroupMerge,
-            onMCPToolCallUpdate: handleMCPToolCallUpdate,
-            onAiResponseComplete: handleAiResponseComplete,
-            onError: handleError,
-        }),
-        [conversationId, handleMessageAdd, handleGroupMerge, handleMCPToolCallUpdate, handleAiResponseComplete, handleError]
-    );
-
-    // 使用共享的消息事件处理 hook
-    const {
-        streamingMessages,
-        shiningMessageIds,
-        setShiningMessageIds,
-        mcpToolCallStates,
-        updateShiningMessages,
-    } = useConversationEvents(conversationEventsOptions);
-
-    // ============= UI 状态管理和交互相关逻辑 =============
-
-    // 滚动相关状态和逻辑
-    const messagesEndRef = useRef<HTMLDivElement | null>(null);
-    const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-    const isUserScrolledUpRef = useRef(false); // 使用 Ref 来跟踪滚动状态，避免闭包问题
-    const isAutoScrolling = useRef(false);
-    const resizeObserverRef = useRef<ResizeObserver | null>(null);
-
-    // 处理用户滚动事件
-    const handleScroll = useCallback(() => {
-        // 如果是程序触发的自动滚动，则忽略此次事件
-        if (isAutoScrolling.current) {
-            return;
-        }
-
-        const container = scrollContainerRef.current;
-        if (container) {
-            const { scrollTop, scrollHeight, clientHeight } = container;
-            // 判断是否滚动到了底部，留出 10px 的容差
-            const atBottom = scrollHeight - scrollTop - clientHeight < 10;
-
-            // 直接更新 Ref 的值
-            isUserScrolledUpRef.current = !atBottom;
-        }
-    }, []); // 依赖项为空，函数是稳定的
-
-    // 智能滚动函数
-    const smartScroll = useCallback(() => {
-        // 从 Ref 读取状态，这总是最新的值
-        if (isUserScrolledUpRef.current) {
-            return;
-        }
-
-        const container = scrollContainerRef.current;
-        if (!container) return;
-
-        // 清理之前的观察器
-        if (resizeObserverRef.current) {
-            resizeObserverRef.current.disconnect();
-        }
-
-        resizeObserverRef.current = new ResizeObserver(() => {
-            // 再次从 Ref 检查，确保万无一失
-            if (isUserScrolledUpRef.current || !scrollContainerRef.current) {
-                if (resizeObserverRef.current) {
-                    resizeObserverRef.current.disconnect();
-                }
-                return;
-            }
-
-            isAutoScrolling.current = true;
-            scrollContainerRef.current.scrollTop =
-                scrollContainerRef.current.scrollHeight;
-
-            if (resizeObserverRef.current) {
-                resizeObserverRef.current.disconnect();
-            }
-
-            setTimeout(() => {
-                isAutoScrolling.current = false;
-            }, 100);
-        });
-
-        const lastMessageElement = container.lastElementChild;
-        if (lastMessageElement) {
-            resizeObserverRef.current.observe(lastMessageElement);
-        }
-    }, []); // 依赖项为空，函数是稳定的
-
-    // 选中文本相关状态和逻辑
-    const [selectedText, setSelectedText] = useState<string>("");
-
-    // 文件管理相关状态和逻辑
-    const {
-        fileInfoList,
-        clearFileInfoList,
-        handleChooseFile,
-        handleDeleteFile,
-        handlePaste,
-    } = useFileManagement();
-
-    // 文件拖拽相关状态
-    const { isDragging, setIsDragging, dropRef } =
-        useFileDropHandler(handleChooseFile);
-
-    // 输入相关状态
-    const [inputText, setInputText] = useState("");
-    const inputAreaRef = useRef<InputAreaRef>(null);
-
-    // 暴露给外部的方法
-    useImperativeHandle(ref, () => ({
-        focus: () => {
-            inputAreaRef.current?.focus();
-        }
-    }), []);
-
-    // 对话标题管理相关状态
-    const [titleEditDialogIsOpen, setTitleEditDialogIsOpen] =
-        useState<boolean>(false);
-
-    // 消息编辑相关状态
-    const [editDialogIsOpen, setEditDialogIsOpen] = useState<boolean>(false);
-    const [editingMessage, setEditingMessage] = useState<Message | null>(null);
-
-
-    // ============= 助手运行时API接口实现 =============
-
-    // 助手运行时API接口，提供给插件在运行时使用
-    const assistantRunApi: AssistantRunApi = {
-        askAI: function (
-            question: string,
-            modelId: string,
-            prompt?: string,
-            conversationId?: string,
-        ): AskAiResponse {
-            console.log("ask AI", question, modelId, prompt, conversationId);
-            return {
-                answer: "",
-            };
-        },
-        askAssistant: function (
-            question: string,
-            assistantId: string,
-            conversationId?: string,
-            fileInfoList?: FileInfo[],
-            overrideModelConfig?: Map<string, any>,
-            overrideSystemPrompt?: string,
-            onCustomUserMessage?: (
-                question: string,
-                assistantId: string,
-                conversationId?: string,
-            ) => any,
-            _onCustomUserMessageComing?: (_: AiResponse) => void,
-            _onStreamMessageListener?: (
-                _: string,
-                __: AiResponse,
-                responseFinishFunction: (_: boolean) => void,
-            ) => void,
-        ): Promise<AiResponse> {
-            console.log(
-                "ask assistant",
-                question,
-                assistantId,
-                conversationId,
-                overrideModelConfig,
-                overrideSystemPrompt,
-            );
-            let userMessage: any;
-            if (onCustomUserMessage) {
-                userMessage = onCustomUserMessage(
-                    question,
-                    assistantId,
-                    conversationId,
-                );
-            } else {
-                userMessage = {
-                    id: 0,
-                    conversation_id: conversationId ? +conversationId : -1,
-                    llm_model_id: -1,
-                    content: question,
-                    token_count: 0,
-                    message_type: "user",
-                    created_time: new Date(),
-                    attachment_list: [],
-                    regenerate: null,
-                };
-
-                setMessages((prevMessages) => [...prevMessages, userMessage]);
-            }
-
-            return invoke<AiResponse>("ask_ai", {
-                request: {
-                    prompt: question,
-                    conversation_id: conversationId,
-                    assistant_id: +assistantId,
-                    attachment_list: fileInfoList?.map((i) => i.id),
-                },
-                overrideModelConfig: overrideModelConfig,
-                overridePrompt: overrideSystemPrompt,
-            })
-                .then((res) => {
-                    console.log("ask assistant response", res);
-
-                    if (conversationId != res.conversation_id + "") {
-                        onChangeConversationId(res.conversation_id + "");
-                    }
-
-                    // 事件处理现在由共享的 useConversationEvents hook 处理
-
-                    return res;
-                })
-                .catch((e) => {
-                    console.error("ask assistant error", e);
-                    setAiIsResponsing(false);
-                    // 使用智能边框控制，而不是直接清空
-                    updateShiningMessages();
-                    // 错误信息将在对话框中显示
-                    throw e;
-                });
-        },
-        getUserInput: function (): string {
-            console.log("get user input");
-            return inputText;
-        },
-        getModelId: function (): string {
-            console.log("get model id");
-            return "";
-        },
-        getField: async function (
-            assistantId: string,
-            fieldName: string,
-        ): Promise<string> {
-            console.log("get field", fieldName);
-            return await invoke<string>("get_assistant_field_value", {
-                assistantId: +assistantId,
-                fieldName,
-            });
-        },
-        appendAiResponse: function (messageId: number, response: string): void {
-            console.log("append ai response", messageId, response);
-            setMessages((prevMessages) => {
-                const newMessages = [...prevMessages];
-                const index = newMessages.findIndex(
-                    (msg) => msg.id === messageId,
-                );
-                if (index !== -1) {
-                    newMessages[index] = {
-                        ...newMessages[index],
-                        content: newMessages[index].content + response,
-                    };
-                    smartScroll();
-                }
-                return newMessages;
-            });
-        },
-        setAiResponse: function (messageId: number, response: string): void {
-            console.log("set ai response", messageId, response);
-            setMessages((prevMessages) => {
-                const newMessages = [...prevMessages];
-                const index = newMessages.findIndex(
-                    (msg) => msg.id === messageId,
-                );
-                if (index !== -1) {
-                    newMessages[index] = {
-                        ...newMessages[index],
-                        content: response,
-                    };
-                    smartScroll();
-                }
-                return newMessages;
-            });
-        },
-        getAssistantId: function (): string {
-            if (!conversation || !conversation.id) {
-                return selectedAssistant + "";
-            } else {
-                return conversation.assistant_id + "";
-            }
-        },
-    };
-
-    // ============= 初始化逻辑 =============
-
-    // 初始化助手类型插件
-    useEffect(() => {
-        pluginList
-            .filter((plugin: any) =>
-                plugin.pluginType.includes("assistantType"),
-            )
-            .forEach((plugin: any) => {
-                plugin.instance?.onAssistantTypeInit(assistantTypeApi);
-            });
-    }, [pluginList]);
-
-    // 当消息变化时自动滚动到底部
-    useEffect(() => {
-        smartScroll();
-
-        // 返回一个清理函数，在组件卸载或依赖变化时，清理最后的观察器
-        return () => {
-            if (resizeObserverRef.current) {
-                resizeObserverRef.current.disconnect();
-                resizeObserverRef.current = null;
-            }
-        };
-    }, [messages, streamingMessages, smartScroll]); // smartScroll 是稳定的，但按规则写入依赖
-
-    // 获取选中文本
-    useEffect(() => {
-        invoke<string>("get_selected_text_api").then((text) => {
-            console.log("get_selected_text_api", text);
-            setSelectedText(text);
-        });
-
-        listen<string>("get_selected_text_event", (event) => {
-            console.log("get_selected_text_event", event.payload);
-            setSelectedText(event.payload);
-        });
-    }, []);
-
-    // 智能聚焦逻辑 - 无延迟版本
-    useLayoutEffect(() => {
-        // 只在 InputArea 存在且不在加载状态时聚焦
-        if (inputAreaRef.current && !isLoadingShow) {
-            inputAreaRef.current.focus();
-        }
-    }, [conversationId, isLoadingShow]); // 监听对话ID和加载状态变化
-
-    // 对话加载和管理逻辑
-    useEffect(() => {
-        if (!conversationId) {
-            // 无对话 ID时，清理状态并加载助手列表
-            setMessages([]);
-            setConversation(undefined);
-
-            invoke<Array<AssistantListItem>>("get_assistants").then(
-                (assistantList) => {
-                    setAssistants(assistantList);
-                    if (assistantList.length > 0) {
-                        setSelectedAssistant(assistantList[0].id);
-                    }
-                },
-            );
-            return;
-        }
-
-        // 加载指定对话的消息和信息
-        setIsLoadingShow(true);
-        setGroupMergeMap(new Map()); // 切换对话时清理组合并状态
-
-        console.log(`conversationId change : ${conversationId}`);
-
-        invoke<ConversationWithMessages>("get_conversation_with_messages", {
-            conversationId: +conversationId,
-        }).then((res: ConversationWithMessages) => {
-            setMessages(res.messages);
-            setConversation(res.conversation);
-            setIsLoadingShow(false); // 这里会触发 useLayoutEffect 中的聚焦
-
-            if (res.messages.length === 2) {
-                if (res.messages[0].message_type === "system" && res.messages[1].message_type === "user") {
-                    setShiningMessageIds(new Set([...shiningMessageIds, res.messages[1].id]));
-                }
-            }
-        });
-    }, [conversationId]);
-
-    // 监听对话标题变化
-    useEffect(() => {
-        const unsubscribe = listen("title_change", (event) => {
-            const [conversationId, title] = event.payload as [number, string];
-
-            if (conversation && conversation.id === conversationId) {
-                const newConversation = { ...conversation, name: title };
-                setConversation(newConversation);
-            }
-        });
-
-        return () => {
-            if (unsubscribe) {
-                unsubscribe.then((f) => f());
-            }
-        };
-    }, [conversation]);
-
-    // 监听助手列表变化
-    useAssistantListListener({
-        onAssistantListChanged: useCallback((assistantList: AssistantListItem[]) => {
-            setAssistants(assistantList);
-            // 如果当前选中的助手不在新列表中，选择第一个助手
-            if (assistantList.length > 0 && 
-                !assistantList.some(assistant => assistant.id === selectedAssistant)) {
-                setSelectedAssistant(assistantList[0].id);
-            }
-        }, [selectedAssistant])
-    });
-
-    // 监听错误通知事件
-    useEffect(() => {
-        const unsubscribe = listen("conversation-window-error-notification", (event) => {
-            const errorMessage = event.payload as string;
-            console.error("Received error notification:", errorMessage);
-
-            // 重置AI响应状态
-            setAiIsResponsing(false);
-
-            // 使用智能边框控制，而不是直接清空
-            updateShiningMessages();
-        });
-
-        return () => {
-            if (unsubscribe) {
-                unsubscribe.then((f) => f());
-            }
-        };
-    }, []);
-
-    // ============= 数据计算和处理 =============
-
-    // 首先合并常规消息和流式消息（不排序）
-    const combinedMessagesForGrouping = useMemo(() => {
-        const combinedMessages = [...messages];
-
-
-        // 找到最后一个用户消息，用于确定当前对话轮次的基准时间
-        const lastUserMessage = [...combinedMessages].reverse().find(msg => msg.message_type === "user");
-        const baseTimestamp = lastUserMessage ? new Date(lastUserMessage.created_time).getTime() : Date.now();
-
-        // 为了确保同一轮对话中的所有流式消息使用相同的时间戳，我们使用统一的时间戳
-        const uniformStreamTimestamp = baseTimestamp + 1000;
-
-        // 将流式消息添加到显示列表中
-        streamingMessages.forEach((streamEvent) => {
-            // 检查是否已经存在同样ID的消息
-            const existingIndex = combinedMessages.findIndex(
-                (msg) => msg.id === streamEvent.message_id,
-            );
-            if (existingIndex === -1) {
-                const tempMessage: Message = {
-                    id: streamEvent.message_id,
-                    conversation_id: conversation?.id || 0,
-                    message_type: streamEvent.message_type,
-                    content: streamEvent.content,
-                    llm_model_id: null,
-                    created_time: new Date(uniformStreamTimestamp), // 使用统一时间戳
-                    start_time: new Date(uniformStreamTimestamp),
-                    finish_time: streamEvent.is_done
-                        ? streamEvent.end_time || new Date()
-                        : null,
-                    token_count: 0,
-                    generation_group_id: null, // 流式消息暂时不设置generation_group_id
-                    parent_group_id: null, // 流式消息暂时不设置parent_group_id
-                    regenerate: null,
-                };
-
-
-                combinedMessages.push(tempMessage);
-            } else {
-                // 存在则更新消息内容，但保持时间戳不变
-                combinedMessages[existingIndex] = {
-                    ...combinedMessages[existingIndex],
-                    content: streamEvent.content,
-                    message_type: streamEvent.message_type, // 确保消息类型也被更新
-                    finish_time: streamEvent.is_done
-                        ? streamEvent.end_time || new Date()
-                        : combinedMessages[existingIndex].finish_time,
-                };
-
-            }
-        });
-
-
-        return combinedMessages;
-    }, [messages, streamingMessages, conversation?.id]);
-
-    // ============= Generation Group 版本管理 =============
-
-    // 管理组合并关系：new_group_id -> original_group_id
-    const [groupMergeMap, setGroupMergeMap] = useState<Map<string, string>>(
-        new Map(),
-    );
-
-    // 使用自定义钩子获取所有分组相关的数据和逻辑
-    const {
-        generationGroups,
-        selectedVersions,
-        groupRootMessageIds,
-        handleGenerationVersionChange,
-        getMessageVersionInfo,
-        getGenerationGroupControl,
-    } = useMessageGroups({ allDisplayMessages: combinedMessagesForGrouping, groupMergeMap });
-
-    // 智能排序逻辑：先过滤可见消息，再基于分组基准时间排序
-    const allDisplayMessages = useMemo(() => {
-        // 首先过滤出可见的消息
-        const visibleMessages = combinedMessagesForGrouping.filter((message) => {
-            // 跳过系统消息和工具结果
-            if (message.message_type === "system" || message.message_type === "tool_result") {
-                return false;
-            }
-            
-            // 检查版本可见性
-            const versionInfo = getMessageVersionInfo(message);
-            if (versionInfo && !versionInfo.shouldShow) {
-                return false;
-            }
-            
-            return true;
-        });
-
-        // 创建消息到根组的映射，包括子分组的消息
-        const messageToRootGroupMap = new Map<number, string>();
-        
-        // 首先建立所有 generation_group_id 到根分组的映射
-        const generationIdToRootMap = new Map<string, string>();
-        combinedMessagesForGrouping.forEach(message => {
-            if (message.generation_group_id) {
-                // 查找这个 generation_group_id 在哪个根分组中
-                generationGroups.forEach((group, rootGroupId) => {
-                    group.versions.forEach(version => {
-                        if (version.versionId === message.generation_group_id) {
-                            generationIdToRootMap.set(message.generation_group_id, rootGroupId);
-                        }
-                    });
-                });
-            }
-        });
-        
-        // 然后为每个消息建立到根分组的映射
-        combinedMessagesForGrouping.forEach(message => {
-            if (message.generation_group_id) {
-                const rootGroupId = generationIdToRootMap.get(message.generation_group_id);
-                if (rootGroupId) {
-                    messageToRootGroupMap.set(message.id, rootGroupId);
-                }
-            }
-        });
-
-        // 然后对可见消息进行排序
-        const sorted = visibleMessages.sort((a, b) => {
-            const aGroupId = messageToRootGroupMap.get(a.id);
-            const bGroupId = messageToRootGroupMap.get(b.id);
-
-            // 获取排序基准值：分组消息使用分组基准消息ID，非分组消息使用自身ID
-            const aBaseValue = aGroupId ? (groupRootMessageIds.get(aGroupId) || a.id) : a.id;
-            const bBaseValue = bGroupId ? (groupRootMessageIds.get(bGroupId) || b.id) : b.id;
-
-            if (aBaseValue !== bBaseValue) {
-                return aBaseValue - bBaseValue;
-            }
-            
-            // 基准值相同时，按ID排序（同一分组内的消息或ID相同的情况）
-            return a.id - b.id;
-        });
-        
-        return sorted;
-    }, [combinedMessagesForGrouping, generationGroups, groupRootMessageIds, getMessageVersionInfo]);
-
-    // ============= Reasoning 展开状态管理 =============
-
-    // 管理每个 reasoning 消息的展开状态
-    const [reasoningExpandStates, setReasoningExpandStates] = useState<
-        Map<number, boolean>
-    >(new Map());
-
-    // 切换 reasoning 消息的展开状态
-    const toggleReasoningExpand = useCallback((messageId: number) => {
-        setReasoningExpandStates((prev) => {
-            const newMap = new Map(prev);
-            newMap.set(messageId, !newMap.get(messageId));
-            return newMap;
-        });
-    }, []);
-
-    // ============= 消息状态管理辅助函数 =============
+    // ============= 消息处理逻辑 =============
 
     // 处理消息完成时的状态更新，确保消息在streamingMessages清理后仍能显示
     const handleMessageCompletion = useCallback(
@@ -841,349 +232,240 @@ const ConversationUI = forwardRef<ConversationUIRef, ConversationUIProps>(({
         [conversation?.id],
     );
 
-    // ============= 业务逻辑处理函数 =============
-
-    // 对话管理相关操作
-    const handleDeleteConversationSuccess = useCallback(() => {
-        // 删除成功后清空会话ID，返回新建对话界面
-        onChangeConversationId("");
-    }, [onChangeConversationId]);
-
-    // 消息更新处理回调函数
-    const handleMessageUpdate = useCallback((streamEvent: StreamEvent) => {
-        // 处理插件兼容性
-        const streamMessageListener = functionMap.get(
-            streamEvent.message_id,
-        )?.onStreamMessageListener;
-        if (streamMessageListener) {
-            streamMessageListener(
-                streamEvent.content,
-                { conversation_id: +conversationId, request_prompt_result_with_context: "" },
-                setAiIsResponsing,
-            );
-        }
-
-        if (streamEvent.is_done) {
-            // 在清理streamingMessages之前，先将消息添加到messages状态
-            handleMessageCompletion(streamEvent);
-        }
-
-        smartScroll();
-    }, [conversationId, functionMap, handleMessageCompletion, smartScroll]);
-
-    // 设置引用
-    handleMessageUpdateRef = handleMessageUpdate;
-
-    // 代码运行处理
-    const handleArtifact = useCallback((lang: string, inputStr: string) => {
-        invoke("run_artifacts", { lang, inputStr })
-            .then((res) => {
-                console.log(res);
-            })
-            .catch((error) => {
-                toast.error("运行失败: " + JSON.stringify(error));
-            });
-    }, []);
-
-    // 打开标题编辑对话框
-    const openTitleEditDialog = useCallback(() => {
-        setTitleEditDialogIsOpen(true);
-    }, []);
-
-    // 关闭标题编辑对话框
-    const closeTitleEditDialog = useCallback(() => {
-        setTitleEditDialogIsOpen(false);
-    }, []);
-
-    // 消息重新生成处理
-    const handleMessageRegenerate = useCallback(
-        (regenerateMessageId: number) => {
-            // 设置AI响应状态
-            setAiIsResponsing(true);
-
-            // 设置被点击的消息显示shine-border
-            setShiningMessageIds(new Set([regenerateMessageId]));
-
-            invoke<AiResponse>("regenerate_ai", {
-                messageId: regenerateMessageId,
-            })
-                .then((res) => {
-                    console.log("regenerate ai response", res);
-                    // 重新生成消息的处理逻辑
-                    // setMessageId(res.add_message_id);
-                })
-                .catch((error) => {
-                    console.error("Regenerate error:", error);
-                    setAiIsResponsing(false);
-                    // 使用智能边框控制，而不是直接清空
-                    updateShiningMessages();
-                    // 错误信息将在对话框中显示
-                });
-        },
-        [setShiningMessageIds],
-    );
-
-    // 消息编辑相关处理函数
-    const handleMessageEdit = useCallback((message: Message) => {
-        setEditingMessage(message);
-        setEditDialogIsOpen(true);
-    }, []);
-
-    const closeEditDialog = useCallback(() => {
-        setEditDialogIsOpen(false);
-        setEditingMessage(null);
-    }, []);
-
-    const handleEditSave = useCallback(
-        (content: string) => {
-            if (!editingMessage) return;
-
-            invoke("update_message_content", {
-                messageId: editingMessage.id,
-                content: content,
-            })
-                .then(() => {
-                    // 更新本地消息状态
-                    setMessages((prevMessages) =>
-                        prevMessages.map((msg) =>
-                            msg.id === editingMessage.id
-                                ? { ...msg, content: content }
-                                : msg,
-                        ),
-                    );
-                    toast.success("消息已更新");
-                })
-                .catch((error) => {
-                    toast.error("更新消息失败: " + error);
-                });
-        },
-        [editingMessage],
-    );
-
-    const handleEditSaveAndRegenerate = useCallback(
-        (content: string) => {
-            if (!editingMessage) return;
-
-            // 先更新消息内容
-            invoke("update_message_content", {
-                messageId: editingMessage.id,
-                content: content,
-            })
-                .then(() => {
-                    // 更新本地消息状态
-                    setMessages((prevMessages) =>
-                        prevMessages.map((msg) =>
-                            msg.id === editingMessage.id
-                                ? { ...msg, content: content }
-                                : msg,
-                        ),
-                    );
-
-                    // 然后触发重新生成
-                    handleMessageRegenerate(editingMessage.id);
-
-                    toast.success("消息已更新并开始重新生成");
-                })
-                .catch((error) => {
-                    toast.error("更新消息失败: " + error);
-                });
-        },
-        [editingMessage, handleMessageRegenerate],
-    );
-
-    // 发送消息的主要处理函数，使用节流防止频繁点击
-    const handleSend = throttle(() => {
-        if (aiIsResponsing) {
-            // AI正在响应时，点击取消
-            console.log("Cancelling AI");
-            console.log(conversationId);
-            invoke("cancel_ai", { conversationId: +conversationId }).then(() => {
-                setAiIsResponsing(false);
-                // 使用智能边框控制
-                updateShiningMessages();
-            });
-        } else {
-            // 正常发送消息流程
-            if (inputText.trim() === "") {
-                setInputText("");
-                return;
-            }
-            setAiIsResponsing(true);
-
-            let conversationId = "";
-            let assistantId = "";
-            if (!conversation || !conversation.id) {
-                assistantId = selectedAssistant + "";
-            } else {
-                conversationId = conversation.id + "";
-                assistantId = conversation.assistant_id + "";
-            }
-
-            // 检查是否使用插件助手
-            const assistantData = assistants.find((a) => a.id === +assistantId);
-            if (assistantData?.assistant_type !== 0) {
-                // 使用插件助手
-                assistantTypePluginMap
-                    .get(assistantData?.assistant_type ?? 0)
-                    ?.onAssistantTypeRun(assistantRunApi);
-            } else {
-                invoke<AiResponse>("ask_ai", {
-                    request: {
-                        prompt: inputText,
-                        conversation_id: conversationId,
-                        assistant_id: +assistantId,
-                        attachment_list: fileInfoList?.map((i) => i.id),
-                    },
-                })
-                    .then((res) => {
-                        console.log("ask ai response", res);
-
-                        // 如果是新对话，更新对话 ID
-                        if (conversationId != res.conversation_id + "") {
-                            onChangeConversationId(res.conversation_id + "");
-                        }
-                    })
-                    .catch((error) => {
-                        console.error("Send message error:", error);
-                        setAiIsResponsing(false);
-                        // 使用智能边框控制，而不是直接清空
-                        updateShiningMessages();
-                        // 错误信息将在对话框中显示
-                    });
-            }
-
-            setInputText("");
-            clearFileInfoList();
-        }
-    }, 200);
-
-    // 渲染已经过滤和排序的消息
-    const filteredMessages = useMemo(() => {
-        const result = allDisplayMessages.map((message) => {
-                // 查找对应的流式消息信息（如果存在）
-                const streamEvent = streamingMessages.get(message.id);
-
-                // 检查是否需要显示版本控制
-                const groupControl = getGenerationGroupControl(message);
-
-                // 检查是否需要显示shine-border
-                const shouldShowShineBorder = shiningMessageIds.has(message.id);
-
-                return (
-                    <React.Fragment key={message.id}>
-                        <MessageItem
-                            message={message}
-                            streamEvent={streamEvent}
-                            onCodeRun={handleArtifact}
-                            onMessageRegenerate={() =>
-                                handleMessageRegenerate(message.id)
-                            }
-                            onMessageEdit={() => handleMessageEdit(message)}
-                            // Reasoning 展开状态相关 props
-                            isReasoningExpanded={
-                                reasoningExpandStates.get(message.id) || false
-                            }
-                            onToggleReasoningExpand={() =>
-                                toggleReasoningExpand(message.id)
-                            }
-                            // ShineBorder 动画状态
-                            shouldShowShineBorder={shouldShowShineBorder}
-                            // MCP 工具调用需要的上下文信息
-                            conversationId={message.conversation_id}
-                            // 传递 MCP 工具调用状态
-                            mcpToolCallStates={mcpToolCallStates}
-                        />
-                        {/* 在 generation group 的最后一个消息下方显示版本控制 */}
-                        {groupControl && (
-                            <div className="flex justify-start mt-2">
-                                <VersionPagination
-                                    currentVersion={groupControl.currentVersion}
-                                    totalVersions={groupControl.totalVersions}
-                                    onVersionChange={(versionIndex) =>
-                                        handleGenerationVersionChange(
-                                            groupControl.groupId,
-                                            versionIndex,
-                                        )
-                                    }
-                                />
-                            </div>
-                        )}
-                    </React.Fragment>
+    // 使用 useMemo 稳定 options 对象，避免频繁触发 useConversationEvents 内部的 useEffect
+    const conversationEventsOptions = useMemo(() => {
+        const handleMessageUpdate = (streamEvent: StreamEvent) => {
+            // 处理插件兼容性
+            const streamMessageListener = functionMap.get(
+                streamEvent.message_id,
+            )?.onStreamMessageListener;
+            if (streamMessageListener) {
+                streamMessageListener(
+                    streamEvent.content,
+                    { conversation_id: +conversationId, request_prompt_result_with_context: "" },
+                    setAiIsResponsing,
                 );
-            })
-            .filter(Boolean); // 过滤掉 null 值
+            }
 
-        // 添加占位符消息渲染
-        generationGroups.forEach((group, groupId) => {
-            const selectedVersionIndex =
-                selectedVersions.get(groupId) ??
-                (group.versions.length > 0 ? group.versions.length - 1 : 0);
-            const selectedVersionData = group.versions[selectedVersionIndex];
+            if (streamEvent.is_done) {
+                // 在清理streamingMessages之前，先将消息添加到messages状态
+                handleMessageCompletion(streamEvent);
+            }
 
-            // 如果选中的是占位符版本，添加占位符消息
-            if (selectedVersionData?.isPlaceholder) {
-                // 找到这个组的最后一个消息的位置，在其后添加占位符
-                const groupMessages = group.versions
-                    .flatMap((version) => version.messages)
-                    .filter((msg: any) => msg.message_type !== "system");
-                if (groupMessages.length > 0) {
-                    const lastMessage = groupMessages[groupMessages.length - 1];
-                    const lastMessageIndex = result.findIndex(
-                        (item) => item?.key === lastMessage.id.toString(),
-                    );
+            smartScroll();
+        };
 
-                    if (lastMessageIndex !== -1) {
-                        // 在最后一个消息后添加占位符
-                        const placeholderElement = (
-                            <React.Fragment key={`placeholder_${groupId}`}>
-                                <div className="flex justify-start mb-4">
-                                    <div className="bg-muted rounded-lg p-4 max-w-3xl">
-                                        <div className="flex items-center space-x-2">
-                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-foreground"></div>
-                                            <span className="text-sm text-muted-foreground">
-                                                正在重新生成...
-                                            </span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="flex justify-start mt-2">
-                                    <VersionPagination
-                                        currentVersion={
-                                            selectedVersionIndex + 1
-                                        }
-                                        totalVersions={group.versions.length}
-                                        onVersionChange={(versionIndex) =>
-                                            handleGenerationVersionChange(
-                                                groupId,
-                                                versionIndex,
-                                            )
-                                        }
-                                    />
-                                </div>
-                            </React.Fragment>
-                        );
-                        result.splice(
-                            lastMessageIndex + 1,
-                            0,
-                            placeholderElement,
-                        );
+        return {
+            conversationId: conversationId,
+            onMessageAdd: handleMessageAdd,
+            onMessageUpdate: handleMessageUpdate,
+            onGroupMerge: handleGroupMerge,
+            onMCPToolCallUpdate: handleMCPToolCallUpdate,
+            onAiResponseComplete: handleAiResponseComplete,
+            onError: handleError,
+        };
+    }, [
+        conversationId,
+        handleMessageAdd,
+        handleGroupMerge,
+        handleMCPToolCallUpdate,
+        handleAiResponseComplete,
+        handleError,
+        functionMap,
+        handleMessageCompletion,
+    ]);
+
+    // 使用共享的消息事件处理 hook
+    const {
+        streamingMessages,
+        shiningMessageIds,
+        setShiningMessageIds,
+        mcpToolCallStates,
+        updateShiningMessages,
+    } = useConversationEvents(conversationEventsOptions);
+
+    // 滚动管理 - 需要在定义后再使用
+    const {
+        messagesEndRef,
+        scrollContainerRef,
+        handleScroll,
+        smartScroll,
+    } = useScrollManagement([messages, streamingMessages]);
+
+    // 消息处理 - 首先需要获取 groupMergeMap
+    const [groupMergeMap, setGroupMergeMap] = useState<Map<string, string>>(
+        new Map(),
+    );
+
+    // 使用自定义钩子获取所有分组相关的数据和逻辑  
+    const messageGroupsData = useMessageGroups({ 
+        allDisplayMessages: messages, // 先用 messages，后面会更新
+        groupMergeMap 
+    });
+
+    // 消息处理
+    const {
+        allDisplayMessages,
+    } = useMessageProcessing({
+        messages,
+        streamingMessages,
+        conversation,
+        generationGroups: messageGroupsData.generationGroups,
+        groupRootMessageIds: messageGroupsData.groupRootMessageIds,
+        getMessageVersionInfo: messageGroupsData.getMessageVersionInfo,
+    });
+
+    // 助手运行时API
+    const { assistantRunApi } = useAssistantRuntime({
+        conversation,
+        selectedAssistant,
+        inputText,
+        fileInfoList: fileInfoList || undefined,
+        setMessages,
+        onChangeConversationId,
+        smartScroll,
+        updateShiningMessages,
+        setAiIsResponsing,
+    });
+
+    // 对话操作
+    const {
+        handleDeleteConversationSuccess,
+        handleMessageRegenerate,
+        handleMessageEdit,
+        handleEditSave,
+        handleEditSaveAndRegenerate,
+        handleSend,
+        handleArtifact,
+        editDialogIsOpen,
+        editingMessage,
+        closeEditDialog,
+        titleEditDialogIsOpen,
+        openTitleEditDialog,
+        closeTitleEditDialog,
+    } = useConversationOperations({
+        conversation,
+        selectedAssistant,
+        assistants,
+        setMessages,
+        inputText,
+        setInputText,
+        fileInfoList: fileInfoList || undefined,
+        clearFileInfoList,
+        aiIsResponsing,
+        setAiIsResponsing,
+        onChangeConversationId,
+        setShiningMessageIds,
+        updateShiningMessages,
+        assistantTypePluginMap,
+        assistantRunApi,
+    });
+
+    // ============= 初始化和生命周期逻辑 =============
+
+    // 暴露给外部的方法
+    useImperativeHandle(ref, () => ({
+        focus: () => {
+            inputAreaRef.current?.focus();
+        }
+    }), []);
+
+    // 智能聚焦逻辑 - 无延迟版本
+    useLayoutEffect(() => {
+        // 只在 InputArea 存在且不在加载状态时聚焦
+        if (inputAreaRef.current && !isLoadingShow) {
+            inputAreaRef.current.focus();
+        }
+    }, [conversationId, isLoadingShow]); // 监听对话ID和加载状态变化
+
+    // 对话加载和管理逻辑
+    useEffect(() => {
+        if (!conversationId) {
+            // 无对话 ID时，清理状态并加载助手列表
+            setMessages([]);
+            setConversation(undefined);
+
+            invoke<Array<AssistantListItem>>("get_assistants").then(
+                (assistantList) => {
+                    setAssistants(assistantList);
+                    if (assistantList.length > 0) {
+                        setSelectedAssistant(assistantList[0].id);
                     }
+                },
+            );
+            return;
+        }
+
+        // 加载指定对话的消息和信息
+        setIsLoadingShow(true);
+        setGroupMergeMap(new Map()); // 切换对话时清理组合并状态
+
+        console.log(`conversationId change : ${conversationId}`);
+
+        invoke<ConversationWithMessages>("get_conversation_with_messages", {
+            conversationId: +conversationId,
+        }).then((res: ConversationWithMessages) => {
+            setMessages(res.messages);
+            setConversation(res.conversation);
+            setIsLoadingShow(false); // 这里会触发 useLayoutEffect 中的聚焦
+
+            if (res.messages.length === 2) {
+                if (res.messages[0].message_type === "system" && res.messages[1].message_type === "user") {
+                    setShiningMessageIds(new Set([...shiningMessageIds, res.messages[1].id]));
                 }
             }
         });
+    }, [conversationId, setGroupMergeMap, setShiningMessageIds, shiningMessageIds]);
 
-        return result;
-    }, [
-        allDisplayMessages,
-        streamingMessages,
-        getGenerationGroupControl,
-        handleGenerationVersionChange,
-        reasoningExpandStates,
-        toggleReasoningExpand,
-        generationGroups,
-        selectedVersions,
-        shiningMessageIds,
-    ]);
+    // 监听对话标题变化
+    useEffect(() => {
+        const unsubscribe = listen("title_change", (event) => {
+            const [conversationId, title] = event.payload as [number, string];
+
+            if (conversation && conversation.id === conversationId) {
+                const newConversation = { ...conversation, name: title };
+                setConversation(newConversation);
+            }
+        });
+
+        return () => {
+            if (unsubscribe) {
+                unsubscribe.then((f) => f());
+            }
+        };
+    }, [conversation]);
+
+    // 监听助手列表变化
+    useAssistantListListener({
+        onAssistantListChanged: useCallback((assistantList: AssistantListItem[]) => {
+            setAssistants(assistantList);
+            // 如果当前选中的助手不在新列表中，选择第一个助手
+            if (assistantList.length > 0 && 
+                !assistantList.some(assistant => assistant.id === selectedAssistant)) {
+                setSelectedAssistant(assistantList[0].id);
+            }
+        }, [selectedAssistant])
+    });
+
+    // 监听错误通知事件
+    useEffect(() => {
+        const unsubscribe = listen("conversation-window-error-notification", (event) => {
+            const errorMessage = event.payload as string;
+            console.error("Received error notification:", errorMessage);
+
+            // 重置AI响应状态
+            setAiIsResponsing(false);
+
+            // 使用智能边框控制，而不是直接清空
+            updateShiningMessages();
+        });
+
+        return () => {
+            if (unsubscribe) {
+                unsubscribe.then((f) => f());
+            }
+        };
+    }, [updateShiningMessages]);
 
     // ============= 组件渲染 =============
 
@@ -1192,32 +474,44 @@ const ConversationUI = forwardRef<ConversationUIRef, ConversationUIProps>(({
             ref={dropRef}
             className="h-full relative flex flex-col bg-background rounded-xl"
         >
-            {conversationId ? (
-                <ConversationTitle
-                    onEdit={openTitleEditDialog}
-                    onDelete={handleDeleteConversationSuccess}
-                    conversation={conversation}
-                />
-            ) : null}
+            <ConversationHeader
+                conversationId={conversationId}
+                conversation={conversation}
+                onEdit={openTitleEditDialog}
+                onDelete={handleDeleteConversationSuccess}
+            />
 
             <div
                 ref={scrollContainerRef}
                 onScroll={handleScroll}
                 className="h-full flex-1 overflow-y-auto flex flex-col p-6 box-border gap-4"
             >
-                {conversationId ? (
-                    filteredMessages
-                ) : (
-                    <NewChatComponent
-                        selectedText={selectedText}
-                        selectedAssistant={selectedAssistant}
-                        assistants={assistants}
-                        setSelectedAssistant={setSelectedAssistant}
-                    />
-                )}
+                <ConversationContent
+                    conversationId={conversationId}
+                    // MessageList props
+                    allDisplayMessages={allDisplayMessages}
+                    streamingMessages={streamingMessages}
+                    shiningMessageIds={shiningMessageIds}
+                    reasoningExpandStates={reasoningExpandStates}
+                    mcpToolCallStates={mcpToolCallStates}
+                    generationGroups={messageGroupsData.generationGroups}
+                    selectedVersions={messageGroupsData.selectedVersions}
+                    getGenerationGroupControl={messageGroupsData.getGenerationGroupControl}
+                    handleGenerationVersionChange={messageGroupsData.handleGenerationVersionChange}
+                    onCodeRun={handleArtifact}
+                    onMessageRegenerate={handleMessageRegenerate}
+                    onMessageEdit={handleMessageEdit}
+                    onToggleReasoningExpand={toggleReasoningExpand}
+                    // NewChatComponent props
+                    selectedText={selectedText}
+                    selectedAssistant={selectedAssistant}
+                    assistants={assistants}
+                    setSelectedAssistant={setSelectedAssistant}
+                />
                 <div className="flex-none h-[120px]"></div>
                 <div ref={messagesEndRef} />
             </div>
+            
             {isDragging ? (
                 <FileDropArea
                     onDragChange={setIsDragging}
