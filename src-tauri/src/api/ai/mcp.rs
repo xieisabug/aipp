@@ -23,10 +23,7 @@ pub async fn collect_mcp_info_for_assistant(
     ) {
         Ok(value) => value == "true",
         Err(e) => {
-            println!(
-                "Failed to get native toolcall config: {}, using default (false)",
-                e
-            );
+            println!("Failed to get native toolcall config: {}, using default (false)", e);
             false
         }
     };
@@ -36,15 +33,10 @@ pub async fn collect_mcp_info_for_assistant(
         .map_err(|e| AppError::DatabaseError(format!("Failed to get MCP servers: {}", e)))?;
 
     // 只保留启用的服务器
-    let enabled_servers: Vec<MCPServerWithTools> = all_servers
-        .into_iter()
-        .filter(|server| server.is_enabled)
-        .collect();
+    let enabled_servers: Vec<MCPServerWithTools> =
+        all_servers.into_iter().filter(|server| server.is_enabled).collect();
 
-    Ok(MCPInfoForAssistant {
-        enabled_servers,
-        use_native_toolcall,
-    })
+    Ok(MCPInfoForAssistant { enabled_servers, use_native_toolcall })
 }
 
 pub async fn format_mcp_prompt(

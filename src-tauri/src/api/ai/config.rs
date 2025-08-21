@@ -92,7 +92,7 @@ pub const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 180; // 3分钟默认超时
 
 /// 从网络配置中获取重试次数，如果没有配置则使用默认值
 pub fn get_retry_attempts_from_config(
-    config_feature_map: &HashMap<String, HashMap<String, crate::db::system_db::FeatureConfig>>
+    config_feature_map: &HashMap<String, HashMap<String, crate::db::system_db::FeatureConfig>>,
 ) -> u32 {
     if let Some(network_config) = config_feature_map.get("network_config") {
         if let Some(retry_config) = network_config.get("retry_attempts") {
@@ -106,7 +106,7 @@ pub fn get_retry_attempts_from_config(
 
 /// 从网络配置中获取请求超时时间（秒），如果没有配置则使用默认值
 pub fn get_request_timeout_from_config(
-    config_feature_map: &HashMap<String, HashMap<String, crate::db::system_db::FeatureConfig>>
+    config_feature_map: &HashMap<String, HashMap<String, crate::db::system_db::FeatureConfig>>,
 ) -> u64 {
     if let Some(network_config) = config_feature_map.get("network_config") {
         if let Some(timeout_config) = network_config.get("request_timeout") {
@@ -120,7 +120,7 @@ pub fn get_request_timeout_from_config(
 
 /// 从网络配置中获取网络代理URL
 pub fn get_network_proxy_from_config(
-    config_feature_map: &HashMap<String, HashMap<String, crate::db::system_db::FeatureConfig>>
+    config_feature_map: &HashMap<String, HashMap<String, crate::db::system_db::FeatureConfig>>,
 ) -> Option<String> {
     if let Some(network_config) = config_feature_map.get("network_config") {
         if let Some(proxy_config) = network_config.get("network_proxy") {
@@ -137,5 +137,3 @@ pub fn get_network_proxy_from_config(
 pub fn calculate_retry_delay(attempt: u32) -> u64 {
     RETRY_DELAY_BASE_MS * (2_u64.pow(attempt.saturating_sub(1)))
 }
-
-

@@ -150,43 +150,170 @@
     right: 62px;
 }
 
+/* Unified completion list base styles */
+.completion-list {
+    position: absolute;
+    background-color: hsl(var(--background));
+    border: 1px solid hsl(var(--border));
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    max-height: 256px;
+    overflow-y: auto;
+    z-index: 1000;
+    min-width: 200px;
+}
+
+.completion-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid hsl(var(--border));
+    transition: background-color 0.15s ease;
+}
+
+.completion-item:last-child {
+    border-bottom: none;
+}
+
+.completion-item.selected {
+    background-color: hsl(var(--muted));
+}
+
+.completion-item:hover {
+    background-color: hsl(var(--muted) / 0.8);
+}
+
+/* Bang-specific styles */
 .completion-bang-list {
     position: absolute;
     background-color: hsl(var(--background));
     border: 1px solid hsl(var(--border));
-    border-radius: 4px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-    max-height: 200px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    max-height: 256px;
     overflow-y: auto;
     z-index: 1000;
+    min-width: 200px;
 }
 
 .completion-bang-container {
-    padding: 5px 10px;
+    padding: 8px 12px;
     cursor: pointer;
+    border-bottom: 1px solid hsl(var(--border));
+    transition: background-color 0.15s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.completion-bang-container:last-child {
+    border-bottom: none;
 }
 
 .completion-bang-container.selected {
     background-color: hsl(var(--muted));
 }
 
-.completion-bang-tag {
-    padding: 5px 10px;
-    flex: 0 0 20px;
-    cursor: pointer;
+.completion-bang-container:hover {
+    background-color: hsl(var(--muted) / 0.8);
 }
 
+.completion-bang-tag {
+    font-weight: 500;
+    color: hsl(var(--primary));
+    flex-shrink: 0;
+}
+
+.completion-bang-desc {
+    color: hsl(var(--muted-foreground));
+    font-size: 14px;
+}
+
+/* Assistant-specific styles */
 .assistant-completion-list {
     position: absolute;
     background-color: hsl(var(--background));
     border: 1px solid hsl(var(--border));
-    border-radius: 4px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-    max-height: 200px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    max-height: 256px;
     overflow-y: auto;
     z-index: 1000;
+    min-width: 280px;
+    max-width: 400px;
 }
 
+.assistant-completion-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid hsl(var(--border));
+    transition: background-color 0.15s ease;
+}
+
+.assistant-completion-item:last-child {
+    border-bottom: none;
+}
+
+.assistant-completion-item.selected {
+    background-color: hsl(var(--muted));
+}
+
+.assistant-completion-item:hover {
+    background-color: hsl(var(--muted) / 0.8);
+}
+
+.assistant-completion-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.assistant-completion-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.assistant-completion-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: hsl(var(--foreground));
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.assistant-completion-description {
+    font-size: 12px;
+    color: hsl(var(--muted-foreground));
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+}
+
+.assistant-completion-match-type {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    margin-left: 8px;
+    flex-shrink: 0;
+}
+
+.assistant-completion-match-type.pinyin {
+    background-color: hsl(var(--primary) / 0.1);
+    color: hsl(var(--primary));
+}
+
+.assistant-completion-match-type.initial {
+    background-color: hsl(var(--accent));
+    color: hsl(var(--accent-foreground));
+}
+
+.assistant-completion-name .font-bold {
+    font-weight: 600;
+    color: hsl(var(--primary));
+}
+
+/* Artifact-specific styles */
 .artifact-completion-list {
     position: absolute;
     background-color: hsl(var(--background));
@@ -211,7 +338,7 @@
 }
 
 .completion-artifact-container {
-    padding: 12px;
+    padding: 8px 12px;
     cursor: pointer;
     border-bottom: 1px solid hsl(var(--border));
     transition: background-color 0.15s ease;

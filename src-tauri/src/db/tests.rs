@@ -101,12 +101,8 @@ fn create_test_message(
 }
 
 /// 创建共享的测试数据库连接，包含对话和消息表
-fn create_shared_test_db() -> (
-    Connection,
-    ConversationRepository,
-    MessageRepository,
-    Conversation,
-) {
+fn create_shared_test_db() -> (Connection, ConversationRepository, MessageRepository, Conversation)
+{
     let conn = create_test_db();
     let conv_repo = ConversationRepository::new(Connection::open_in_memory().unwrap());
     let msg_repo = MessageRepository::new(Connection::open_in_memory().unwrap());
@@ -247,10 +243,8 @@ mod message_repository_tests {
         assert_eq!(retrieved_messages.len(), 3);
 
         // 验证消息内容
-        let contents: Vec<String> = retrieved_messages
-            .iter()
-            .map(|(msg, _)| msg.content.clone())
-            .collect();
+        let contents: Vec<String> =
+            retrieved_messages.iter().map(|(msg, _)| msg.content.clone()).collect();
         assert!(contents.contains(&"Message 1".to_string()));
         assert!(contents.contains(&"Message 2".to_string()));
         assert!(contents.contains(&"Message 3".to_string()));
@@ -384,14 +378,8 @@ mod version_management_tests {
         let created_regenerated_ai = msg_repo.create(&regenerated_ai_msg).unwrap();
 
         // 验证重发逻辑
-        assert_eq!(
-            created_regenerated_ai.generation_group_id,
-            Some(original_group_id.clone())
-        );
-        assert_eq!(
-            created_regenerated_ai.parent_id,
-            Some(created_original_ai.id)
-        );
+        assert_eq!(created_regenerated_ai.generation_group_id, Some(original_group_id.clone()));
+        assert_eq!(created_regenerated_ai.parent_id, Some(created_original_ai.id));
 
         // 模拟用户消息重发（应该创建新的generation_group_id）
         let new_group_id = Uuid::new_v4().to_string();
@@ -405,18 +393,9 @@ mod version_management_tests {
         let created_regenerated_user = msg_repo.create(&regenerated_user_msg).unwrap();
 
         // 验证用户重发逻辑
-        assert_eq!(
-            created_regenerated_user.generation_group_id,
-            Some(new_group_id)
-        );
-        assert_eq!(
-            created_regenerated_user.parent_id,
-            Some(created_original_user.id)
-        );
-        assert_ne!(
-            created_regenerated_user.generation_group_id,
-            Some(original_group_id)
-        );
+        assert_eq!(created_regenerated_user.generation_group_id, Some(new_group_id));
+        assert_eq!(created_regenerated_user.parent_id, Some(created_original_user.id));
+        assert_ne!(created_regenerated_user.generation_group_id, Some(original_group_id));
 
         // 查询所有消息
         let all_messages = msg_repo.list_by_conversation_id(conversation.id).unwrap();

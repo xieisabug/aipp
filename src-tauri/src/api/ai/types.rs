@@ -18,5 +18,3 @@ pub struct AiResponse {
     pub conversation_id: i64,
     pub request_prompt_result_with_context: String,
 }
-
-

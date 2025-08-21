@@ -68,18 +68,17 @@ pub fn database_upgrade(
                         &ConversationDatabase,
                         &tauri::AppHandle,
                     ) -> Result<(), String>,
-                )> = vec![("0.0.2", special_logic_0_0_2), ("0.0.3", special_logic_0_0_3), ("0.0.4", special_logic_0_0_4)];
+                )> = vec![
+                    ("0.0.2", special_logic_0_0_2),
+                    ("0.0.3", special_logic_0_0_3),
+                    ("0.0.4", special_logic_0_0_4),
+                ];
 
                 for (version_str, logic) in special_versions.iter() {
                     let version = Version::parse(version_str).unwrap();
                     if current_version < version {
-                        let result = logic(
-                            &system_db,
-                            &llm_db,
-                            &assistant_db,
-                            &conversation_db,
-                            app_handle,
-                        );
+                        let result =
+                            logic(&system_db, &llm_db, &assistant_db, &conversation_db, app_handle);
                         match result {
                             Ok(_) => {
                                 println!("special_logic_{} done", version_str);
@@ -127,10 +126,7 @@ fn special_logic_0_0_2(
         .map_err(|e| format!("添加字段provider_id失败: {}", e.to_string()))?;
     assistant_db
         .conn
-        .execute(
-            "ALTER TABLE assistant_model ADD COLUMN model_code TEXT NOT NULL DEFAULT '';",
-            [],
-        )
+        .execute("ALTER TABLE assistant_model ADD COLUMN model_code TEXT NOT NULL DEFAULT '';", [])
         .map_err(|e| format!("添加字段model_code失败: {}", e.to_string()))?;
     assistant_db
         .conn
@@ -206,11 +202,12 @@ fn special_logic_0_0_4(
     _app_handle: &tauri::AppHandle,
 ) -> Result<(), String> {
     println!("special_logic_0_0_4: 清理废弃的assistant消息类型");
-    
+
     // 创建数据库连接
-    let conn = conversation_db.get_connection()
+    let conn = conversation_db
+        .get_connection()
         .map_err(|e| format!("打开数据库连接失败: {}", e.to_string()))?;
-    
+
     // 开始事务
     conn.execute("BEGIN TRANSACTION;", [])
         .map_err(|e| format!("开始事务失败: {}", e.to_string()))?;
@@ -223,7 +220,7 @@ fn special_logic_0_0_4(
     let deprecated_messages = stmt
         .query_map([], |row| {
             Ok((
-                row.get::<_, i64>(0)?, // id
+                row.get::<_, i64>(0)?,    // id
                 row.get::<_, String>(1)?, // content
             ))
         })
@@ -239,15 +236,14 @@ fn special_logic_0_0_4(
         let mut reasoning_stmt = conn
             .prepare("SELECT id FROM message WHERE message_type = 'reasoning' AND conversation_id = (SELECT conversation_id FROM message WHERE id = ?) AND ABS(julianday(created_time) - julianday((SELECT created_time FROM message WHERE id = ?))) < 0.001")
             .map_err(|e| format!("查询对应reasoning消息失败: {}", e.to_string()))?;
-        
-        let reasoning_exists = reasoning_stmt
-            .query_row([message_id, message_id], |_| Ok(()))
-            .is_ok();
+
+        let reasoning_exists =
+            reasoning_stmt.query_row([message_id, message_id], |_| Ok(())).is_ok();
 
         if reasoning_exists {
             // 如果有reasoning消息，生成一个generation_group_id来关联它们
             let generation_group_id = uuid::Uuid::new_v4().to_string();
-            
+
             // 更新reasoning消息的generation_group_id
             conn.execute(
                 "UPDATE message SET generation_group_id = ? WHERE message_type = 'reasoning' AND conversation_id = (SELECT conversation_id FROM message WHERE id = ?) AND ABS(julianday(created_time) - julianday((SELECT created_time FROM message WHERE id = ?))) < 0.001",
@@ -284,9 +280,8 @@ fn special_logic_0_0_4(
     }
 
     // 提交事务
-    conn.execute("COMMIT;", [])
-        .map_err(|e| format!("事务提交失败: {}", e.to_string()))?;
-    
+    conn.execute("COMMIT;", []).map_err(|e| format!("事务提交失败: {}", e.to_string()))?;
+
     println!("special_logic_0_0_4 done: 废弃的assistant消息类型已清理完成");
     Ok(())
 }
@@ -299,20 +294,18 @@ fn special_logic_0_0_3(
     _app_handle: &tauri::AppHandle,
 ) -> Result<(), String> {
     println!("special_logic_0_0_3: 添加 generation_group_id 字段并更新现有数据");
-    
+
     // 创建数据库连接
-    let conn = conversation_db.get_connection()
+    let conn = conversation_db
+        .get_connection()
         .map_err(|e| format!("打开数据库连接失败: {}", e.to_string()))?;
-    
+
     // 开始事务
     conn.execute("BEGIN TRANSACTION;", [])
         .map_err(|e| format!("开始事务失败: {}", e.to_string()))?;
 
     // 添加 generation_group_id 字段
-    conn.execute(
-            "ALTER TABLE message ADD COLUMN generation_group_id TEXT;",
-            [],
-        )
+    conn.execute("ALTER TABLE message ADD COLUMN generation_group_id TEXT;", [])
         .map_err(|e| format!("添加 generation_group_id 字段失败: {}", e.to_string()))?;
 
     // 更新现有数据：为reasoning和response消息配对生成generation_group_id
@@ -322,93 +315,104 @@ fn special_logic_0_0_3(
             "SELECT id, conversation_id, message_type, created_time 
              FROM message 
              WHERE message_type IN ('reasoning', 'response') 
-             ORDER BY conversation_id, created_time"
+             ORDER BY conversation_id, created_time",
         )
         .map_err(|e| format!("准备查询消息失败: {}", e.to_string()))?;
 
     let message_rows = stmt
         .query_map([], |row| {
             Ok((
-                row.get::<_, i64>(0)?, // id
-                row.get::<_, i64>(1)?, // conversation_id
+                row.get::<_, i64>(0)?,    // id
+                row.get::<_, i64>(1)?,    // conversation_id
                 row.get::<_, String>(2)?, // message_type
                 row.get::<_, String>(3)?, // created_time
             ))
         })
         .map_err(|e| format!("查询消息失败: {}", e.to_string()))?;
 
-    let messages: Vec<(i64, i64, String, String)> = message_rows.collect::<Result<Vec<_>, _>>()
+    let messages: Vec<(i64, i64, String, String)> = message_rows
+        .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("收集消息数据失败: {}", e.to_string()))?;
 
     // 按对话ID分组处理消息
-    let mut conversation_messages: std::collections::HashMap<i64, Vec<(i64, String, String)>> = std::collections::HashMap::new();
+    let mut conversation_messages: std::collections::HashMap<i64, Vec<(i64, String, String)>> =
+        std::collections::HashMap::new();
     for (id, conversation_id, message_type, created_time) in messages {
-        conversation_messages
-            .entry(conversation_id)
-            .or_insert_with(Vec::new)
-            .push((id, message_type, created_time));
+        conversation_messages.entry(conversation_id).or_insert_with(Vec::new).push((
+            id,
+            message_type,
+            created_time,
+        ));
     }
 
     // 为每个对话的reasoning和response消息配对
     for (_conversation_id, mut msgs) in conversation_messages {
         // 按创建时间排序
         msgs.sort_by(|a, b| a.2.cmp(&b.2));
-        
+
         let mut i = 0;
         while i < msgs.len() {
             let current_msg = &msgs[i];
-            
+
             // 如果当前消息是reasoning，查找后续的response
             if current_msg.1 == "reasoning" {
                 let mut found_response = false;
                 let mut j = i + 1;
-                
+
                 // 查找同一个generation的response消息
                 while j < msgs.len() {
                     let next_msg = &msgs[j];
                     if next_msg.1 == "response" {
                         // 找到配对的response，为这两条消息生成相同的generation_group_id
                         let generation_group_id = format!("{}", uuid::Uuid::new_v4());
-                        
+
                         // 更新reasoning消息
                         conn.execute(
-                                "UPDATE message SET generation_group_id = ? WHERE id = ?",
-                                params![generation_group_id, current_msg.0],
-                            )
-                            .map_err(|e| format!("更新reasoning消息generation_group_id失败: {}", e.to_string()))?;
-                        
+                            "UPDATE message SET generation_group_id = ? WHERE id = ?",
+                            params![generation_group_id, current_msg.0],
+                        )
+                        .map_err(|e| {
+                            format!("更新reasoning消息generation_group_id失败: {}", e.to_string())
+                        })?;
+
                         // 更新response消息
                         conn.execute(
-                                "UPDATE message SET generation_group_id = ? WHERE id = ?",
-                                params![generation_group_id, next_msg.0],
-                            )
-                            .map_err(|e| format!("更新response消息generation_group_id失败: {}", e.to_string()))?;
-                        
+                            "UPDATE message SET generation_group_id = ? WHERE id = ?",
+                            params![generation_group_id, next_msg.0],
+                        )
+                        .map_err(|e| {
+                            format!("更新response消息generation_group_id失败: {}", e.to_string())
+                        })?;
+
                         found_response = true;
                         i = j + 1; // 跳过已处理的response消息
                         break;
                     }
                     j += 1;
                 }
-                
+
                 if !found_response {
                     // 没有找到配对的response，为单独的reasoning生成generation_group_id
                     let generation_group_id = format!("{}", uuid::Uuid::new_v4());
                     conn.execute(
-                            "UPDATE message SET generation_group_id = ? WHERE id = ?",
-                            params![generation_group_id, current_msg.0],
-                        )
-                        .map_err(|e| format!("更新单独reasoning消息generation_group_id失败: {}", e.to_string()))?;
+                        "UPDATE message SET generation_group_id = ? WHERE id = ?",
+                        params![generation_group_id, current_msg.0],
+                    )
+                    .map_err(|e| {
+                        format!("更新单独reasoning消息generation_group_id失败: {}", e.to_string())
+                    })?;
                     i += 1;
                 }
             } else if current_msg.1 == "response" {
                 // 如果是单独的response消息（没有前面的reasoning），也生成generation_group_id
                 let generation_group_id = format!("{}", uuid::Uuid::new_v4());
                 conn.execute(
-                        "UPDATE message SET generation_group_id = ? WHERE id = ?",
-                        params![generation_group_id, current_msg.0],
-                    )
-                    .map_err(|e| format!("更新单独response消息generation_group_id失败: {}", e.to_string()))?;
+                    "UPDATE message SET generation_group_id = ? WHERE id = ?",
+                    params![generation_group_id, current_msg.0],
+                )
+                .map_err(|e| {
+                    format!("更新单独response消息generation_group_id失败: {}", e.to_string())
+                })?;
                 i += 1;
             } else {
                 i += 1;
@@ -417,9 +421,8 @@ fn special_logic_0_0_3(
     }
 
     // 提交事务
-    conn.execute("COMMIT;", [])
-        .map_err(|e| format!("事务提交失败: {}", e.to_string()))?;
-    
+    conn.execute("COMMIT;", []).map_err(|e| format!("事务提交失败: {}", e.to_string()))?;
+
     println!("special_logic_0_0_3 done: generation_group_id 字段添加完成，现有数据已更新");
     Ok(())
 }

@@ -13,8 +13,52 @@ use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
+use tauri_plugin_notification::NotificationExt;
 use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
+
+/// 发送消息完成通知
+async fn send_completion_notification(
+    app_handle: &tauri::AppHandle,
+    content: &str,
+    assistant_name: Option<String>,
+    config_feature_map: &HashMap<String, HashMap<String, FeatureConfig>>,
+) {
+    // 检查通知是否启用
+    if let Some(display_config) = config_feature_map.get("display") {
+        if let Some(FeatureConfig { value, .. }) = display_config.get("notification_on_completion")
+        {
+            if value == "true" {
+                // 检查 chat 和 ask 窗口是否有任何一个聚焦
+                // 如果有窗口聚焦，则不发送通知
+                if crate::utils::window_utils::is_chat_or_ask_window_focused(app_handle) {
+                    println!("[[notification_skipped]]: chat or ask window is focused");
+                    return;
+                }
+
+                // 准备通知内容
+                let title = if let Some(name) = assistant_name {
+                    format!("AI 消息完成 - {}", name)
+                } else {
+                    "AI 消息完成".to_string()
+                };
+
+                let body = if content.chars().count() > 60 {
+                    let truncated: String = content.chars().take(57).collect();
+                    format!("{}...", truncated)
+                } else {
+                    content.to_string()
+                };
+
+                // 发送系统通知
+                if let Err(e) = app_handle.notification().builder().title(&title).body(&body).show()
+                {
+                    eprintln!("[[failed_to_send_notification]]: {}", e);
+                }
+            }
+        }
+    }
+}
 
 /// 助手提及信息
 #[derive(Debug, Clone)]
@@ -110,13 +154,7 @@ async fn try_fetch_error_body_advanced(
 
         // 方法2: 发送空的POST请求
         println!("[[trying_empty_post_method]]");
-        match client
-            .post(url)
-            .header("Content-Type", "application/json")
-            .body("{}")
-            .send()
-            .await
-        {
+        match client.post(url).header("Content-Type", "application/json").body("{}").send().await {
             Ok(response) => {
                 println!("[[empty_post_response_status]]: {}", response.status());
                 if response.status().is_client_error() || response.status().is_server_error() {
@@ -283,10 +321,7 @@ async fn enhanced_error_logging_v2<E: std::error::Error + 'static>(
 
     // 现在在循环外处理URL（如果有的话）
     for (url_str, status) in error_urls {
-        eprintln!(
-            "[[processing_extracted_url]]: {} with status {}",
-            url_str, status
-        );
+        eprintln!("[[processing_extracted_url]]: {} with status {}", url_str, status);
         let is_chat_api = url_str.contains("/chat/completions");
         if let Some(error_body) = try_fetch_error_body_advanced(&url_str, status, is_chat_api).await
         {
@@ -525,12 +560,7 @@ fn remove_mentions_from_content(content: &str, mentions: &[AssistantMention]) ->
     let result_str = result.iter().collect::<String>();
 
     // 清理多余的空格
-    result_str
-        .split_whitespace()
-        .collect::<Vec<&str>>()
-        .join(" ")
-        .trim()
-        .to_string()
+    result_str.split_whitespace().collect::<Vec<&str>>().join(" ").trim().to_string()
 }
 
 /// 解析消息中的助手提及
@@ -591,10 +621,7 @@ pub async fn extract_assistant_from_message(
 
     let result = parse_assistant_mentions(assistants, prompt, &options)?;
 
-    Ok((
-        result.primary_assistant_id.unwrap_or(default_assistant_id),
-        result.cleaned_content,
-    ))
+    Ok((result.primary_assistant_id.unwrap_or(default_assistant_id), result.cleaned_content))
 }
 
 pub async fn handle_stream_chat(
@@ -625,10 +652,7 @@ pub async fn handle_stream_chat(
     // 外层重试循环，处理整个流式会话
     loop {
         main_attempts += 1;
-        println!(
-            "[[stream_chat_attempt]]: {}/{}",
-            main_attempts, max_retry_attempts
-        );
+        println!("[[stream_chat_attempt]]: {}/{}", main_attempts, max_retry_attempts);
 
         let stream_result = attempt_stream_chat(
             client,
@@ -657,10 +681,7 @@ pub async fn handle_stream_chat(
                 return Ok(());
             }
             Err(e) => {
-                println!(
-                    "[[stream_chat_failed_attempt]]: {} [[error]]: {}",
-                    main_attempts, e
-                );
+                println!("[[stream_chat_failed_attempt]]: {} [[error]]: {}", main_attempts, e);
 
                 if main_attempts >= max_retry_attempts {
                     // 最终失败，清理资源并返回错误
@@ -729,10 +750,7 @@ async fn attempt_stream_chat(
         match &msg.role {
             genai::chat::ChatRole::Assistant => match &msg.content {
                 genai::chat::MessageContent::Text(text) => {
-                    println!(
-                        "    Content: {}",
-                        text.chars().take(100).collect::<String>()
-                    );
+                    println!("    Content: {}", text.chars().take(100).collect::<String>());
                 }
                 genai::chat::MessageContent::ToolCalls(tool_calls) => {
                     println!("    Tool calls count: {}", tool_calls.len());
@@ -753,10 +771,7 @@ async fn attempt_stream_chat(
             },
             _ => match &msg.content {
                 genai::chat::MessageContent::Text(text) => {
-                    println!(
-                        "    Content: {}",
-                        text.chars().take(100).collect::<String>()
-                    );
+                    println!("    Content: {}", text.chars().take(100).collect::<String>());
                 }
                 _ => println!("    Content: <other>"),
             },
@@ -773,10 +788,7 @@ async fn attempt_stream_chat(
         }
         Err(e) => {
             let _user_friendly_error = enhanced_error_logging_v2(&e, "Stream Connection").await;
-            return Err(anyhow::anyhow!(
-                "Failed to establish stream connection: {}",
-                e
-            ));
+            return Err(anyhow::anyhow!("Failed to establish stream connection: {}", e));
         }
     };
 
@@ -1283,6 +1295,32 @@ async fn attempt_stream_chat(
                                     });
                                 }
 
+                                // 获取助手名称并发送完成通知
+                                let assistant_name = if let Ok(Some(conv)) = conversation_db
+                                    .conversation_repo()
+                                    .unwrap()
+                                    .read(conversation_id)
+                                {
+                                    if let Some(assistant_id) = conv.assistant_id {
+                                        if let Ok(assistant) = crate::api::assistant_api::get_assistant(app_handle.clone(), assistant_id) {
+                                            Some(assistant.assistant.name.clone())
+                                        } else {
+                                            None
+                                        }
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                };
+
+                                send_completion_notification(
+                                    app_handle,
+                                    &response_content,
+                                    assistant_name,
+                                    &config_feature_map,
+                                ).await;
+
                                 return Ok(());
                             }
                         }
@@ -1345,10 +1383,8 @@ async fn create_error_message(
             })
             .unwrap(),
         };
-        let _ = window.emit(
-            format!("conversation_event_{}", conversation_id).as_str(),
-            error_event,
-        );
+        let _ =
+            window.emit(format!("conversation_event_{}", conversation_id).as_str(), error_event);
 
         let update_event = ConversationEvent {
             r#type: "message_update".to_string(),
@@ -1360,10 +1396,8 @@ async fn create_error_message(
             })
             .unwrap(),
         };
-        let _ = window.emit(
-            format!("conversation_event_{}", conversation_id).as_str(),
-            update_event,
-        );
+        let _ =
+            window.emit(format!("conversation_event_{}", conversation_id).as_str(), update_event);
     }
 }
 
@@ -1386,9 +1420,8 @@ pub async fn handle_non_stream_chat(
     llm_model_id: i64,
     llm_model_name: String,
 ) -> Result<(), anyhow::Error> {
-    let generation_group_id = generation_group_id_override
-        .clone()
-        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let generation_group_id =
+        generation_group_id_override.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     // 从配置中获取最大重试次数
     let max_retry_attempts = get_retry_attempts_from_config(&config_feature_map);
@@ -1402,10 +1435,7 @@ pub async fn handle_non_stream_chat(
         match &msg.role {
             genai::chat::ChatRole::Assistant => match &msg.content {
                 genai::chat::MessageContent::Text(text) => {
-                    println!(
-                        "    Content: {}",
-                        text.chars().take(100).collect::<String>()
-                    );
+                    println!("    Content: {}", text.chars().take(100).collect::<String>());
                 }
                 genai::chat::MessageContent::ToolCalls(tool_calls) => {
                     println!("    Tool calls count: {}", tool_calls.len());
@@ -1426,10 +1456,7 @@ pub async fn handle_non_stream_chat(
             },
             _ => match &msg.content {
                 genai::chat::MessageContent::Text(text) => {
-                    println!(
-                        "    Content: {}",
-                        text.chars().take(100).collect::<String>()
-                    );
+                    println!("    Content: {}", text.chars().take(100).collect::<String>());
                 }
                 _ => println!("    Content: <other>"),
             },
@@ -1512,10 +1539,8 @@ pub async fn handle_non_stream_chat(
                 })
                 .unwrap(),
             };
-            let _ = window.emit(
-                format!("conversation_event_{}", conversation_id).as_str(),
-                add_event,
-            );
+            let _ =
+                window.emit(format!("conversation_event_{}", conversation_id).as_str(), add_event);
 
             // 立即发送一个 is_done: false 的 message_update 事件，触发前端清理用户消息的 shine-border
             // 这与流式模式的行为保持一致
@@ -1535,26 +1560,18 @@ pub async fn handle_non_stream_chat(
             );
 
             // 非流式：捕获原生 ToolCall 并处理（创建DB、UI注释、自动执行）
-            let tool_calls: Vec<ToolCall> = chat_response
-                .tool_calls()
-                .into_iter()
-                .map(|tc| tc.clone())
-                .collect();
+            let tool_calls: Vec<ToolCall> =
+                chat_response.tool_calls().into_iter().map(|tc| tc.clone()).collect();
 
             if !tool_calls.is_empty() {
-                println!(
-                    "[[non_stream_captured_tool_calls_count]]: {}",
-                    tool_calls.len()
-                );
+                println!("[[non_stream_captured_tool_calls_count]]: {}", tool_calls.len());
 
                 // 保存原始 tool_calls JSON 到 assistant 消息
                 let tool_calls_json = serde_json::to_string(&tool_calls).ok();
 
                 // 更新消息以包含 tool_calls_json
-                if let Ok(Some(mut msg)) = conversation_db
-                    .message_repo()
-                    .unwrap()
-                    .read(response_message_id)
+                if let Ok(Some(mut msg)) =
+                    conversation_db.message_repo().unwrap().read(response_message_id)
                 {
                     msg.tool_calls_json = tool_calls_json;
                     let _ = conversation_db.message_repo().unwrap().update(&msg);
@@ -1620,10 +1637,8 @@ pub async fn handle_non_stream_chat(
                             content.push_str(&ui_hint);
 
                             // 立即更新消息内容并发送事件，让用户看到工具调用界面
-                            if let Ok(Some(mut msg)) = conversation_db
-                                .message_repo()
-                                .unwrap()
-                                .read(response_message_id)
+                            if let Ok(Some(mut msg)) =
+                                conversation_db.message_repo().unwrap().read(response_message_id)
                             {
                                 msg.content = content.clone();
                                 let _ = conversation_db.message_repo().unwrap().update(&msg);
@@ -1646,10 +1661,8 @@ pub async fn handle_non_stream_chat(
                             }
 
                             // 自动执行（若配置）
-                            if let Ok(conv) = conversation_db
-                                .conversation_repo()
-                                .unwrap()
-                                .read(conversation_id)
+                            if let Ok(conv) =
+                                conversation_db.conversation_repo().unwrap().read(conversation_id)
                             {
                                 if let Some(assistant_id) = conv.and_then(|c| c.assistant_id) {
                                     if let Ok(servers) = crate::api::assistant_api::get_assistant_mcp_servers_with_tools(app_handle.clone(), assistant_id).await {
@@ -1687,18 +1700,10 @@ pub async fn handle_non_stream_chat(
                 }
             }
 
-            let mut message = conversation_db
-                .message_repo()
-                .unwrap()
-                .read(response_message_id)
-                .unwrap()
-                .unwrap();
+            let mut message =
+                conversation_db.message_repo().unwrap().read(response_message_id).unwrap().unwrap();
             message.content = content.clone();
-            conversation_db
-                .message_repo()
-                .unwrap()
-                .update(&message)
-                .unwrap();
+            conversation_db.message_repo().unwrap().update(&message).unwrap();
 
             conversation_db
                 .message_repo()
@@ -1716,10 +1721,8 @@ pub async fn handle_non_stream_chat(
                 })
                 .unwrap(),
             };
-            let _ = window.emit(
-                format!("conversation_event_{}", conversation_id).as_str(),
-                update_event,
-            );
+            let _ = window
+                .emit(format!("conversation_event_{}", conversation_id).as_str(), update_event);
 
             if need_generate_title && !content.is_empty() {
                 let app_handle_clone = app_handle.clone();
@@ -1743,6 +1746,33 @@ pub async fn handle_non_stream_chat(
                     }
                 });
             }
+
+            // 获取助手名称并发送完成通知
+            let assistant_name = if let Ok(Some(conv)) =
+                conversation_db.conversation_repo().unwrap().read(conversation_id)
+            {
+                if let Some(assistant_id) = conv.assistant_id {
+                    if let Ok(assistant) =
+                        crate::api::assistant_api::get_assistant(app_handle.clone(), assistant_id)
+                    {
+                        Some(assistant.assistant.name.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            send_completion_notification(
+                app_handle,
+                &content,
+                assistant_name,
+                &config_feature_map,
+            )
+            .await;
 
             Ok(())
         }
@@ -1786,10 +1816,8 @@ pub async fn handle_non_stream_chat(
                 })
                 .unwrap(),
             };
-            let _ = window.emit(
-                format!("conversation_event_{}", conversation_id).as_str(),
-                error_event,
-            );
+            let _ = window
+                .emit(format!("conversation_event_{}", conversation_id).as_str(), error_event);
 
             let update_event = ConversationEvent {
                 r#type: "message_update".to_string(),
@@ -1801,10 +1829,8 @@ pub async fn handle_non_stream_chat(
                 })
                 .unwrap(),
             };
-            let _ = window.emit(
-                format!("conversation_event_{}", conversation_id).as_str(),
-                update_event,
-            );
+            let _ = window
+                .emit(format!("conversation_event_{}", conversation_id).as_str(), update_event);
 
             eprintln!("[[chat_error]]: {}", e);
             Err(anyhow::anyhow!("Chat error: {}", e))

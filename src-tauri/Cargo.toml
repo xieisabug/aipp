@@ -55,6 +55,7 @@ rmcp = { version = "0.2.1", features = [
     "transport-child-process",
     "reqwest"
 ] }
+tauri-plugin-notification = "2"
 [target.'cfg(target_os = "macos")'.dependencies]
 macos-accessibility-client = "0.0.1"
 

@@ -121,14 +121,7 @@ impl LLMDatabase {
             "SELECT id, name, api_type, description, is_official, is_enabled FROM llm_provider",
         )?;
         let llm_providers = stmt.query_map([], |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-                row.get(5)?,
-            ))
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
         })?;
 
         let mut result = Vec::new();
@@ -176,16 +169,10 @@ impl LLMDatabase {
     }
 
     pub fn delete_llm_provider(&self, id: i64) -> rusqlite::Result<()> {
-        self.conn.execute(
-            "DELETE FROM llm_provider_config WHERE llm_provider_id = ?",
-            params![id],
-        )?;
-        self.conn.execute(
-            "DELETE FROM llm_model WHERE llm_provider_id = ?",
-            params![id],
-        )?;
         self.conn
-            .execute("DELETE FROM llm_provider WHERE id = ?", params![id])?;
+            .execute("DELETE FROM llm_provider_config WHERE llm_provider_id = ?", params![id])?;
+        self.conn.execute("DELETE FROM llm_model WHERE llm_provider_id = ?", params![id])?;
+        self.conn.execute("DELETE FROM llm_provider WHERE id = ?", params![id])?;
         Ok(())
     }
 
@@ -337,11 +324,7 @@ impl LLMDatabase {
         let provider = self.get_llm_provider(provider_id)?;
         let configs = self.get_llm_provider_config(provider_id)?;
 
-        Ok(ModelDetail {
-            model,
-            provider,
-            configs,
-        })
+        Ok(ModelDetail { model, provider, configs })
     }
 
     pub fn get_llm_model_detail_by_id(&self, id: &i64) -> rusqlite::Result<ModelDetail> {
@@ -371,11 +354,7 @@ impl LLMDatabase {
         let provider = self.get_llm_provider(provider_id)?;
         let configs = self.get_llm_provider_config(provider_id)?;
 
-        Ok(ModelDetail {
-            model,
-            provider,
-            configs,
-        })
+        Ok(ModelDetail { model, provider, configs })
     }
 
     pub fn delete_llm_model(&self, provider_id: i64, code: String) -> rusqlite::Result<()> {
@@ -387,10 +366,8 @@ impl LLMDatabase {
     }
 
     pub fn delete_llm_model_by_provider(&self, provider_id: i64) -> rusqlite::Result<()> {
-        self.conn.execute(
-            "DELETE FROM llm_model WHERE llm_provider_id = ?",
-            params![provider_id],
-        )?;
+        self.conn
+            .execute("DELETE FROM llm_model WHERE llm_provider_id = ?", params![provider_id])?;
         Ok(())
     }
 
@@ -413,9 +390,9 @@ impl LLMDatabase {
             Err(e) => return Err(e.to_string()), // Convert rusqlite::Error to String
         };
 
-        let models = match stmt.query_map([], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-        }) {
+        let models = match stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+        {
             Ok(models) => models,
             Err(e) => return Err(e.to_string()), // Convert rusqlite::Error to String
         };
@@ -450,5 +427,4 @@ impl LLMDatabase {
 
         Ok(())
     }
-
 }

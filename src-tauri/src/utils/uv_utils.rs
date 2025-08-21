@@ -1,6 +1,6 @@
+use dirs;
 use std::process::Command;
 use tauri::AppHandle;
-use dirs;
 
 /// Uv 可执行文件工具函数
 pub struct UvUtils;
@@ -23,7 +23,8 @@ impl UvUtils {
             if exe.exists() {
                 match Command::new(exe).arg("--version").output() {
                     Ok(output) if output.status.success() => {
-                        let version_info = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                        let version_info =
+                            String::from_utf8_lossy(&output.stdout).trim().to_string();
                         // The output is like "uv 0.2.8", we just need the version number.
                         if let Some(version) = version_info.split_whitespace().last() {
                             Some(version.to_string())

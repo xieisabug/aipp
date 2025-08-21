@@ -53,6 +53,9 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
 
     // 使用 ref 存储最新的回调函数，避免依赖项变化
     const callbacksRef = useRef(options);
+    
+    // 使用 ref 存储最新的 functionMap，避免频繁变化
+    const functionMapRef = useRef<Map<number, any>>(new Map());
 
     // 更新 ref 中的回调函数
     useEffect(() => {
@@ -230,6 +233,19 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
                     }
                 }
 
+                // 处理插件兼容性
+                const functionMap = functionMapRef.current;
+                const streamMessageListener = functionMap.get(
+                    streamEvent.message_id,
+                )?.onStreamMessageListener;
+                if (streamMessageListener) {
+                    streamMessageListener(
+                        streamEvent.content,
+                        { conversation_id: +callbacksRef.current.conversationId, request_prompt_result_with_context: "" },
+                        () => {}, // 空的 setAiIsResponsing 函数，实际应该从外部传入
+                    );
+                }
+
                 // 调用外部的消息更新处理函数
                 callbacksRef.current.onMessageUpdate?.(streamEvent);
             } else if (conversationEvent.type === "group_merge") {
@@ -338,6 +354,11 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
         callbacksRef.current.onAiResponseComplete?.();
     }, []);
 
+    // 提供稳定的 functionMap 更新接口
+    const updateFunctionMap = useCallback((functionMap: Map<number, any>) => {
+        functionMapRef.current = functionMap;
+    }, []);
+
     return {
         streamingMessages,
         shiningMessageIds,
@@ -349,5 +370,6 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
         clearShiningMessages,
         handleError,
         updateShiningMessages, // 导出智能边框更新函数
+        updateFunctionMap, // 导出 functionMap 更新函数
     };
 }

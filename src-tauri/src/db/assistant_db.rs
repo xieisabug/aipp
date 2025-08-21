@@ -199,8 +199,7 @@ impl AssistantDatabase {
     }
 
     pub fn delete_assistant(&self, id: i64) -> Result<()> {
-        self.conn
-            .execute("DELETE FROM assistant WHERE id = ?", params![id])?;
+        self.conn.execute("DELETE FROM assistant WHERE id = ?", params![id])?;
         Ok(())
     }
 
@@ -214,10 +213,8 @@ impl AssistantDatabase {
     }
 
     pub fn update_assistant_prompt(&self, id: i64, prompt: &str) -> Result<()> {
-        self.conn.execute(
-            "UPDATE assistant_prompt SET prompt = ? WHERE id = ?",
-            params![prompt, id],
-        )?;
+        self.conn
+            .execute("UPDATE assistant_prompt SET prompt = ? WHERE id = ?", params![prompt, id])?;
         Ok(())
     }
 
@@ -564,14 +561,7 @@ impl AssistantDatabase {
     pub fn get_assistant_mcp_servers_with_tools(
         &self,
         assistant_id: i64,
-    ) -> Result<
-        Vec<(
-            i64,
-            String,
-            bool,
-            Vec<(i64, String, String, bool, bool, String)>,
-        )>,
-    > {
+    ) -> Result<Vec<(i64, String, bool, Vec<(i64, String, String, bool, bool, String)>)>> {
         // 使用一条 SQL 语句获取所有需要的数据，避免 N+1 查询问题
         // 注意：由于涉及两个数据库（assistant.db 和 mcp.db），我们需要分两步查询，但可以优化为批量查询
 
@@ -585,9 +575,7 @@ impl AssistantDatabase {
         ",
         )?;
         let servers: Vec<(i64, String)> = server_stmt
-            .query_map([], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-            })?
+            .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))?
             .collect::<Result<Vec<_>, _>>()?;
 
         if servers.is_empty() {
@@ -624,28 +612,23 @@ impl AssistantDatabase {
 
         let mut tools_stmt = self.mcp_conn.prepare(&tools_sql)?;
         let all_tools: Vec<(i64, i64, String, String, String)> = tools_stmt
-            .query_map(
-                rusqlite::params_from_iter(servers.iter().map(|(id, _)| *id)),
-                |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, i64>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, String>(4)?,
-                    ))
-                },
-            )?
+            .query_map(rusqlite::params_from_iter(servers.iter().map(|(id, _)| *id)), |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            })?
             .collect::<Result<Vec<_>, _>>()?;
 
         // 4. 批量获取工具配置状态
         let mut tool_configs: std::collections::HashMap<i64, (bool, bool)> =
             std::collections::HashMap::new();
         if !all_tools.is_empty() {
-            let tool_ids: Vec<String> = all_tools
-                .iter()
-                .map(|(id, _, _, _, _)| id.to_string())
-                .collect();
+            let tool_ids: Vec<String> =
+                all_tools.iter().map(|(id, _, _, _, _)| id.to_string()).collect();
             let tool_ids_placeholder = vec!["?"; tool_ids.len()].join(",");
             let tool_config_sql = format!(
                 "SELECT mcp_tool_id, is_enabled, is_auto_run FROM assistant_mcp_tool_config 
@@ -659,10 +642,7 @@ impl AssistantDatabase {
 
             tool_configs = tool_config_stmt
                 .query_map(rusqlite::params_from_iter(tool_config_params), |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        (row.get::<_, bool>(1)?, row.get::<_, bool>(2)?),
-                    ))
+                    Ok((row.get::<_, i64>(0)?, (row.get::<_, bool>(1)?, row.get::<_, bool>(2)?)))
                 })?
                 .collect::<Result<std::collections::HashMap<_, _>, _>>()?;
         }
@@ -676,21 +656,19 @@ impl AssistantDatabase {
             let server_tools: Vec<(i64, String, String, bool, bool, String)> = all_tools
                 .iter()
                 .filter(|(_, sid, _, _, _)| *sid == server_id)
-                .map(
-                    |(tool_id, _, tool_name, tool_description, tool_parameters)| {
-                        let (tool_is_enabled, tool_is_auto_run) =
-                            tool_configs.get(tool_id).copied().unwrap_or((true, false)); // Default: enabled but not auto-run
+                .map(|(tool_id, _, tool_name, tool_description, tool_parameters)| {
+                    let (tool_is_enabled, tool_is_auto_run) =
+                        tool_configs.get(tool_id).copied().unwrap_or((true, false)); // Default: enabled but not auto-run
 
-                        (
-                            *tool_id,
-                            tool_name.clone(),
-                            tool_description.clone(),
-                            tool_is_enabled,
-                            tool_is_auto_run,
-                            tool_parameters.clone(),
-                        )
-                    },
-                )
+                    (
+                        *tool_id,
+                        tool_name.clone(),
+                        tool_description.clone(),
+                        tool_is_enabled,
+                        tool_is_auto_run,
+                        tool_parameters.clone(),
+                    )
+                })
                 .collect();
 
             result.push((server_id, server_name, server_is_enabled, server_tools));

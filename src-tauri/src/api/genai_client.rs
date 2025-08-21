@@ -1,7 +1,7 @@
 use crate::errors::AppError;
 use genai::resolver::{AuthData, Endpoint, ServiceTargetResolver};
-use genai::{Client, WebConfig};
 use genai::{adapter::AdapterKind, ModelIden, ServiceTarget};
+use genai::{Client, WebConfig};
 use std::time::Duration;
 
 // 默认端点映射
@@ -9,10 +9,7 @@ pub const DEFAULT_ENDPOINTS: &[(AdapterKind, &str)] = &[
     (AdapterKind::OpenAI, "https://api.openai.com/v1/"),
     (AdapterKind::Anthropic, "https://api.anthropic.com/"),
     (AdapterKind::Cohere, "https://api.cohere.ai/v1/"),
-    (
-        AdapterKind::Gemini,
-        "https://generativelanguage.googleapis.com/v1beta/",
-    ),
+    (AdapterKind::Gemini, "https://generativelanguage.googleapis.com/v1beta/"),
     (AdapterKind::Groq, "https://api.groq.com/openai/v1/"),
     (AdapterKind::Xai, "https://api.x.ai/v1/"),
     (AdapterKind::DeepSeek, "https://api.deepseek.com/"),
@@ -106,7 +103,7 @@ pub fn create_client_with_config(
 
     // 构建 WebConfig 配置代理和超时
     let mut web_config = WebConfig::default();
-    
+
     // 配置超时
     if let Some(timeout_secs) = request_timeout {
         if timeout_secs > 0 {
@@ -114,7 +111,7 @@ pub fn create_client_with_config(
             println!("[[request_timeout_configured]]: {}s", timeout_secs);
         }
     }
-    
+
     // 配置代理
     if proxy_enabled {
         if let Some(proxy_url) = network_proxy {
@@ -124,7 +121,8 @@ pub fn create_client_with_config(
                         web_config = WebConfig::default().with_proxy(proxy);
                         if let Some(timeout_secs) = request_timeout {
                             if timeout_secs > 0 {
-                                web_config = web_config.with_timeout(Duration::from_secs(timeout_secs));
+                                web_config =
+                                    web_config.with_timeout(Duration::from_secs(timeout_secs));
                             }
                         }
                         println!("[[proxy_configured]]: {}", proxy_url);
@@ -165,11 +163,7 @@ pub fn create_client_with_config(
 
             println!("endpoint: {:?} model: {:?}", endpoint, model);
 
-            Ok(ServiceTarget {
-                endpoint,
-                auth,
-                model,
-            })
+            Ok(ServiceTarget { endpoint, auth, model })
         },
     );
 

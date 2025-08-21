@@ -150,8 +150,7 @@ impl Repository<Plugin> for PluginRepository {
     }
 
     fn delete(&self, id: i64) -> Result<()> {
-        self.conn
-            .execute("DELETE FROM Plugins WHERE plugin_id = ?", &[&id])?;
+        self.conn.execute("DELETE FROM Plugins WHERE plugin_id = ?", &[&id])?;
         Ok(())
     }
 }
@@ -189,11 +188,7 @@ impl Repository<PluginStatus> for PluginStatusRepository {
         self.conn.execute(
             "INSERT INTO PluginStatus (plugin_id, is_active, last_run)
              VALUES (?1, ?2, ?3)",
-            (
-                &status.plugin_id,
-                &(status.is_active as i64),
-                &status.last_run,
-            ),
+            (&status.plugin_id, &(status.is_active as i64), &status.last_run),
         )?;
         let id = self.conn.last_insert_rowid();
         Ok(PluginStatus {
@@ -226,18 +221,13 @@ impl Repository<PluginStatus> for PluginStatusRepository {
         self.conn.execute(
             "UPDATE PluginStatus SET is_active = ?1, last_run = ?2
              WHERE status_id = ?3",
-            (
-                &(status.is_active as i64),
-                &status.last_run,
-                &status.status_id,
-            ),
+            (&(status.is_active as i64), &status.last_run, &status.status_id),
         )?;
         Ok(())
     }
 
     fn delete(&self, id: i64) -> Result<()> {
-        self.conn
-            .execute("DELETE FROM PluginStatus WHERE status_id = ?", &[&id])?;
+        self.conn.execute("DELETE FROM PluginStatus WHERE status_id = ?", &[&id])?;
         Ok(())
     }
 }
@@ -316,10 +306,7 @@ impl Repository<PluginConfiguration> for PluginConfigurationRepository {
     }
 
     fn delete(&self, id: i64) -> Result<()> {
-        self.conn.execute(
-            "DELETE FROM PluginConfigurations WHERE config_id = ?",
-            &[&id],
-        )?;
+        self.conn.execute("DELETE FROM PluginConfigurations WHERE config_id = ?", &[&id])?;
         Ok(())
     }
 }
@@ -415,8 +402,7 @@ impl Repository<PluginData> for PluginDataRepository {
     }
 
     fn delete(&self, id: i64) -> Result<()> {
-        self.conn
-            .execute("DELETE FROM PluginData WHERE data_id = ?", &[&id])?;
+        self.conn.execute("DELETE FROM PluginData WHERE data_id = ?", &[&id])?;
         Ok(())
     }
 }
@@ -429,9 +415,7 @@ impl PluginDatabase {
     pub fn new(app_handle: &tauri::AppHandle) -> rusqlite::Result<Self> {
         let db_path = get_db_path(app_handle, "plugin.db");
 
-        Ok(PluginDatabase {
-            db_path: db_path.unwrap(),
-        })
+        Ok(PluginDatabase { db_path: db_path.unwrap() })
     }
 
     pub fn plugin_repo(&self) -> Result<PluginRepository, AppError> {

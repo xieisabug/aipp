@@ -1,44 +1,29 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Controller, SubmitHandler, UseFormReturn } from "react-hook-form";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "./ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Copy, Trash2, CircleHelp, ChevronDown, ChevronRight, Edit3 } from "lucide-react";
-import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle,
-} from "./ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Form, FormControl, FormItem, FormLabel, FormMessage } from "./ui/form";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { RadioGroup, RadioGroupItem } from "./ui/radio-group";
 import { Input } from "./ui/input";
 import { Checkbox } from "./ui/checkbox";
-import {
-    Tooltip,
-    TooltipContent,
-    TooltipProvider,
-    TooltipTrigger,
-} from "./ui/tooltip";
+import { Switch } from "./ui/switch";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 
 interface ConfigField {
     type:
-    | "select"
-    | "textarea"
-    | "input"
-    | "password"
-    | "checkbox"
-    | "radio"
-    | "static"
-    | "custom"
-    | "button";
+        | "select"
+        | "textarea"
+        | "input"
+        | "password"
+        | "checkbox"
+        | "radio"
+        | "static"
+        | "custom"
+        | "button"
+        | "switch";
     label: string;
     className?: string;
     options?: { value: string; label: string; tooltip?: string }[];
@@ -111,14 +96,8 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
             content.addEventListener("transitionstart", handleTransitionStart);
 
             return () => {
-                content.removeEventListener(
-                    "transitionend",
-                    handleTransitionEnd,
-                );
-                content.removeEventListener(
-                    "transitionstart",
-                    handleTransitionStart,
-                );
+                content.removeEventListener("transitionend", handleTransitionEnd);
+                content.removeEventListener("transitionstart", handleTransitionStart);
             };
         }
     }, [isExpanded]);
@@ -135,173 +114,170 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
         }
     }, []);
 
-    const CustomFormField = React.memo(
-        ({ field, name }: { field: ConfigField; name: string }) => {
-            const renderField = (fieldRenderData: any) => {
-                switch (field.type) {
-                    case "select":
-                        return (
-                            <Select
-                                disabled={field.disabled}
-                                value={fieldRenderData.value}
-                                onValueChange={fieldRenderData.onChange}
-                            >
-                                <SelectTrigger className="w-full max-w-full focus:ring-ring/20 focus:border-ring overflow-hidden">
-                                    <SelectValue placeholder={field.label} />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {field.options?.map((option) => (
-                                        <SelectItem
-                                            key={option.value}
-                                            value={option.value}
-                                        >
-                                            {option.label}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        );
-                    case "textarea":
-                        return (
-                            <Textarea
-                                className={`focus:ring-ring/20 focus:border-ring ${field.className || ''}`}
-                                disabled={field.disabled}
-                                {...fieldRenderData}
-                            />
-                        );
-                    case "input":
-                    case "password":
-                        return (
-                            <Input
-                                className={`focus:ring-ring/20 focus:border-ring ${field.className || ''}`}
-                                type={
-                                    field.type === "password"
-                                        ? "password"
-                                        : "text"
-                                }
-                                disabled={field.disabled}
-                                {...fieldRenderData}
-                            />
-                        );
-                    case "checkbox":
-                        return (
-                            <Checkbox
-                                className={`focus:ring-ring/20 ${field.className || ''}`}
-                                disabled={field.disabled}
-                                checked={fieldRenderData.value}
-                                onCheckedChange={fieldRenderData.onChange}
-                            />
-                        );
-                    case "radio":
-                        return (
-                            <RadioGroup
-                                className={field.className}
-                                value={fieldRenderData.value}
-                                onValueChange={fieldRenderData.onChange}
-                                disabled={field.disabled}
-                            >
+    const CustomFormField = React.memo(({ field, name }: { field: ConfigField; name: string }) => {
+        const renderField = (fieldRenderData: any) => {
+            if (field.type == "switch") {
+                console.log("field render data", fieldRenderData.value, fieldRenderData.value === "true");
+            }
+            switch (field.type) {
+                case "select":
+                    return (
+                        <Select
+                            disabled={field.disabled}
+                            value={fieldRenderData.value}
+                            onValueChange={fieldRenderData.onChange}
+                        >
+                            <SelectTrigger className="w-full max-w-full focus:ring-ring/20 focus:border-ring overflow-hidden">
+                                <SelectValue placeholder={field.label} />
+                            </SelectTrigger>
+                            <SelectContent>
                                 {field.options?.map((option) => (
-                                    <FormItem
-                                        className="flex items-center space-x-2"
-                                        key={option.value}
-                                    >
-                                        <RadioGroupItem
-                                            value={option.value}
-                                            id={option.value}
-                                            className="focus:ring-ring/20"
-                                        />
-                                        <label
-                                            htmlFor={option.value}
-                                            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-foreground"
-                                        >
-                                            {option.label}
-                                        </label>
-                                        {option.tooltip && (
-                                            <TooltipProvider>
-                                                <Tooltip>
-                                                    <TooltipTrigger>
-                                                        <CircleHelp
-                                                            size={16}
-                                                            className="text-muted-foreground"
-                                                        />
-                                                    </TooltipTrigger>
-                                                    <TooltipContent>
-                                                        {option.tooltip}
-                                                    </TooltipContent>
-                                                </Tooltip>
-                                            </TooltipProvider>
-                                        )}
-                                    </FormItem>
+                                    <SelectItem key={option.value} value={option.value}>
+                                        {option.label}
+                                    </SelectItem>
                                 ))}
-                            </RadioGroup>
-                        );
-                    case "static":
-                        return (
-                            <div className={`text-sm text-muted-foreground px-3 py-2 bg-muted rounded-md break-words whitespace-pre-wrap ${field.className || ''}`}>
-                                {field.value}
-                            </div>
-                        );
-                    case "custom":
-                        const customElement = useMemo(() => {
-                            return field.customRender
-                                ? field.customRender(fieldRenderData)
-                                : null;
-                        }, [field.customRender, fieldRenderData]);
-                        return customElement;
-                    case "button":
-                        return (
-                            <Button
-                                type="button"
-                                variant="outline"
-                                className={`hover:bg-muted hover:border-border ${field.className || ''}`}
-                                disabled={field.disabled}
-                                onClick={() => {
-                                    field.onClick &&
-                                        field.onClick(assistantConfigApi);
-                                }}
-                            >
-                                {field.value as string}
-                            </Button>
-                        );
-                    default:
-                        return null;
-                }
-            };
+                            </SelectContent>
+                        </Select>
+                    );
+                case "textarea":
+                    return (
+                        <Textarea
+                            className={`focus:ring-ring/20 focus:border-ring ${field.className || ""}`}
+                            disabled={field.disabled}
+                            {...fieldRenderData}
+                        />
+                    );
+                case "input":
+                case "password":
+                    return (
+                        <Input
+                            className={`focus:ring-ring/20 focus:border-ring ${field.className || ""}`}
+                            type={field.type === "password" ? "password" : "text"}
+                            disabled={field.disabled}
+                            {...fieldRenderData}
+                        />
+                    );
+                case "checkbox":
+                    return (
+                        <Checkbox
+                            className={`focus:ring-ring/20 ${field.className || ""}`}
+                            disabled={field.disabled}
+                            checked={fieldRenderData.value}
+                            onCheckedChange={fieldRenderData.onChange}
+                        />
+                    );
+                case "switch":
+                    return (
+                        <Switch
+                            className={field.className}
+                            disabled={field.disabled}
+                            checked={
+                                fieldRenderData.value === true ||
+                                fieldRenderData.value === "true" ||
+                                fieldRenderData.value === 1 ||
+                                fieldRenderData.value === "1"
+                            }
+                            onCheckedChange={fieldRenderData.onChange}
+                        />
+                    );
+                case "radio":
+                    return (
+                        <RadioGroup
+                            className={field.className}
+                            value={fieldRenderData.value}
+                            onValueChange={fieldRenderData.onChange}
+                            disabled={field.disabled}
+                        >
+                            {field.options?.map((option) => (
+                                <FormItem className="flex items-center space-x-2" key={option.value}>
+                                    <RadioGroupItem
+                                        value={option.value}
+                                        id={option.value}
+                                        className="focus:ring-ring/20"
+                                    />
+                                    <label
+                                        htmlFor={option.value}
+                                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-foreground"
+                                    >
+                                        {option.label}
+                                    </label>
+                                    {option.tooltip && (
+                                        <TooltipProvider>
+                                            <Tooltip>
+                                                <TooltipTrigger>
+                                                    <CircleHelp size={16} className="text-muted-foreground" />
+                                                </TooltipTrigger>
+                                                <TooltipContent>{option.tooltip}</TooltipContent>
+                                            </Tooltip>
+                                        </TooltipProvider>
+                                    )}
+                                </FormItem>
+                            ))}
+                        </RadioGroup>
+                    );
+                case "static":
+                    return (
+                        <div
+                            className={`text-sm text-muted-foreground px-3 py-2 bg-muted rounded-md break-words whitespace-pre-wrap ${
+                                field.className || ""
+                            }`}
+                        >
+                            {field.value}
+                        </div>
+                    );
+                case "custom":
+                    const customElement = useMemo(() => {
+                        return field.customRender ? field.customRender(fieldRenderData) : null;
+                    }, [field.customRender, fieldRenderData]);
+                    return customElement;
+                case "button":
+                    return (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            className={`hover:bg-muted hover:border-border ${field.className || ""}`}
+                            disabled={field.disabled}
+                            onClick={() => {
+                                field.onClick && field.onClick(assistantConfigApi);
+                            }}
+                        >
+                            {field.value as string}
+                        </Button>
+                    );
+                default:
+                    return null;
+            }
+        };
 
-            return (
-                <Controller
-                    control={useFormReturn.control}
-                    name={name}
-                    render={({ field: fieldRenderData }: { field: any }) => (
-                        <FormItem className={`space-y-3 mb-6 ${field.hidden ? 'hidden' : ''}`}>
-                            <FormLabel className="flex items-center font-semibold text-sm text-foreground">
-                                {field.label}
-                                {field.tooltip && (
-                                    <TooltipProvider>
-                                        <Tooltip>
-                                            <TooltipTrigger className="ml-2">
-                                                <CircleHelp
-                                                    size={16}
-                                                    className="text-muted-foreground hover:text-foreground transition-colors"
-                                                />
-                                            </TooltipTrigger>
-                                            <TooltipContent>
-                                                {field.tooltip}
-                                            </TooltipContent>
-                                        </Tooltip>
-                                    </TooltipProvider>
-                                )}
-                            </FormLabel>
-                            <FormControl>
-                                {renderField(fieldRenderData)}
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-            );
-        },
-    );
+        return (
+            <Controller
+                control={useFormReturn.control}
+                name={name}
+                render={({ field: fieldRenderData }: { field: any }) => (
+                    <FormItem className={`space-y-3 mb-6 ${field.hidden ? "hidden" : ""}`}>
+                        <FormLabel className="flex items-center font-semibold text-sm text-foreground">
+                            {field.label}
+                            {field.tooltip && (
+                                <TooltipProvider>
+                                    <Tooltip>
+                                        <TooltipTrigger className="ml-2">
+                                            <CircleHelp
+                                                size={16}
+                                                className="text-muted-foreground hover:text-foreground transition-colors"
+                                            />
+                                        </TooltipTrigger>
+                                        <TooltipContent>{field.tooltip}</TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+                            )}
+                        </FormLabel>
+                        <FormControl>{renderField(fieldRenderData)}</FormControl>
+                        <FormMessage />
+                    </FormItem>
+                )}
+            />
+        );
+    });
 
     const renderContent = () => {
         switch (layout) {
@@ -312,22 +288,14 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                             {config
                                 .filter((item) => item.key !== "prompt")
                                 .map((item) => (
-                                    <CustomFormField
-                                        name={item.key}
-                                        field={item.config}
-                                        key={item.key}
-                                    />
+                                    <CustomFormField name={item.key} field={item.config} key={item.key} />
                                 ))}
                         </div>
                         {config.find((item) => item.key === "prompt") && (
                             <div className="space-y-6">
                                 <CustomFormField
                                     name="prompt"
-                                    field={
-                                        config.find(
-                                            (item) => item.key === "prompt",
-                                        )!.config
-                                    }
+                                    field={config.find((item) => item.key === "prompt")!.config}
                                 />
                             </div>
                         )}
@@ -338,22 +306,14 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                         <div className="space-y-6">
                             {config.map((item) => (
-                                <CustomFormField
-                                    name={item.key}
-                                    field={item.config}
-                                    key={item.key}
-                                />
+                                <CustomFormField name={item.key} field={item.config} key={item.key} />
                             ))}
                         </div>
                         {config.find((item) => item.key === "modelList") && (
                             <div className="space-y-6">
                                 <CustomFormField
                                     name="model_list"
-                                    field={
-                                        config.find(
-                                            (item) => item.key === "modelList",
-                                        )!.config
-                                    }
+                                    field={config.find((item) => item.key === "modelList")!.config}
                                 />
                             </div>
                         )}
@@ -363,11 +323,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                 return (
                     <div className="space-y-6">
                         {config.map((item) => (
-                            <CustomFormField
-                                name={item.key}
-                                field={item.config}
-                                key={item.key}
-                            />
+                            <CustomFormField name={item.key} field={item.config} key={item.key} />
                         ))}
                     </div>
                 );
@@ -375,25 +331,21 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
     };
 
     return (
-        <Card className={`shadow-md hover:shadow-lg transition-shadow border-l-4 border-l-primary ${classNames || ''}`}>
+        <Card className={`shadow-md hover:shadow-lg transition-shadow border-l-4 border-l-primary ${classNames || ""}`}>
             <CardHeader
                 onClick={toggleExpand}
-                className={`flex flex-row items-center ${enableExpand ? 'cursor-pointer hover:bg-muted' : ''} transition-colors rounded-t-lg`}
+                className={`flex flex-row items-center ${
+                    enableExpand ? "cursor-pointer hover:bg-muted" : ""
+                } transition-colors rounded-t-lg`}
             >
                 <div className="flex items-center flex-1 min-w-0">
                     {enableExpand && (
                         <div className="mr-3 text-muted-foreground">
-                            {isExpanded ? (
-                                <ChevronDown className="h-5 w-5" />
-                            ) : (
-                                <ChevronRight className="h-5 w-5" />
-                            )}
+                            {isExpanded ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
                         </div>
                     )}
                     <div className="flex-1 min-w-0">
-                        <CardTitle className="text-lg font-semibold text-foreground truncate">
-                            {title}
-                        </CardTitle>
+                        <CardTitle className="text-lg font-semibold text-foreground truncate">{title}</CardTitle>
                         {description && (
                             <CardDescription className="text-sm text-muted-foreground mt-1 truncate">
                                 {description}
@@ -438,17 +390,15 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
 
             <CardContent
                 ref={contentRef}
-                className={`transition-all duration-300 ease-in-out ${isExpanded ? "max-h-none opacity-100" : "max-h-0 opacity-0 overflow-hidden"
-                    }`}
+                className={`transition-all duration-300 ease-in-out ${
+                    isExpanded ? "max-h-none opacity-100" : "max-h-0 opacity-0 overflow-hidden"
+                }`}
             >
                 <Form {...useFormReturn}>
                     {renderContent()}
                     {onSave && (
                         <div className="mt-8 pt-4 border-t border-border">
-                            <Button
-                                onClick={onSave}
-                                className="bg-primary hover:bg-primary/90 text-primary-foreground"
-                            >
+                            <Button onClick={onSave} className="bg-primary hover:bg-primary/90 text-primary-foreground">
                                 保存配置
                             </Button>
                         </div>

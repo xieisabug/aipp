@@ -1,19 +1,12 @@
-import React, { useCallback, useEffect, useState, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo } from "react";
 import { toast } from "sonner";
-import { invoke } from "@tauri-apps/api/core";
 import { AssistantDetail, AssistantListItem } from "../../data/Assistant";
 import { useAssistantListListener } from "../../hooks/useAssistantListListener";
-import ConfigForm from "../ConfigForm";
-import ConfirmDialog from "../ConfirmDialog";
-import AddAssistantDialog from "./AddAssistantDialog";
-import EditAssistantDialog from "./EditAssistantDialog";
-import AssistantMCPFieldDisplay from "./AssistantMCPFieldDisplay";
-import ShareDialog from "../ShareDialog";
-import ImportDialog from "../ImportDialog";
-import { AssistantType } from "../../types/assistant";
-import { validateConfig } from "../../utils/validate";
-import { Bot, Settings, User, Share, Download } from "lucide-react";
+import { Bot, Settings, User, Download } from "lucide-react";
 import { Button } from "../ui/button";
+import { useForm } from "react-hook-form";
+import { validateConfig } from "../../utils/validate";
+import AddAssistantDialog from "./AddAssistantDialog";
 
 // 导入公共组件
 import {
@@ -24,164 +17,66 @@ import {
     SelectOption
 } from "../common";
 
-import { useForm } from "react-hook-form";
-
-interface ModelForSelect {
-    name: string;
-    code: string;
-    id: number;
-    llm_provider_id: number;
-}
+// 导入新的 hooks 和组件
+import { useModels } from "@/hooks/useModels";
+import { useAssistantTypePlugin } from "@/hooks/assistant/useAssistantTypePlugin";
+import { useAssistantOperations } from "@/hooks/assistant/useAssistantOperations";
+import { useAssistantFormConfig } from "@/hooks/assistant/useAssistantFormConfig";
+import { useDialogStates } from "@/hooks/assistant/useDialogStates";
+import { AssistantFormRenderer } from "./assistant/AssistantFormRenderer";
+import { AssistantDialogs } from "./assistant/AssistantDialogs";
+import { AssistantConfigApi } from "@/types/forms";
 
 interface AssistantConfigProps {
     pluginList: any[];
     navigateTo: (menuKey: string) => void;
 }
 const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateTo }) => {
-    // 插件加载部分
-    // 插件实例
-    const [assistantTypePluginMap, setAssistantTypePluginMap] = useState<
-        Map<number, TeaAssistantTypePlugin>
-    >(new Map());
-    // 插件名称
-    const [assistantTypeNameMap, setAssistantTypeNameMap] = useState<
-        Map<number, string>
-    >(new Map<number, string>());
-    // 插件自定义字段
-    const [assistantTypeCustomField, setAssistantTypeCustomField] = useState<
-        Array<{ key: string; value: Record<string, any> }>
-    >([]);
-    // 插件自定义label
-    const [assistantTypeCustomLabel, setAssistantTypeCustomLabel] = useState<
-        Map<string, string>
-    >(new Map<string, string>());
-    // 插件自定义tips
-    const [assistantTypeCustomTips, setAssistantTypeCustomTips] = useState<
-        Map<string, string>
-    >(new Map<string, string>());
-    // 插件隐藏字段
-    const [assistantTypeHideField, setAssistantTypeHideField] = useState<
-        Array<string>
-    >([]);
     const form = useForm();
+    
+    // 使用新的 hooks
+    const { models } = useModels();
+    const {
+        assistantTypes,
+        assistantTypePluginMap,
+        assistantTypeNameMap,
+        assistantTypeCustomField,
+        setAssistantTypeCustomField,
+        assistantTypeCustomLabel,
+        assistantTypeCustomTips,
+        assistantTypeHideField,
+        assistantTypeApi,
+    } = useAssistantTypePlugin(pluginList);
+    
+    const {
+        assistants,
+        currentAssistant,
+        setCurrentAssistant,
+        saveAssistant,
+        copyAssistant,
+        deleteAssistant,
+        loadAssistants,
+        loadAssistantDetail,
+        shareAssistant,
+        importAssistant,
+        updateAssistantInfo,
+        addAssistant,
+    } = useAssistantOperations();
+    
+    const {
+        dialogStates,
+        shareCode,
+        openConfirmDeleteDialog,
+        closeConfirmDeleteDialog,
+        openUpdateFormDialog,
+        closeUpdateFormDialog,
+        openShareDialog,
+        closeShareDialog,
+        openImportDialog,
+        closeImportDialog,
+    } = useDialogStates();
 
-    // 使用 useMemo 缓存 assistantTypeApi
-    const assistantTypeApi: AssistantTypeApi = useMemo(
-        () => ({
-            typeRegist: (
-                code: number,
-                label: string,
-                pluginInstance: TeaAssistantTypePlugin & TeaPlugin,
-            ) => {
-                // 检查是否已存在相同的 code
-                setAssistantTypes((prev) => {
-                    if (!prev.some((type) => type.code === code)) {
-                        return [...prev, { code: code, name: label }];
-                    } else {
-                        return prev;
-                    }
-                });
-
-                setAssistantTypePluginMap((prev) => {
-                    const newMap = new Map(prev);
-                    newMap.set(code, pluginInstance);
-                    return newMap;
-                });
-                setAssistantTypeNameMap((prev) => {
-                    const newMap = new Map(prev);
-                    newMap.set(code, label);
-                    return newMap;
-                });
-            },
-            markdownRemarkRegist: (_: any) => { },
-            changeFieldLabel: (fieldName: string, label: string) => {
-                setAssistantTypeCustomLabel((prev) => {
-                    const newMap = new Map(prev);
-                    newMap.set(fieldName, label);
-                    return newMap;
-                });
-            },
-            addField: (
-                fieldName: string,
-                label: string,
-                type: string,
-                fieldConfig?: FieldConfig,
-            ) => {
-                setAssistantTypeCustomField((prev) => {
-                    const newField = {
-                        key: fieldName,
-                        value: Object.assign(
-                            {
-                                type: type,
-                                label: label,
-                                value: "",
-                            },
-                            fieldConfig,
-                        ),
-                    };
-                    return [...prev, newField];
-                });
-            },
-            hideField: (fieldName: string) => {
-                setAssistantTypeHideField((prev) => {
-                    return [...prev, fieldName];
-                });
-            },
-            addFieldTips: (fieldName: string, tips: string) => {
-                setAssistantTypeCustomTips((prev) => {
-                    const newMap = new Map(prev);
-                    newMap.set(fieldName, tips);
-                    return newMap;
-                });
-            },
-            runLogic: (_: (assistantRunApi: AssistantRunApi) => void) => { },
-            forceFieldValue: function (_: string, __: string): void { },
-        }),
-        [],
-    );
-    // 给默认的字段增加Label和Tips
-    useEffect(() => {
-        assistantTypeApi.changeFieldLabel("max_tokens", "Max Tokens");
-        assistantTypeApi.changeFieldLabel("temperature", "Temperature");
-        assistantTypeApi.changeFieldLabel("top_p", "Top P");
-        assistantTypeApi.changeFieldLabel("stream", "Stream");
-        assistantTypeApi.addFieldTips("max_tokens", "最大Token数，影响回复的长度");
-        assistantTypeApi.addFieldTips("temperature", "控制生成的随机性，越高越随机");
-        assistantTypeApi.addFieldTips("top_p", "控制生成的多样性，越高越多样");
-        assistantTypeApi.addFieldTips("stream", "是否流式输出，开启后可能会有延迟");
-        assistantTypeApi.hideField("use_native_toolcall");
-    }, [assistantTypeApi]);
-
-    // 助手类型
-    const [assistantTypes, setAssistantTypes] = useState<AssistantType[]>([
-        { code: 0, name: "普通对话助手" },
-    ]);
-    // 加载助手类型的插件
-    useEffect(() => {
-        pluginList
-            .filter((plugin: any) =>
-                plugin.pluginType.includes("assistantType"),
-            )
-            .forEach((plugin: any) => {
-                plugin?.instance?.onAssistantTypeInit(assistantTypeApi);
-            });
-    }, [pluginList]);
-
-    // 模型数据
-    const [models, setModels] = useState<ModelForSelect[]>([]);
-    useEffect(() => {
-        // 获取模型列表
-        invoke<Array<ModelForSelect>>("get_models_for_select")
-            .then(setModels)
-            .catch((error) => {
-                toast.error("获取模型列表失败: " + error);
-            });
-    }, []);
-
-    // 当前助手
-    const [currentAssistant, setCurrentAssistant] =
-        useState<AssistantDetail | null>(null);
-
+    // 助手配置 API
     const assistantConfigApi: AssistantConfigApi = useMemo(
         () => ({
             clearFieldValue: function (fieldName: string): void {
@@ -196,31 +91,22 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                 handleConfigChange(fieldName, value, valueType);
             },
         }),
-        [form, currentAssistant],
+        [currentAssistant],
     );
 
-    // 助手相关
-    // 助手列表
-    const [assistants, setAssistants] = useState<AssistantListItem[]>([]);
+    // 初始化助手列表
     useEffect(() => {
-        invoke<Array<AssistantListItem>>("get_assistants")
-            .then((assistantList) => {
-                setAssistants(assistantList);
-
-                if (assistantList.length) {
-                    handleChooseAssistant(assistantList[0]);
-                }
-            })
-            .catch((error) => {
-                toast.error("获取助手列表失败: " + error);
-            });
-    }, []);
-    
+        loadAssistants().then((assistantList) => {
+            if (assistantList.length) {
+                handleChooseAssistant(assistantList[0]);
+            }
+        });
+    }, [loadAssistants]);
     // 监听助手列表变化
     useAssistantListListener({
         onAssistantListChanged: useCallback((assistantList: AssistantListItem[]) => {
-            setAssistants(assistantList);
-            // 如果当前选中的助手不在新列表中，选择第一个助手
+            // 使用 operations hook 的方法更新列表
+            // 这里需要手动更新，因为 hook 内部不知道这个事件
             if (assistantList.length > 0) {
                 const currentAssistantExists = assistantList.some(
                     assistant => assistant.id === currentAssistant?.assistant.id
@@ -234,52 +120,23 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
         }, [currentAssistant?.assistant.id])
     });
 
-    // 使用 useCallback 缓存回调函数
-    const onSave = useCallback((assistant: AssistantDetail) => {
-        return invoke<void>("save_assistant", { assistantDetail: assistant });
-    }, []);
-    // 复制助手
-    const onCopy = useCallback(() => {
-        invoke<AssistantDetail>("copy_assistant", {
-            assistantId: currentAssistant?.assistant.id,
-        })
-            .then((assistantDetail: AssistantDetail) => {
-                setAssistants((prev) => [
-                    ...prev,
-                    {
-                        id: assistantDetail.assistant.id,
-                        name: assistantDetail.assistant.name,
-                        assistant_type: assistantDetail.assistant.assistant_type,
-                    },
-                ]);
-                setCurrentAssistant(assistantDetail);
-                toast.success("复制助手成功");
-            })
-            .catch((error) => {
-                toast.error("复制助手失败: " + error);
-            });
-    }, [currentAssistant]);
-
-    // 点击某个助手后，选择助手
+    // 选择助手
     const handleChooseAssistant = useCallback(
         (assistant: AssistantListItem) => {
             if (
                 !currentAssistant ||
                 currentAssistant.assistant.id !== assistant.id
             ) {
-                invoke<AssistantDetail>("get_assistant", {
-                    assistantId: assistant.id,
-                })
-                    .then((assistant: AssistantDetail) => {
-                        setCurrentAssistant(assistant);
+                loadAssistantDetail(assistant.id)
+                    .then((assistantDetail) => {
                         form.reset({
-                            assistantType: assistant.assistant.assistant_type,
+                            assistantType: assistantDetail.assistant.assistant_type,
                             model:
-                                assistant.model.length > 0
-                                    ? `${assistant.model[0].model_code}%%${assistant.model[0].provider_id}`
+                                assistantDetail.model.length > 0
+                                    ? `${assistantDetail.model[0].model_code}%%${assistantDetail.model[0].provider_id}`
                                     : "-1",
-                            prompt: assistant.prompts[0].prompt,
-                            ...assistant.model_configs.reduce(
+                            prompt: assistantDetail.prompts[0].prompt,
+                            ...assistantDetail.model_configs.reduce(
                                 (acc, config) => {
                                     acc[config.name] =
                                         config.value_type === "boolean"
@@ -293,11 +150,11 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                                 (acc, field) => {
                                     acc[field.key] =
                                         field.value.type === "checkbox"
-                                            ? assistant.model_configs.find(
+                                            ? assistantDetail.model_configs.find(
                                                 (config) =>
                                                     config.name === field.key,
                                             )?.value === "true"
-                                            : (assistant.model_configs.find(
+                                            : (assistantDetail.model_configs.find(
                                                 (config) =>
                                                     config.name === field.key,
                                             )?.value ?? "");
@@ -307,12 +164,8 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                             ),
                         });
                         setAssistantTypeCustomField([]);
-                        assistantTypePluginMap
-                            .get(assistant.assistant.assistant_type)
-                            ?.onAssistantTypeSelect(assistantTypeApi);
-                    })
-                    .catch((error) => {
-                        toast.error("获取助手信息失败: " + error);
+                        const plugin = assistantTypePluginMap.get(assistantDetail.assistant.assistant_type);
+                        plugin?.onAssistantTypeSelect?.(assistantTypeApi);
                     });
             }
         },
@@ -322,6 +175,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
             assistantTypePluginMap,
             assistantTypeApi,
             form,
+            loadAssistantDetail,
         ],
     );
 
@@ -376,7 +230,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                 });
             }
         },
-        [currentAssistant],
+        [currentAssistant, form, setCurrentAssistant],
     );
 
     // 修改 prompt
@@ -397,8 +251,22 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                 };
             });
         },
-        [currentAssistant],
+        [currentAssistant, setCurrentAssistant],
     );
+
+    // 使用新的 hook 生成表单配置
+    const { formConfig } = useAssistantFormConfig({
+        currentAssistant,
+        models,
+        assistantTypeNameMap,
+        assistantTypeCustomField,
+        assistantTypeCustomLabel,
+        assistantTypeCustomTips,
+        assistantTypeHideField,
+        navigateTo,
+        onConfigChange: handleConfigChange,
+        onPromptChange: handlePromptChange,
+    });
 
     // 保存助手
     const handleAssistantFormSave = useCallback(() => {
@@ -406,7 +274,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
 
         const values = form.getValues();
 
-        onSave({
+        saveAssistant({
             ...currentAssistant,
             assistant: {
                 ...currentAssistant.assistant,
@@ -428,10 +296,9 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                         key !== "assistantType" &&
                         key !== "model" &&
                         key !== "prompt" &&
-                        key !== "mcp_config", // 排除 MCP 配置
+                        key !== "mcp_config",
                 )
                 .filter(([key]) => {
-                    // 确保 key 是可存储的值，不是static和button
                     const config = currentAssistant.model_configs.find(
                         (config) => config.name === key,
                     );
@@ -464,321 +331,23 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
         })
             .then(() => toast.success("保存成功"))
             .catch((error) => toast.error("保存失败: " + error));
-    }, [currentAssistant, form, onSave]);
+    }, [currentAssistant, form, saveAssistant]);
 
     // 删除助手
-    const [confirmDeleteDialogIsOpen, setConfirmDeleteDialogIsOpen] =
-        useState<boolean>(false);
-    const closeConfirmDeleteDialog = useCallback(() => {
-        setConfirmDeleteDialogIsOpen(false);
-    }, []);
-    // 打开删除助手对话框
-    const openConfirmDeleteDialog = useCallback(() => {
-        setConfirmDeleteDialogIsOpen(true);
-    }, []);
     const handleDelete = useCallback(() => {
-        if (currentAssistant) {
-            invoke("delete_assistant", {
-                assistantId: currentAssistant.assistant.id,
-            })
-                .then(() => {
-                    const newAssistants = assistants.filter(
-                        (assistant) =>
-                            assistant.id !== currentAssistant.assistant.id,
-                    );
-                    setAssistants(newAssistants);
-                    if (newAssistants.length > 0) {
-                        handleChooseAssistant(newAssistants[0]);
-                    } else {
-                        setCurrentAssistant(null);
-                    }
-                    setConfirmDeleteDialogIsOpen(false);
-                    toast.success("删除助手成功");
-                })
-                .catch((error) => {
-                    toast.error("删除助手失败: " + error);
-                });
-        }
-    }, [currentAssistant, assistants]);
-
-    // 修改助手名称与描述
-    const [updateFormDialogIsOpen, setUpdateFormDialogIsOpen] =
-        useState<boolean>(false);
-    const openUpdateFormDialog = useCallback(() => {
-        setUpdateFormDialogIsOpen(true);
-    }, []);
-    const closeUpdateFormDialog = useCallback(() => {
-        setUpdateFormDialogIsOpen(false);
-    }, []);
-
-    // 分享和导入相关状态
-    const [shareDialogOpen, setShareDialogOpen] = useState(false);
-    const [importDialogOpen, setImportDialogOpen] = useState(false);
-    const [shareCode, setShareCode] = useState('');
-
-    // 分享助手
-    const handleShareAssistant = useCallback(async () => {
-        if (!currentAssistant) return;
-        
-        try {
-            const code = await invoke<string>('export_assistant', { 
-                assistantId: currentAssistant.assistant.id 
-            });
-            setShareCode(code);
-            setShareDialogOpen(true);
-        } catch (error) {
-            toast.error('分享失败: ' + error);
-        }
-    }, [currentAssistant]);
-
-    // 导入助手
-    const handleImportAssistant = useCallback(async (
-        shareCode: string, 
-        _password?: string, 
-        newName?: string
-    ) => {
-        await invoke('import_assistant', {
-            shareCode,
-            newName
-        });
-        // 导入成功后会自动触发助手列表更新事件
-    }, []);
-
-    // 关闭分享对话框
-    const closeShareDialog = useCallback(() => {
-        setShareDialogOpen(false);
-        setShareCode('');
-    }, []);
-
-    // 关闭导入对话框
-    const closeImportDialog = useCallback(() => {
-        setImportDialogOpen(false);
-    }, []);
-
-    const handleAssistantUpdated = useCallback(
-        (updatedAssistant: AssistantDetail) => {
-            setCurrentAssistant(updatedAssistant);
-            const index = assistants.findIndex(
-                (assistant) => assistant.id === updatedAssistant.assistant.id,
-            );
-            if (index >= 0) {
-                const newAssistants = [...assistants];
-                newAssistants[index] = {
-                    id: updatedAssistant.assistant.id,
-                    name: updatedAssistant.assistant.name,
-                    assistant_type: updatedAssistant.assistant.assistant_type,
-                };
-                setAssistants(newAssistants);
+        deleteAssistant().then((result) => {
+            if (result.shouldSelectFirst && result.assistants.length > 0) {
+                handleChooseAssistant(result.assistants[0]);
             }
-        },
-        [assistants],
-    );
+            closeConfirmDeleteDialog();
+        }).catch(() => {
+            // 错误已在 hook 中处理
+        });
+    }, [deleteAssistant, closeConfirmDeleteDialog, handleChooseAssistant]);
 
-    // 助手配置表单
-    const modelOptions = useMemo(
-        () =>
-            models.map((m) => ({
-                value: `${m.code}%%${m.llm_provider_id}`,
-                label: m.name,
-            })),
-        [models],
-    );
-    // 使用 useMemo 缓存表单配置
-    const assistantFormConfig = useMemo(() => {
-        if (!currentAssistant) return [];
-
-        let baseConfigs: Array<{ key: string; config: any }> = [
-            {
-                key: "assistantType",
-                config: {
-                    type: "static" as const,
-                    label:
-                        assistantTypeCustomLabel.get("assistantType") ??
-                        "助手类型",
-                    value:
-                        assistantTypeNameMap.get(
-                            currentAssistant?.assistant.assistant_type ?? 0,
-                        ) ?? "普通对话助手",
-                },
-            },
-            {
-                key: "model",
-                config: {
-                    type: "select" as const,
-                    label: assistantTypeCustomLabel.get("model") ?? "Model",
-                    options: modelOptions,
-                    value:
-                        (currentAssistant?.model.length ?? 0 > 0)
-                            ? `${currentAssistant?.model[0].model_code}%%${currentAssistant?.model[0].provider_id}`
-                            : "-1",
-                    onChange: (value: string | boolean) => {
-                        const [modelCode, providerId] = (value as string).split(
-                            "%%",
-                        );
-                        if (currentAssistant?.model.length ?? 0 > 0) {
-                            let assistant = currentAssistant as AssistantDetail;
-                            setCurrentAssistant({
-                                ...assistant,
-                                model: [
-                                    {
-                                        ...assistant?.model[0],
-                                        model_code: modelCode,
-                                        provider_id: parseInt(providerId),
-                                    },
-                                ],
-                            });
-                        } else {
-                            let assistant = currentAssistant as AssistantDetail;
-                            setCurrentAssistant({
-                                ...assistant,
-                                model: [
-                                    {
-                                        id: 0,
-                                        assistant_id: assistant.assistant.id,
-                                        model_code: modelCode,
-                                        provider_id: parseInt(providerId),
-                                        alias: "",
-                                    },
-                                ],
-                            });
-                        }
-                    },
-                },
-            },
-            ...(currentAssistant?.model_configs ?? [])
-                .filter(
-                    (config) => !assistantTypeHideField.includes(config.name) && !assistantTypeCustomField.find((field) => field.key === config.name),
-                )
-                .map((config) => ({
-                    key: config.name,
-                    config: {
-                        type:
-                            config.value_type === "boolean"
-                                ? ("checkbox" as const)
-                                : ("input" as const),
-                        label:
-                            assistantTypeCustomLabel.get(config.name) ??
-                            config.name,
-                        value:
-                            config.value_type === "boolean"
-                                ? config.value == "true"
-                                : config.value,
-                        tooltip: assistantTypeCustomTips.get(config.name),
-                        onChange: (value: string | boolean) =>
-                            handleConfigChange(
-                                config.name,
-                                value,
-                                config.value_type,
-                            ),
-                        onBlur: (value: string | boolean) =>
-                            handleConfigChange(
-                                config.name,
-                                value as string,
-                                config.value_type,
-                            ),
-                    },
-                })),
-            ...assistantTypeCustomField
-                .filter((field) => !assistantTypeHideField.includes(field.key))
-                .map((field) => ({
-                    key: field.key,
-                    config: {
-                        ...field.value,
-                        type: field.value.type,
-                        label:
-                            assistantTypeCustomLabel.get(field.key) ??
-                            field.value.label,
-                        value: (() => {
-                            const config = currentAssistant?.model_configs.find(
-                                (config) => config.name === field.key,
-                            );
-                            if (field.value.type === "checkbox") {
-                                return config?.value === "true";
-                            } else if (field.value.type === "static") {
-                                return config?.value;
-                            } else {
-                                return config?.value ?? field.value.value ?? "";
-                            }
-                        })(),
-                        tooltip: assistantTypeCustomTips.get(field.key),
-                        onChange: (value: string | boolean) =>
-                            handleConfigChange(
-                                field.key,
-                                value,
-                                field.value.type === "checkbox"
-                                    ? "boolean"
-                                    : "string",
-                            ),
-                        onBlur: (value: string | boolean) =>
-                            handleConfigChange(
-                                field.key,
-                                value as string,
-                                field.value.type === "checkbox"
-                                    ? "boolean"
-                                    : "string",
-                            ),
-                    },
-                })),
-        ];
-
-        if (!assistantTypeHideField.includes("mcp_config")) {
-            baseConfigs.push({
-                key: "mcp_config",
-                config: {
-                    type: "custom" as const,
-                    label: "MCP工具",
-                    customRender: () => (
-                        <AssistantMCPFieldDisplay
-                            assistantId={currentAssistant?.assistant.id ?? 0}
-                            onConfigChange={() => {
-                                // MCP配置变更时的回调
-                                console.log('MCP configuration changed');
-                            }}
-                            navigateTo={navigateTo}
-                        />
-                    ),
-                },
-            });
-        }
-
-        if (!assistantTypeHideField.includes("prompt")) {
-            baseConfigs.push({
-                key: "prompt",
-                config: {
-                    type: "textarea" as const,
-                    label: assistantTypeCustomLabel.get("prompt") ?? "Prompt",
-                    className: "h-64",
-                    value: currentAssistant?.prompts[0].prompt ?? "",
-                    onChange: (value: string | boolean) =>
-                        handlePromptChange(value as string),
-                },
-            });
-        }
-
-        return baseConfigs;
-    }, [
-        currentAssistant,
-        assistantTypeNameMap,
-        assistantTypeCustomField,
-        assistantTypeCustomLabel,
-        assistantTypeHideField,
-        modelOptions,
-        handleConfigChange,
-        handlePromptChange,
-        navigateTo,
-    ]);
-
-    // 添加新的处理函数
-    const handleAssistantAdded = (assistantDetail: AssistantDetail) => {
-        setAssistants((prev) => [
-            ...prev,
-            {
-                id: assistantDetail.assistant.id,
-                name: assistantDetail.assistant.name,
-                assistant_type: assistantDetail.assistant.assistant_type,
-            },
-        ]);
-        setCurrentAssistant(assistantDetail);
+    // 添加新助手处理
+    const handleAssistantAdded = useCallback((assistantDetail: AssistantDetail) => {
+        addAssistant(assistantDetail);
         
         // 重置表单状态为新助手的配置
         form.reset({
@@ -799,7 +368,37 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                 {} as Record<string, any>,
             ),
         });
-    };
+    }, [addAssistant, form]);
+
+    // 侧边栏内容
+    const sidebar = (
+        <SidebarList
+            title="助手列表"
+            description="选择助手进行配置"
+            icon={<Bot className="h-5 w-5" />}
+        >
+            {assistants.map((assistant, index) => (
+                <ListItemButton
+                    key={index}
+                    isSelected={currentAssistant?.assistant.id === assistant.id}
+                    onClick={() => handleChooseAssistant(assistant)}
+                >
+                    <User className="h-4 w-4 mr-2 flex-shrink-0" />
+                    <span className="truncate">{assistant.name}</span>
+                </ListItemButton>
+            ))}
+        </SidebarList>
+    );
+
+    // 分享助手
+    const handleShareAssistant = useCallback(async () => {
+        try {
+            const code = await shareAssistant();
+            openShareDialog(code);
+        } catch (error) {
+            // 错误已在 hook 中处理
+        }
+    }, [shareAssistant, openShareDialog]);
 
     // 下拉菜单选项
     const selectOptions: SelectOption[] = useMemo(() =>
@@ -829,13 +428,13 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
             />
             <Button
                 variant="outline"
-                onClick={() => setImportDialogOpen(true)}
+                onClick={openImportDialog}
                 className="shadow-sm hover:shadow-md transition-all"
             >
                 <Download className="h-4 w-4" />
             </Button>
         </div>
-    ), [assistantTypes, handleAssistantAdded]);
+    ), [assistantTypes, handleAssistantAdded, openImportDialog]);
 
     // 空状态
     if (assistants.length === 0) {
@@ -857,7 +456,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                                         />
                                         <Button
                                             variant="outline"
-                                            onClick={() => setImportDialogOpen(true)}
+                                            onClick={openImportDialog}
                                             className="shadow-lg hover:shadow-xl transition-all"
                                         >
                                             <Download className="h-4 w-4" />
@@ -869,78 +468,48 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                     }
                 />
                 
-                {/* 导入对话框 */}
-                <ImportDialog
-                    title="助手配置"
-                    isOpen={importDialogOpen}
-                    requiresPassword={false}
-                    onClose={closeImportDialog}
-                    onImport={handleImportAssistant}
+                <AssistantDialogs
+                    dialogStates={dialogStates}
+                    shareCode={shareCode}
+                    currentAssistant={currentAssistant}
+                    onConfirmDelete={handleDelete}
+                    onCancelDelete={closeConfirmDeleteDialog}
+                    onSave={saveAssistant}
+                    onAssistantUpdated={updateAssistantInfo}
+                    onImportAssistant={importAssistant}
+                    onCloseUpdateForm={closeUpdateFormDialog}
+                    onCloseShare={closeShareDialog}
+                    onCloseImport={closeImportDialog}
                 />
             </>
         );
     }
 
-    // 侧边栏内容
-    const sidebar = (
-        <SidebarList
-            title="助手列表"
-            description="选择助手进行配置"
-            icon={<Bot className="h-5 w-5" />}
-        >
-            {assistants.map((assistant, index) => (
-                <ListItemButton
-                    key={index}
-                    isSelected={currentAssistant?.assistant.id === assistant.id}
-                    onClick={() => handleChooseAssistant(assistant)}
-                >
-                    <User className="h-4 w-4 mr-2 flex-shrink-0" />
-                    <span className="truncate">{assistant.name}</span>
-                </ListItemButton>
-            ))}
-        </SidebarList>
-    );
-
-    // 右侧内容
-    const content = currentAssistant ? (
-        <ConfigForm
-            assistantConfigApi={assistantConfigApi}
-            title={currentAssistant.assistant.name}
-            description={currentAssistant.assistant.description || "配置你的智能助手"}
-            config={assistantFormConfig}
-            layout="prompt"
-            classNames="bottom-space"
-            onSave={handleAssistantFormSave}
-            onCopy={currentAssistant.assistant.id === 1 ? undefined : onCopy}
-            onDelete={currentAssistant.assistant.id === 1 ? undefined : openConfirmDeleteDialog}
-            onEdit={openUpdateFormDialog}
-            useFormReturn={form}
-            extraButtons={
-                <div className="flex gap-2">
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleShareAssistant}
-                        className="gap-2"
-                    >
-                        <Share className="h-4 w-4" />
-                    </Button>
-                </div>
-            }
-        />
-    ) : (
-        <EmptyState
-            icon={<Settings className="h-8 w-8 text-muted-foreground" />}
-            title="选择一个助手"
-            description="从左侧列表中选择一个助手开始配置"
-        />
-    );
-
     return (
         <>
             <ConfigPageLayout
                 sidebar={sidebar}
-                content={content}
+                content={
+                    currentAssistant ? (
+                        <AssistantFormRenderer
+                            currentAssistant={currentAssistant}
+                            formConfig={formConfig}
+                            form={form}
+                            assistantConfigApi={assistantConfigApi}
+                            onSave={handleAssistantFormSave}
+                            onCopy={currentAssistant.assistant.id === 1 ? undefined : copyAssistant}
+                            onDelete={currentAssistant.assistant.id === 1 ? undefined : openConfirmDeleteDialog}
+                            onEdit={openUpdateFormDialog}
+                            onShare={handleShareAssistant}
+                        />
+                    ) : (
+                        <EmptyState
+                            icon={<Settings className="h-8 w-8 text-muted-foreground" />}
+                            title="选择一个助手"
+                            description="从左侧列表中选择一个助手开始配置"
+                        />
+                    )
+                }
                 selectOptions={selectOptions}
                 selectedOptionId={currentAssistant?.assistant.id.toString()}
                 onSelectOption={handleSelectFromDropdown}
@@ -948,38 +517,18 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                 addButton={addButton}
             />
 
-            {/* 对话框 */}
-            <ConfirmDialog
-                title="确认删除"
-                confirmText="该操作不可逆，确认执行删除助手操作吗？删除后，配置将会删除，并且该助手的对话将转移到快速使用助手，且不可恢复。"
-                onConfirm={handleDelete}
-                onCancel={closeConfirmDeleteDialog}
-                isOpen={confirmDeleteDialogIsOpen}
-            />
-
-            <EditAssistantDialog
-                isOpen={updateFormDialogIsOpen}
-                onClose={closeUpdateFormDialog}
-                currentAssistant={currentAssistant}
-                onSave={onSave}
-                onAssistantUpdated={handleAssistantUpdated}
-            />
-
-            {/* 分享对话框 */}
-            <ShareDialog
-                title="助手配置"
+            <AssistantDialogs
+                dialogStates={dialogStates}
                 shareCode={shareCode}
-                isOpen={shareDialogOpen}
-                onClose={closeShareDialog}
-            />
-
-            {/* 导入对话框 */}
-            <ImportDialog
-                title="助手配置"
-                isOpen={importDialogOpen}
-                requiresPassword={false}
-                onClose={closeImportDialog}
-                onImport={handleImportAssistant}
+                currentAssistant={currentAssistant}
+                onConfirmDelete={handleDelete}
+                onCancelDelete={closeConfirmDeleteDialog}
+                onSave={saveAssistant}
+                onAssistantUpdated={updateAssistantInfo}
+                onImportAssistant={importAssistant}
+                onCloseUpdateForm={closeUpdateFormDialog}
+                onCloseShare={closeShareDialog}
+                onCloseImport={closeImportDialog}
             />
         </>
     );

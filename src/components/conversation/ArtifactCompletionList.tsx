@@ -1,6 +1,6 @@
-import React, { useRef, useEffect } from 'react';
-import { ArtifactCollectionItem } from '../../data/ArtifactCollection';
-import { formatIconDisplay } from '@/utils/emojiUtils';
+import React, { useRef, useEffect } from "react";
+import { ArtifactCollectionItem } from "../../data/ArtifactCollection";
+import { formatIconDisplay } from "@/utils/emojiUtils";
 
 interface ArtifactCompletionListProps {
     artifactListVisible: boolean;
@@ -11,7 +11,7 @@ interface ArtifactCompletionListProps {
     textareaRef: React.RefObject<HTMLTextAreaElement | null>;
     setInputText: React.Dispatch<React.SetStateAction<string>>;
     setArtifactListVisible: React.Dispatch<React.SetStateAction<boolean>>;
-    onArtifactSelect?: (artifact: ArtifactCollectionItem, action: 'complete' | 'open') => void;
+    onArtifactSelect?: (artifact: ArtifactCollectionItem, action: "complete" | "open") => void;
 }
 
 export default function ArtifactCompletionList({
@@ -23,7 +23,7 @@ export default function ArtifactCompletionList({
     textareaRef,
     setInputText,
     setArtifactListVisible,
-    onArtifactSelect
+    onArtifactSelect,
 }: ArtifactCompletionListProps) {
     const listRef = useRef<HTMLDivElement>(null);
 
@@ -37,7 +37,7 @@ export default function ArtifactCompletionList({
         const selectedArtifactElement = document.querySelector(
             ".completion-artifact-container.selected"
         ) as HTMLElement;
-        
+
         if (selectedArtifactElement && listRef.current) {
             const parentRect = listRef.current.getBoundingClientRect();
             const selectedRect = selectedArtifactElement.getBoundingClientRect();
@@ -71,42 +71,27 @@ export default function ArtifactCompletionList({
         }
 
         setArtifactListVisible(false);
-        onArtifactSelect?.(artifact, 'complete');
+        onArtifactSelect?.(artifact, "complete");
     };
 
     if (!artifactListVisible || artifacts.length === 0) {
         return null;
     }
 
-    const listStyle: React.CSSProperties = placement === "top"
-        ? {
-            position: "absolute",
-            top: cursorPosition.top,
-            left: cursorPosition.left,
-            zIndex: 1000,
-        }
-        : {
-            position: "absolute",
-            bottom: cursorPosition.bottom,
-            left: cursorPosition.left,
-            zIndex: 1000,
-        };
-
     return (
-        <div 
+        <div
             ref={listRef}
-            className="completion-list artifact-completion-list" 
-            style={listStyle}
+            className={`completion-list artifact-completion-list`}
+            style={{
+                ...(placement === "top" ? { top: cursorPosition.top } : { bottom: cursorPosition.bottom }),
+                left: cursorPosition.left,
+            }}
         >
-            <div className="artifact-completion-hint">
-                Tab 补全名称 • Enter 打开
-            </div>
+            <div className="artifact-completion-hint">Tab 补全名称 • Enter 打开</div>
             {artifacts.map((artifact, index) => (
                 <div
                     key={artifact.id}
-                    className={`completion-artifact-container ${
-                        index === selectedArtifactIndex ? "selected" : ""
-                    }`}
+                    className={`completion-artifact-container ${index === selectedArtifactIndex ? "selected" : ""}`}
                     onClick={() => handleArtifactClick(artifact)}
                 >
                     <div className="artifact-completion-header">
@@ -125,24 +110,14 @@ export default function ArtifactCompletionList({
                             })()}
                         </span>
                         <span className="artifact-completion-name">{artifact.name}</span>
-                        <span className="artifact-completion-type">
-                            {artifact.artifact_type.toUpperCase()}
-                        </span>
+                        <span className="artifact-completion-type">{artifact.artifact_type}</span>
                     </div>
                     {artifact.description && (
-                        <div className="artifact-completion-description">
-                            {artifact.description}
-                        </div>
+                        <div className="artifact-completion-description">{artifact.description}</div>
                     )}
                     <div className="artifact-completion-meta">
-                        <span className="artifact-completion-uses">
-                            {artifact.use_count} 次使用
-                        </span>
-                        {artifact.tags && (
-                            <span className="artifact-completion-tags">
-                                {artifact.tags}
-                            </span>
-                        )}
+                        <span className="artifact-completion-uses">{artifact.use_count} 次使用</span>
+                        {artifact.tags && <span className="artifact-completion-tags">{artifact.tags}</span>}
                     </div>
                 </div>
             ))}

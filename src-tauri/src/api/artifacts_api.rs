@@ -161,7 +161,8 @@ pub async fn run_artifacts(
                         "original_code": input_str,
                     }),
                 );
-                let _ = window.emit("artifact-preview-log", format!("mermaid content: {}", input_str));
+                let _ =
+                    window.emit("artifact-preview-log", format!("mermaid content: {}", input_str));
                 let _ = window.emit("artifact-preview-success", "Mermaid 图表预览已准备完成");
             }
         }
@@ -175,7 +176,8 @@ pub async fn run_artifacts(
                         "original_code": input_str,
                     }),
                 );
-                let _ = window.emit("artifact-preview-log", format!("{} content: {}", lang, input_str));
+                let _ =
+                    window.emit("artifact-preview-log", format!("{} content: {}", lang, input_str));
                 let _ = window.emit(
                     "artifact-preview-success",
                     format!("{} 预览已准备完成", lang.to_uppercase()),
@@ -188,10 +190,7 @@ pub async fn run_artifacts(
             // 检查是否需要 bun 环境
             let bun_version = BunUtils::get_bun_version(&app_handle);
             if bun_version.is_err()
-                || bun_version
-                    .as_ref()
-                    .unwrap_or(&String::new())
-                    .contains("Not Installed")
+                || bun_version.as_ref().unwrap_or(&String::new()).contains("Not Installed")
             {
                 println!("🎯 [Artifacts] 检测到需要 bun 环境但未安装");
                 if let Some(window) = app_handle.get_webview_window("artifact_preview") {
@@ -258,10 +257,7 @@ pub async fn run_artifacts(
             // 检查是否需要 bun 环境
             let bun_version = BunUtils::get_bun_version(&app_handle);
             if bun_version.is_err()
-                || bun_version
-                    .as_ref()
-                    .unwrap_or(&String::new())
-                    .contains("Not Installed")
+                || bun_version.as_ref().unwrap_or(&String::new()).contains("Not Installed")
             {
                 println!("🎯 [Artifacts] 检测到需要 bun 环境但未安装");
                 if let Some(window) = app_handle.get_webview_window("artifact_preview") {
@@ -423,10 +419,7 @@ pub fn install_bun(
         emit_log("开始下载 Bun");
 
         // 使用应用数据目录作为安装位置，避免依赖第三方目录库
-        let app_data_dir = app_handle
-            .path()
-            .app_data_dir()
-            .expect("无法获取应用数据目录");
+        let app_data_dir = app_handle.path().app_data_dir().expect("无法获取应用数据目录");
         let bun_install_dir = app_data_dir.join("bun");
         let bun_bin_dir = bun_install_dir.join("bin");
 
@@ -476,18 +469,12 @@ pub fn install_bun(
         }
 
         // Move executable
-        let bun_executable_name = if cfg!(target_os = "windows") {
-            "bun.exe"
-        } else {
-            "bun"
-        };
+        let bun_executable_name = if cfg!(target_os = "windows") { "bun.exe" } else { "bun" };
 
         // 可能的可执行文件路径（不同版本的压缩包结构不同）
         let candidate_paths = [
             bun_install_dir.join(&bun_executable_name),
-            bun_install_dir
-                .join(format!("bun-{}-{}", os, arch))
-                .join(&bun_executable_name),
+            bun_install_dir.join(format!("bun-{}-{}", os, arch)).join(&bun_executable_name),
         ];
 
         let bun_executable_path = match candidate_paths.iter().find(|p| p.exists()) {
@@ -583,10 +570,7 @@ pub fn install_uv(
             emit_log(&log_msg);
 
             let (command, args) = if cfg!(target_os = "windows") {
-                (
-                    "powershell",
-                    vec!["-c", "irm https://astral.sh/uv/install.ps1 | iex"],
-                )
+                ("powershell", vec!["-c", "irm https://astral.sh/uv/install.ps1 | iex"])
             } else {
                 (
                     "sh",
@@ -599,10 +583,7 @@ pub fn install_uv(
 
             let mut child = match Command::new(command)
                 .args(args)
-                .env(
-                    "UV_INSTALLER_GHE_BASE_URL",
-                    "https://ghfast.top/https://github.com",
-                )
+                .env("UV_INSTALLER_GHE_BASE_URL", "https://ghfast.top/https://github.com")
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()
@@ -700,7 +681,6 @@ pub fn install_uv(
     Ok(())
 }
 
-
 #[tauri::command]
 pub async fn preview_react_component(
     app_handle: tauri::AppHandle,
@@ -762,18 +742,9 @@ pub async fn retry_preview_after_install(
     lang: String,
     input_str: String,
 ) -> Result<String, String> {
-    println!(
-        "🔧 [ArtifactsAPI] 收到重新启动预览事件: lang={}, input_str={}",
-        lang, input_str
-    );
+    println!("🔧 [ArtifactsAPI] 收到重新启动预览事件: lang={}, input_str={}", lang, input_str);
     // 重新调用 run_artifacts 函数
-    match run_artifacts(
-        app_handle.clone(),
-        &lang,
-        &input_str,
-    )
-    .await
-    {
+    match run_artifacts(app_handle.clone(), &lang, &input_str).await {
         Ok(result) => Ok(result),
         Err(e) => Err(e.to_string()),
     }

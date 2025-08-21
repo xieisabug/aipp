@@ -303,11 +303,7 @@ pub async fn open_chat_ui_window(app_handle: AppHandle) -> Result<(), String> {
         println!("Creating window");
 
         create_chat_ui_window(&app_handle);
-        app_handle
-            .get_webview_window("ask")
-            .unwrap()
-            .hide()
-            .unwrap();
+        app_handle.get_webview_window("ask").unwrap().hide().unwrap();
     } else if let Some(window) = app_handle.get_webview_window("chat_ui") {
         println!("Showing window");
         if window.is_minimized().unwrap_or(false) {
@@ -315,11 +311,7 @@ pub async fn open_chat_ui_window(app_handle: AppHandle) -> Result<(), String> {
         }
         window.show().unwrap();
         window.set_focus().unwrap();
-        app_handle
-            .get_webview_window("ask")
-            .unwrap()
-            .hide()
-            .unwrap();
+        app_handle.get_webview_window("ask").unwrap().hide().unwrap();
     }
     Ok(())
 }
@@ -341,7 +333,6 @@ pub async fn open_plugin_window(app_handle: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-
 #[derive(Serialize, Deserialize)]
 struct ReactComponentPayload {
     code: String,
@@ -350,22 +341,16 @@ struct ReactComponentPayload {
 
 pub fn handle_open_ask_window(app_handle: &AppHandle) {
     use chrono::Local;
-    
+
     let ask_window = app_handle.get_webview_window("ask");
 
     match ask_window {
         None => {
-            println!(
-                "Creating ask window, at time: {}",
-                &Local::now().to_string()
-            );
+            println!("Creating ask window, at time: {}", &Local::now().to_string());
             create_ask_window(app_handle);
         }
         Some(window) => {
-            println!(
-                "Focusing ask window, at time: {}",
-                &Local::now().to_string()
-            );
+            println!("Focusing ask window, at time: {}", &Local::now().to_string());
             if window.is_minimized().unwrap_or(false) {
                 window.unminimize().unwrap();
             }
@@ -377,16 +362,13 @@ pub fn handle_open_ask_window(app_handle: &AppHandle) {
 
 pub fn awaken_aipp(app_handle: &AppHandle) {
     use chrono::Local;
-    
+
     let ask_window = app_handle.get_webview_window("ask");
     let chat_ui_window = app_handle.get_webview_window("chat_ui");
 
     // 优先检查 chat_ui 窗口
     if let Some(window) = chat_ui_window {
-        println!(
-            "Focusing chat_ui window, at time: {}",
-            &Local::now().to_string()
-        );
+        println!("Focusing chat_ui window, at time: {}", &Local::now().to_string());
         if window.is_minimized().unwrap_or(false) {
             window.unminimize().unwrap();
         }
@@ -397,10 +379,7 @@ pub fn awaken_aipp(app_handle: &AppHandle) {
 
     // 其次检查 ask 窗口
     if let Some(window) = ask_window {
-        println!(
-            "Focusing ask window, at time: {}",
-            &Local::now().to_string()
-        );
+        println!("Focusing ask window, at time: {}", &Local::now().to_string());
         if window.is_minimized().unwrap_or(false) {
             window.unminimize().unwrap();
         }
@@ -410,21 +389,14 @@ pub fn awaken_aipp(app_handle: &AppHandle) {
     }
 
     // 最后创建 ask 窗口
-    println!(
-        "Creating ask window, at time: {}",
-        &Local::now().to_string()
-    );
+    println!("Creating ask window, at time: {}", &Local::now().to_string());
     create_ask_window(app_handle);
 }
 
 // Create artifact collections window to manage saved artifacts
 fn create_artifact_collections_window(app_handle: &AppHandle) {
-    let (window_size, window_position) = get_window_size_and_position(
-        app_handle,
-        1200.0,
-        800.0,
-        &["chat_ui", "ask", "config"],
-    );
+    let (window_size, window_position) =
+        get_window_size_and_position(app_handle, 1200.0, 800.0, &["chat_ui", "ask", "config"]);
 
     let builder = WebviewWindowBuilder::new(
         app_handle,
@@ -457,7 +429,7 @@ fn create_artifact_collections_window(app_handle: &AppHandle) {
 // Create artifact window to display a single artifact
 fn create_artifact_window(app_handle: &AppHandle, artifact: &ArtifactCollection) {
     let window_label = "artifact";
-    
+
     let (window_size, window_position) = get_window_size_and_position(
         app_handle,
         1000.0,
@@ -465,17 +437,14 @@ fn create_artifact_window(app_handle: &AppHandle, artifact: &ArtifactCollection)
         &["artifact_collections", "ask", "chat_ui"],
     );
 
-    let builder = WebviewWindowBuilder::new(
-        app_handle,
-        window_label,
-        WebviewUrl::App("index.html".into()),
-    )
-    .title(artifact.name.clone())
-    .inner_size(window_size.width, window_size.height)
-    .resizable(true)
-    .minimizable(true)
-    .maximizable(true)
-    .center();
+    let builder =
+        WebviewWindowBuilder::new(app_handle, window_label, WebviewUrl::App("index.html".into()))
+            .title(artifact.name.clone())
+            .inner_size(window_size.width, window_size.height)
+            .resizable(true)
+            .minimizable(true)
+            .maximizable(true)
+            .center();
 
     let builder = if let Some(position) = window_position {
         builder.position(position.x, position.y)

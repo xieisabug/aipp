@@ -29,7 +29,9 @@ impl BunUtils {
 
     /// 获取 Bun 可执行文件路径
     /// 优先检查自定义应用数据目录，然后检查系统 PATH
-    pub fn get_bun_executable(app_handle: &AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    pub fn get_bun_executable(
+        app_handle: &AppHandle,
+    ) -> Result<PathBuf, Box<dyn std::error::Error>> {
         let bun_executable_name = Self::get_bun_executable_name();
 
         // 优先检查我们应用下载的 Bun 位置

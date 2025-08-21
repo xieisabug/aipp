@@ -1,15 +1,18 @@
+use crate::api::ai::config::{
+    calculate_retry_delay, get_network_proxy_from_config, get_request_timeout_from_config,
+    get_retry_attempts_from_config,
+};
 use crate::api::ai::events::TITLE_CHANGE_EVENT;
 use crate::api::genai_client;
+use crate::db::conversation_db::{Conversation, ConversationDatabase};
 use crate::db::llm_db::LLMDatabase;
 use crate::db::system_db::FeatureConfig;
 use crate::errors::AppError;
-use crate::db::conversation_db::{ConversationDatabase, Conversation};
 use crate::utils::window_utils::send_error_to_appropriate_window;
 use genai::chat::{ChatMessage, ChatRequest};
 use std::collections::HashMap;
-use tokio::time::{sleep, Duration};
-use crate::api::ai::config::{get_retry_attempts_from_config, calculate_retry_delay, get_network_proxy_from_config, get_request_timeout_from_config};
 use tauri::Emitter;
+use tokio::time::{sleep, Duration};
 
 pub async fn generate_title(
     app_handle: &tauri::AppHandle,
@@ -32,13 +35,8 @@ pub async fn generate_title(
             .value
             .clone();
         let prompt = config.get("prompt").unwrap().value.clone();
-        let summary_length = config
-            .get("summary_length")
-            .unwrap()
-            .value
-            .clone()
-            .parse::<i32>()
-            .unwrap();
+        let summary_length =
+            config.get("summary_length").unwrap().value.clone().parse::<i32>().unwrap();
 
         let mut context = String::new();
         if summary_length == -1 {
@@ -87,10 +85,7 @@ pub async fn generate_title(
                     context.push_str(
                         format!(
                             "# user\n {} \n\n请总结上述对话为标题，不需要包含标点符号",
-                            user_prompt
-                                .chars()
-                                .take(unsize_summary_length)
-                                .collect::<String>()
+                            user_prompt.chars().take(unsize_summary_length).collect::<String>()
                         )
                         .as_str(),
                     );
@@ -106,17 +101,15 @@ pub async fn generate_title(
         }
 
         let llm_db = LLMDatabase::new(app_handle).map_err(AppError::from)?;
-        let model_detail = llm_db
-            .get_llm_model_detail(&provider_id, &model_code)
-            .unwrap();
+        let model_detail = llm_db.get_llm_model_detail(&provider_id, &model_code).unwrap();
 
         // 从配置中获取网络代理和超时设置
         let network_proxy = get_network_proxy_from_config(&config_feature_map);
         let request_timeout = get_request_timeout_from_config(&config_feature_map);
-        
+
         // 检查供应商是否启用了代理（标题生成通常不需要代理，设为false）
         let proxy_enabled = false;
-        
+
         let client = genai_client::create_client_with_config(
             &model_detail.configs,
             &model_detail.model.code,
@@ -135,10 +128,7 @@ pub async fn generate_title(
 
         let mut attempts = 0;
         let response = loop {
-            match client
-                .exec_chat(model_name, chat_request.clone(), None)
-                .await
-            {
+            match client.exec_chat(model_name, chat_request.clone(), None).await {
                 Ok(chat_response) => {
                     break Ok(chat_response.first_text().unwrap_or("").to_string())
                 }
@@ -148,10 +138,7 @@ pub async fn generate_title(
                         eprintln!("Title generation failed after {} attempts: {}", attempts, e);
                         break Err(e.to_string());
                     }
-                    eprintln!(
-                        "Title generation attempt {} failed: {}, retrying...",
-                        attempts, e
-                    );
+                    eprintln!("Title generation attempt {} failed: {}, retrying...", attempts, e);
                     let delay = calculate_retry_delay(attempts);
                     sleep(Duration::from_millis(delay)).await;
                 }
@@ -163,16 +150,14 @@ pub async fn generate_title(
                 send_error_to_appropriate_window(&window, "生成对话标题失败，请检查配置");
             }
             Ok(response_text) => {
-                let conversation_db = ConversationDatabase::new(app_handle).map_err(AppError::from)?;
-                let _ = conversation_db
-                    .conversation_repo()
-                    .unwrap()
-                    .update_name(&Conversation {
-                        id: conversation_id,
-                        name: response_text.clone(),
-                        assistant_id: None,
-                        created_time: chrono::Utc::now(),
-                    });
+                let conversation_db =
+                    ConversationDatabase::new(app_handle).map_err(AppError::from)?;
+                let _ = conversation_db.conversation_repo().unwrap().update_name(&Conversation {
+                    id: conversation_id,
+                    name: response_text.clone(),
+                    assistant_id: None,
+                    created_time: chrono::Utc::now(),
+                });
                 window
                     .emit(TITLE_CHANGE_EVENT, (conversation_id, response_text.clone()))
                     .map_err(|e| e.to_string())
@@ -182,5 +167,3 @@ pub async fn generate_title(
     }
     Ok(())
 }
-
-
