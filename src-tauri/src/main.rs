@@ -71,8 +71,9 @@ use crate::db::llm_db::LLMDatabase;
 use crate::db::mcp_db::MCPDatabase;
 use crate::db::system_db::SystemDatabase;
 use crate::window::{
-    awaken_aipp, create_ask_window, handle_open_ask_window, open_artifact_collections_window,
-    open_artifact_preview_window, open_chat_ui_window, open_config_window, open_plugin_window,
+    awaken_aipp, create_ask_window, handle_open_ask_window,
+    open_artifact_collections_window, open_artifact_preview_window, open_chat_ui_window,
+    open_config_window, open_plugin_window,
 };
 use chrono::Local;
 use db::conversation_db::ConversationDatabase;

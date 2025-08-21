@@ -26,8 +26,16 @@ async fn send_completion_notification(
 ) {
     // 检查通知是否启用
     if let Some(display_config) = config_feature_map.get("display") {
-        if let Some(FeatureConfig { value, .. }) = display_config.get("notification_on_completion") {
+        if let Some(FeatureConfig { value, .. }) = display_config.get("notification_on_completion")
+        {
             if value == "true" {
+                // 检查 chat 和 ask 窗口是否有任何一个聚焦
+                // 如果有窗口聚焦，则不发送通知
+                if crate::utils::window_utils::is_chat_or_ask_window_focused(app_handle) {
+                    println!("[[notification_skipped]]: chat or ask window is focused");
+                    return;
+                }
+
                 // 准备通知内容
                 let title = if let Some(name) = assistant_name {
                     format!("AI 消息完成 - {}", name)
@@ -35,19 +43,15 @@ async fn send_completion_notification(
                     "AI 消息完成".to_string()
                 };
 
-                let body = if content.len() > 100 {
-                    format!("{}...", &content[..97])
+                let body = if content.chars().count() > 60 {
+                    let truncated: String = content.chars().take(57).collect();
+                    format!("{}...", truncated)
                 } else {
                     content.to_string()
                 };
 
                 // 发送系统通知
-                if let Err(e) = app_handle
-                    .notification()
-                    .builder()
-                    .title(&title)
-                    .body(&body)
-                    .show()
+                if let Err(e) = app_handle.notification().builder().title(&title).body(&body).show()
                 {
                     eprintln!("[[failed_to_send_notification]]: {}", e);
                 }
@@ -1744,13 +1748,13 @@ pub async fn handle_non_stream_chat(
             }
 
             // 获取助手名称并发送完成通知
-            let assistant_name = if let Ok(Some(conv)) = conversation_db
-                .conversation_repo()
-                .unwrap()
-                .read(conversation_id)
+            let assistant_name = if let Ok(Some(conv)) =
+                conversation_db.conversation_repo().unwrap().read(conversation_id)
             {
                 if let Some(assistant_id) = conv.assistant_id {
-                    if let Ok(assistant) = crate::api::assistant_api::get_assistant(app_handle.clone(), assistant_id) {
+                    if let Ok(assistant) =
+                        crate::api::assistant_api::get_assistant(app_handle.clone(), assistant_id)
+                    {
                         Some(assistant.assistant.name.clone())
                     } else {
                         None
@@ -1767,7 +1771,8 @@ pub async fn handle_non_stream_chat(
                 &content,
                 assistant_name,
                 &config_feature_map,
-            ).await;
+            )
+            .await;
 
             Ok(())
         }
