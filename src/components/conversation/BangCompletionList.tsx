@@ -93,7 +93,7 @@ const BangCompletionList: React.FC<BangCompletionListProps> = ({
                     }}
                 >
                     <span className="completion-bang-tag">{bang}</span>
-                    <span>{desc}</span>
+                    <span className="completion-bang-desc">{desc}</span>
                 </div>
             ))}
         </div>

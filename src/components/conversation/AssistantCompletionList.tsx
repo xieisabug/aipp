@@ -103,10 +103,10 @@ const AssistantCompletionList: React.FC<AssistantCompletionListProps> = ({
             case "exact":
                 return null;
             case "pinyin":
-                return <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full ml-2">拼音</span>;
+                return <span className="assistant-completion-match-type pinyin">拼音</span>;
             case "initial":
                 return (
-                    <span className="text-xs bg-accent text-accent-foreground px-2 py-1 rounded-full ml-2">首字母</span>
+                    <span className="assistant-completion-match-type initial">首字母</span>
                 );
             default:
                 return null;
@@ -117,41 +117,35 @@ const AssistantCompletionList: React.FC<AssistantCompletionListProps> = ({
         return null;
     }
 
-    const style =
-        placement === "top"
-            ? {
-                  top: `${cursorPosition.top}px`,
-                  left: `${cursorPosition.left}px`,
-              }
-            : {
-                  bottom: `${cursorPosition.bottom}px`,
-                  left: `${cursorPosition.left}px`,
-              };
-
     return (
         <div
             ref={listRef}
-            className="assistant-completion-list absolute z-50 bg-background border border-border rounded-lg shadow-lg max-w-xs max-h-64 overflow-y-auto"
-            style={style}
+            className="assistant-completion-list"
+            style={{
+                ...(placement === "top"
+                    ? { top: cursorPosition.top }
+                    : { bottom: cursorPosition.bottom }),
+                left: cursorPosition.left,
+            }}
         >
             {assistants.map((assistant, index) => (
                 <div
                     key={assistant.id}
-                    className={`assistant-completion-item px-3 py-2 cursor-pointer border-b border-border last:border-b-0 ${
-                        index === selectedAssistantIndex ? "bg-muted" : "hover:bg-muted/50"
+                    className={`assistant-completion-item ${
+                        index === selectedAssistantIndex ? "selected" : ""
                     }`}
                     onClick={() => handleAssistantSelect(assistant)}
                     onMouseEnter={() => {
                         // We could update selected index on hover if needed
                     }}
                 >
-                    <div className="flex items-center justify-between">
-                        <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium text-foreground truncate">
+                    <div className="assistant-completion-content">
+                        <div className="assistant-completion-info">
+                            <div className="assistant-completion-name">
                                 {renderHighlightedText(assistant.name, assistant.highlightIndices)}
                             </div>
                             {assistant.description && (
-                                <div className="text-xs text-muted-foreground truncate mt-1">
+                                <div className="assistant-completion-description">
                                     {assistant.description}
                                 </div>
                             )}

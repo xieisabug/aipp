@@ -114,7 +114,7 @@ export default function SaveArtifactDialog({ isOpen, onClose, artifactType, code
                 <DialogHeader>
                     <DialogTitle>保存 Artifact 到合集</DialogTitle>
                     <DialogDescription>
-                        将当前的 {artifactType.toUpperCase()} artifact 保存到您的合集中，方便以后快速访问。
+                        将当前的 {artifactType} artifact 保存到您的合集中，方便以后快速访问。
                         <div className="mt-2">
                             <Button
                                 type="button"
