@@ -4,16 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AIPP is a Tauri 2.0 desktop application that serves as an AI assistant platform with rich features for interacting with various language models. The application supports multiple LLM providers, local data storage, content preview, script execution, and extensible tooling through MCP (Model Context Protocol).
+AIPP (AI 助手平台) is a cross-platform desktop application built with Tauri 2.0 that serves as a comprehensive AI assistant platform. The application enables users to interact with multiple large language models, execute scripts, preview components, manage conversations, and extend functionality through MCP (Model Context Protocol).
 
 **Core Technologies:**
-- **Backend**: Rust with Tauri 2.0 framework
-- **Frontend**: React 19 with TypeScript, built with Vite  
-- **UI**: shadcn/ui components, Radix UI primitives, Tailwind CSS
-- **Database**: SQLite via rusqlite
-- **AI Integration**: Custom genai client with streaming support
-- **MCP Support**: rmcp crate for Model Context Protocol
+- **Backend**: Rust with Tauri 2.0 framework, SQLite via rusqlite
+- **Frontend**: React 19 with TypeScript, Vite build system
+- **UI Framework**: shadcn/ui components, Radix UI primitives, Tailwind CSS v4
+- **AI Integration**: Custom forked genai client with streaming support
+- **MCP Protocol**: rmcp crate for Model Context Protocol integration
 - **State Management**: React hooks for frontend, Arc<TokioMutex<>> for Rust backend
+- **Content Execution**: Support for HTML, SVG, React, Vue, Python, Bash/PowerShell, AppleScript
+- **Platform Features**: System tray, global shortcuts (Ctrl+Shift+I/O), multi-window architecture
 
 ## Essential Build Commands
 
@@ -113,14 +114,27 @@ const conversation = await invoke('get_conversation', { id: conversationId });
 
 ### State Management
 
-Frontend uses custom hooks for state:
+**Frontend State Management:**
 ```typescript
-const { conversations, createConversation } = useConversationManager();
+// Use domain-specific custom hooks
+const { deleteConversation, listConversations } = useConversationManager();
+const { models, updateModel } = useModels();
+const { assistant, saveAssistant } = useAssistantRuntime();
+
+// Hook naming convention: use[Domain][Action/Manager]
+// Examples: useConversationEvents, useMessageProcessing, useFileManagement
 ```
 
-Backend uses thread-safe state:
+**Backend State Management:**
 ```rust
-let app_state = Arc::new(TokioMutex::new(AppState::default()));
+// Thread-safe state with Arc<TokioMutex<T>>
+struct FeatureConfigState {
+    configs: Arc<TokioMutex<Vec<FeatureConfig>>>,
+    config_feature_map: Arc<TokioMutex<HashMap<String, HashMap<String, FeatureConfig>>>>,
+}
+
+// Always use async-aware locks
+let config = state.configs.lock().await;
 ```
 
 ### Component Patterns
