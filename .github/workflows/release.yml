@@ -1,140 +1,125 @@
 name: Release
 
 on:
-  push:
-    tags: [ v\d+\.\d+\.\d+ ]
-  workflow_dispatch:
+    push:
+        tags: [v\d+\.\d+\.\d+]
+    workflow_dispatch:
 
 jobs:
-  create-release:
-    permissions:
-      contents: write
-    runs-on: ubuntu-20.04
-    outputs:
-      release_id: ${{ steps.create-release.outputs.id }}
-      release_upload_url: ${{ steps.create-release.outputs.upload_url }}
-      release_body: "${{ steps.tag.outputs.message }}"
+    create-release:
+        permissions:
+            contents: write
+        runs-on: ubuntu-20.04
+        outputs:
+            release_id: ${{ steps.create-release.outputs.id }}
+            release_upload_url: ${{ steps.create-release.outputs.upload_url }}
+            release_body: "${{ steps.tag.outputs.message }}"
 
-    steps:
-      - uses: actions/checkout@v4
+        steps:
+            - uses: actions/checkout@v4
 
-      - name: Get version
-        id: get_version
-        uses: battila7/get-version-action@v2
+            - name: Get version
+              id: get_version
+              uses: battila7/get-version-action@v2
 
-      - name: Get tag message
-        id: tag
-        run: |
-          git fetch --depth=1 origin +refs/tags/*:refs/tags/*
-          echo "message<<EOF" >> $GITHUB_OUTPUT
-          echo "$(git tag -l --format='%(contents)' ${{ steps.get_version.outputs.version }})" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+            - name: Get tag message
+              id: tag
+              run: |
+                  git fetch --depth=1 origin +refs/tags/*:refs/tags/*
+                  echo "message<<EOF" >> $GITHUB_OUTPUT
+                  echo "$(git tag -l --format='%(contents)' ${{ steps.get_version.outputs.version }})" >> $GITHUB_OUTPUT
+                  echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Create Release
-        id: create-release
-        uses: ncipollo/release-action@v1
-        with:
-          draft: true
-          name: ${{ steps.get_version.outputs.version }}
-          tag: ${{ steps.get_version.outputs.version }}
-          body: "${{ steps.tag.outputs.message }}"
+            - name: Create Release
+              id: create-release
+              uses: ncipollo/release-action@v1
+              with:
+                  draft: true
+                  name: ${{ steps.get_version.outputs.version }}
+                  tag: ${{ steps.get_version.outputs.version }}
+                  body: "${{ steps.tag.outputs.message }}"
 
-  build-tauri:
-    needs: create-release
-    permissions:
-      contents: write
-      packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        config:
-          - os: ubuntu-latest
-            arch: x86_64
-            rust_target: x86_64-unknown-linux-gnu
-          - os: macos-13
-            arch: x86_64
-            rust_target: x86_64-apple-darwin
-          - os: macos-latest
-            arch: aarch64
-            rust_target: aarch64-apple-darwin
-          - os: windows-latest
-            arch: x86_64
-            rust_target: x86_64-pc-windows-msvc
+    build-tauri:
+        needs: create-release
+        permissions:
+            contents: write
+            packages: write
+        strategy:
+            fail-fast: false
+            matrix:
+                config:
+                    - os: ubuntu-latest
+                      arch: x86_64
+                      rust_target: x86_64-unknown-linux-gnu
+                    - os: macos-latest
+                      arch: x64
+                      rust_target: x86_64-apple-darwin
+                    - os: macos-latest
+                      arch: arm64
+                      rust_target: aarch64-apple-darwin
+                    - os: windows-latest
+                      arch: x86_64
+                      rust_target: x86_64-pc-windows-msvc
 
-    runs-on: ${{ matrix.config.os }}
-    steps:
-      - uses: actions/checkout@v4
+        runs-on: ${{ matrix.config.os }}
+        steps:
+            - uses: actions/checkout@v4
 
-      - name: Get version
-        id: get_version
-        uses: battila7/get-version-action@v2
+            - name: Get version
+              id: get_version
+              uses: battila7/get-version-action@v2
 
-      - uses: pnpm/action-setup@v2
-        with:
-          version: 8.6.0
+            - uses: pnpm/action-setup@v2
+              with:
+                  version: 8.6.0
 
-      - name: Setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 18
-          cache: 'pnpm'
+            - name: Setup node
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 18
+                  cache: "pnpm"
 
-      - name: Install frontend dependencies
-        run: pnpm install --no-frozen-lockfile
+            - name: Install frontend dependencies
+              run: pnpm install --no-frozen-lockfile
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.config.rust_target }}
+            - name: Install Rust stable
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: ${{ matrix.config.rust_target }}
 
-      - name: Install dependencies (ubuntu only)
-        if: matrix.config.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+            - name: Install dependencies (ubuntu only)
+              if: matrix.config.os == 'ubuntu-latest'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
-      - name: Install dependencies (mac only)
-        if: matrix.config.os == 'macos-latest'
-        run: |
-          rustup target add aarch64-apple-darwin
+            - name: Build Tauri App
+              uses: tauri-apps/tauri-action@v0.4
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  releaseId: ${{ needs.create-release.outputs.release_id }}
+                  releaseBody: ${{ needs.create-release.outputs.release_body }}
+                  arch: ${{ matrix.config.arch }}
 
-      - name: Build Tauri App
-        uses: tauri-apps/tauri-action@v0
-        if: matrix.config.os != 'macos-latest' || matrix.config.arch != 'aarch64'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          releaseId: ${{ needs.create-release.outputs.release_id }}
-          releaseBody: ${{ needs.create-release.outputs.release_body }}
+    publish-release:
+        permissions:
+            contents: write
+        runs-on: ubuntu-20.04
+        needs: [create-release, build-tauri]
 
-      - name: Build Tauri App (macOS aarch64)
-        uses: tauri-apps/tauri-action@v0
-        if: matrix.config.os == 'macos-latest' && matrix.config.arch == 'aarch64'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          releaseId: ${{ needs.create-release.outputs.release_id }}
-          releaseBody: ${{ needs.create-release.outputs.release_body }}
-          args: --target aarch64-apple-darwin
-
-  publish-release:
-    permissions:
-      contents: write
-    runs-on: ubuntu-20.04
-    needs: [create-release, build-tauri]
-
-    steps:
-      - name: publish release
-        id: publish-release
-        uses: actions/github-script@v6
-        env:
-          release_id: ${{ needs.create-release.outputs.release_id }}
-        with:
-          script: |
-            github.rest.repos.updateRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              release_id: process.env.release_id,
-              draft: false,
-              prerelease: false
-            })
+        steps:
+            - name: publish release
+              id: publish-release
+              uses: actions/github-script@v6
+              env:
+                  release_id: ${{ needs.create-release.outputs.release_id }}
+              with:
+                  script: |
+                      github.rest.repos.updateRelease({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        release_id: process.env.release_id,
+                        draft: false,
+                        prerelease: false
+                      })
