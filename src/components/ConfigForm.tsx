@@ -116,6 +116,9 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
 
     const CustomFormField = React.memo(({ field, name }: { field: ConfigField; name: string }) => {
         const renderField = (fieldRenderData: any) => {
+            if (field.type == "switch") {
+                console.log("field render data", fieldRenderData.value, fieldRenderData.value === "true");
+            }
             switch (field.type) {
                 case "select":
                     return (
@@ -168,7 +171,12 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                         <Switch
                             className={field.className}
                             disabled={field.disabled}
-                            checked={fieldRenderData.value}
+                            checked={
+                                fieldRenderData.value === true ||
+                                fieldRenderData.value === "true" ||
+                                fieldRenderData.value === 1 ||
+                                fieldRenderData.value === "1"
+                            }
                             onCheckedChange={fieldRenderData.onChange}
                         />
                     );

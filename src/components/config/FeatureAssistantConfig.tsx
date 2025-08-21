@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useMemo } from "react";
+import React, { useCallback, useState, useMemo, useEffect } from "react";
 import { MessageSquare, Eye, FolderOpen, Settings, Wifi, Monitor } from "lucide-react";
 import { useForm } from "react-hook-form";
 
@@ -71,48 +71,102 @@ const FeatureAssistantConfig: React.FC = () => {
 
     // 使用新的 hooks
     const { models } = useModels();
-    const { featureConfig, saveFeatureConfig } = useFeatureConfig();
+    const { featureConfig, saveFeatureConfig, loading } = useFeatureConfig();
     const versionManager = useVersionManager();
 
     // 初始化表单
     const displayForm = useForm({
         defaultValues: {
-            theme: featureConfig.get("display")?.get("theme") || "default",
-            color_mode: featureConfig.get("display")?.get("color_mode") || "system",
-            user_message_markdown_render: featureConfig.get("display")?.get("user_message_markdown_render") || "disabled",
-            notification_on_completion: featureConfig.get("display")?.get("notification_on_completion") === "true",
-            code_theme_light: featureConfig.get("display")?.get("code_theme_light") || "github",
-            code_theme_dark: featureConfig.get("display")?.get("code_theme_dark") || "github-dark",
+            theme: "default",
+            color_mode: "system",
+            user_message_markdown_render: "disabled",
+            notification_on_completion: "false",
+            code_theme_light: "github",
+            code_theme_dark: "github-dark",
         },
     });
 
     const summaryForm = useForm({
         defaultValues: {
-            model: `${featureConfig.get("conversation_summary")?.get("provider_id") || ""}%%${featureConfig.get("conversation_summary")?.get("model_code") || ""}`,
-            summary_length: featureConfig.get("conversation_summary")?.get("summary_length") || "100",
-            form_autofill_model: featureConfig.get("conversation_summary")?.get("form_autofill_model") || "",
-            prompt: featureConfig.get("conversation_summary")?.get("prompt") || "",
+            model: "",
+            summary_length: "100",
+            form_autofill_model: "",
+            prompt: "",
         },
     });
 
     const previewForm = useForm({
         defaultValues: {
-            preview_type: featureConfig.get("preview")?.get("preview_type") || "service",
-            nextjs_port: featureConfig.get("preview")?.get("nextjs_port") || "3001",
-            nuxtjs_port: featureConfig.get("preview")?.get("nuxtjs_port") || "3002",
-            auth_token: featureConfig.get("preview")?.get("auth_token") || "",
+            preview_type: "service",
+            nextjs_port: "3001",
+            nuxtjs_port: "3002",
+            auth_token: "",
         },
     });
 
     const networkForm = useForm({
         defaultValues: {
-            request_timeout: featureConfig.get("network_config")?.get("request_timeout") || "180",
-            retry_attempts: featureConfig.get("network_config")?.get("retry_attempts") || "3",
-            network_proxy: featureConfig.get("network_config")?.get("network_proxy") || "",
+            request_timeout: "180",
+            retry_attempts: "3",
+            network_proxy: "",
         },
     });
 
     const dataFolderForm = useForm({});
+
+    // 监听 featureConfig 变化，更新表单值
+    useEffect(() => {
+        if (!loading && featureConfig.size > 0) {
+            console.log("feature config loaded", featureConfig);
+            
+            // 更新 display 表单
+            const displayConfig = featureConfig.get("display");
+            if (displayConfig) {
+                displayForm.reset({
+                    theme: displayConfig.get("theme") || "default",
+                    color_mode: displayConfig.get("color_mode") || "system",
+                    user_message_markdown_render: displayConfig.get("user_message_markdown_render") || "disabled",
+                    notification_on_completion: displayConfig.get("notification_on_completion") || "false",
+                    code_theme_light: displayConfig.get("code_theme_light") || "github",
+                    code_theme_dark: displayConfig.get("code_theme_dark") || "github-dark",
+                });
+            }
+
+            // 更新 summary 表单
+            const summaryConfig = featureConfig.get("conversation_summary");
+            if (summaryConfig) {
+                const providerId = summaryConfig.get("provider_id") || "";
+                const modelCode = summaryConfig.get("model_code") || "";
+                summaryForm.reset({
+                    model: `${providerId}%%${modelCode}`,
+                    summary_length: summaryConfig.get("summary_length") || "100",
+                    form_autofill_model: summaryConfig.get("form_autofill_model") || "",
+                    prompt: summaryConfig.get("prompt") || "",
+                });
+            }
+
+            // 更新 preview 表单
+            const previewConfig = featureConfig.get("preview");
+            if (previewConfig) {
+                previewForm.reset({
+                    preview_type: previewConfig.get("preview_type") || "service",
+                    nextjs_port: previewConfig.get("nextjs_port") || "3001",
+                    nuxtjs_port: previewConfig.get("nuxtjs_port") || "3002",
+                    auth_token: previewConfig.get("auth_token") || "",
+                });
+            }
+
+            // 更新 network 表单
+            const networkConfig = featureConfig.get("network_config");
+            if (networkConfig) {
+                networkForm.reset({
+                    request_timeout: networkConfig.get("request_timeout") || "180",
+                    retry_attempts: networkConfig.get("retry_attempts") || "3",
+                    network_proxy: networkConfig.get("network_proxy") || "",
+                });
+            }
+        }
+    }, [loading, featureConfig, displayForm, summaryForm, previewForm, networkForm]);
 
     // 选择功能
     const handleSelectFeature = useCallback((feature: FeatureItem) => {

@@ -1,6 +1,6 @@
 import React, { useCallback } from "react";
 import { UseFormReturn } from "react-hook-form";
-import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
+import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { emit } from "@tauri-apps/api/event";
 import ConfigForm from "@/components/ConfigForm";
 import { toast } from "sonner";
@@ -26,19 +26,15 @@ export const DisplayConfigForm: React.FC<DisplayConfigFormProps> = ({ form, onSa
     ];
 
     // 代码主题选项
-    const lightCodeThemeOptions = AVAILABLE_CODE_THEMES
-        .filter((theme) => theme.category === "light")
-        .map((theme) => ({
-            value: theme.id,
-            label: theme.name,
-        }));
+    const lightCodeThemeOptions = AVAILABLE_CODE_THEMES.filter((theme) => theme.category === "light").map((theme) => ({
+        value: theme.id,
+        label: theme.name,
+    }));
 
-    const darkCodeThemeOptions = AVAILABLE_CODE_THEMES
-        .filter((theme) => theme.category === "dark")
-        .map((theme) => ({
-            value: theme.id,
-            label: theme.name,
-        }));
+    const darkCodeThemeOptions = AVAILABLE_CODE_THEMES.filter((theme) => theme.category === "dark").map((theme) => ({
+        value: theme.id,
+        label: theme.name,
+    }));
 
     const handleSaveDisplayConfig = useCallback(async () => {
         const values = form.getValues();
@@ -47,10 +43,10 @@ export const DisplayConfigForm: React.FC<DisplayConfigFormProps> = ({ form, onSa
         if (values.notification_on_completion) {
             try {
                 let permissionGranted = await isPermissionGranted();
-                
+
                 if (!permissionGranted) {
                     const permission = await requestPermission();
-                    permissionGranted = permission === 'granted';
+                    permissionGranted = permission === "granted";
                 }
 
                 if (!permissionGranted) {
@@ -107,22 +103,6 @@ export const DisplayConfigForm: React.FC<DisplayConfigFormProps> = ({ form, onSa
             },
         },
         {
-            key: "user_message_markdown_render",
-            config: {
-                type: "select" as const,
-                label: "用户消息Markdown渲染",
-                options: markdownRenderOptions,
-            },
-        },
-        {
-            key: "notification_on_completion",
-            config: {
-                type: "checkbox" as const,
-                label: "消息完成时发送系统通知",
-                tooltip: "AI消息生成完成时发送系统通知提醒",
-            },
-        },
-        {
             key: "code_theme_light",
             config: {
                 type: "select" as const,
@@ -136,6 +116,22 @@ export const DisplayConfigForm: React.FC<DisplayConfigFormProps> = ({ form, onSa
                 type: "select" as const,
                 label: "深色模式代码主题",
                 options: darkCodeThemeOptions,
+            },
+        },
+        {
+            key: "user_message_markdown_render",
+            config: {
+                type: "select" as const,
+                label: "用户消息Markdown渲染",
+                options: markdownRenderOptions,
+            },
+        },
+        {
+            key: "notification_on_completion",
+            config: {
+                type: "switch" as const,
+                label: "消息完成时发送系统通知",
+                tooltip: "AI消息生成完成时发送系统通知提醒",
             },
         },
     ];
