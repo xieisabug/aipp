@@ -7,19 +7,10 @@ enum PluginType {
 }
 
 interface AssistantTypeApi {
-    typeRegist(
-        pluginType: PluginType,
-        label: string,
-        plugin: TeaAssistantTypePlugin,
-    ): void;
+    typeRegist(pluginType: PluginType, label: string, plugin: AippAssistantTypePlugin): void;
     markdownRemarkRegist(component: any): void;
     changeFieldLabel(fieldName: string, label: string): void;
-    addField(
-        fieldName: string,
-        label: string,
-        type: string,
-        fieldConfig?: FieldConfig,
-    ): void;
+    addField(fieldName: string, label: string, type: string, fieldConfig?: FieldConfig): void;
     hideField(fieldName: string): void;
     forceFieldValue(fieldName: string, value: string): void;
     addFieldTips(fieldName: string, tips: string): void;
@@ -28,11 +19,7 @@ interface AssistantTypeApi {
 
 interface AssistantConfigApi {
     clearFieldValue(fieldName: string): void;
-    changeFieldValue(
-        fieldName: string,
-        value: string | boolean,
-        valueType: string,
-    ): void;
+    changeFieldValue(fieldName: string, value: string | boolean, valueType: string): void;
 }
 
 interface FieldConfig {
@@ -47,12 +34,7 @@ interface FieldConfig {
 }
 
 interface AssistantRunApi {
-    askAI(
-        question: string,
-        modelId: string,
-        prompt?: string,
-        conversationId?: string,
-    ): AskAiResponse;
+    askAI(question: string, modelId: string, prompt?: string, conversationId?: string): AskAiResponse;
     askAssistant(
         question: string,
         assistantId: string,
@@ -60,17 +42,13 @@ interface AssistantRunApi {
         fileInfoList?: FileInfo[],
         overrideModelConfig?: Map<string, any>,
         overrideSystemPrompt?: string,
-        onCustomUserMessage?: (
-            question: string,
-            assistantId: string,
-            conversationId?: string,
-        ) => any,
+        onCustomUserMessage?: (question: string, assistantId: string, conversationId?: string) => any,
         onCustomUserMessageComing?: (aiResponse: AiResponse) => void,
         onStreamMessageListener?: (
             payload: string,
             aiResponse: AiResponse,
-            responseIsResponsingFunction: (isFinish: boolean) => void,
-        ) => void,
+            responseIsResponsingFunction: (isFinish: boolean) => void
+        ) => void
     ): Promise<AiResponse>;
     getUserInput(): string;
     getModelId(): string;
@@ -94,13 +72,13 @@ declare class Config {
     type: string[];
 }
 
-declare class TeaPlugin {
+declare class AippPlugin {
     onPluginLoad(systemApi: SystemApi): void;
     renderComponent?(): React.ReactNode;
     config(): Config;
 }
 
-declare class TeaAssistantTypePlugin {
+declare class AippAssistantTypePlugin {
     onAssistantTypeInit(assistantTypeApi: AssistantTypeApi): void;
     onAssistantTypeSelect(assistantTypeApi: AssistantTypeApi): void;
     onAssistantTypeRun(assistantRunApi: AssistantRunApi): void;

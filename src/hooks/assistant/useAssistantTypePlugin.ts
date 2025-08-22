@@ -4,14 +4,12 @@ import { AssistantType } from "@/types/assistant";
 
 export const useAssistantTypePlugin = (pluginList: any[]) => {
     // 插件实例
-    const [assistantTypePluginMap, setAssistantTypePluginMap] = useState<
-        Map<number, TeaAssistantTypePlugin>
-    >(new Map());
+    const [assistantTypePluginMap, setAssistantTypePluginMap] = useState<Map<number, AippAssistantTypePlugin>>(
+        new Map()
+    );
 
     // 插件名称
-    const [assistantTypeNameMap, setAssistantTypeNameMap] = useState<
-        Map<number, string>
-    >(new Map<number, string>());
+    const [assistantTypeNameMap, setAssistantTypeNameMap] = useState<Map<number, string>>(new Map<number, string>());
 
     // 插件自定义字段
     const [assistantTypeCustomField, setAssistantTypeCustomField] = useState<
@@ -19,33 +17,25 @@ export const useAssistantTypePlugin = (pluginList: any[]) => {
     >([]);
 
     // 插件自定义label
-    const [assistantTypeCustomLabel, setAssistantTypeCustomLabel] = useState<
-        Map<string, string>
-    >(new Map<string, string>());
+    const [assistantTypeCustomLabel, setAssistantTypeCustomLabel] = useState<Map<string, string>>(
+        new Map<string, string>()
+    );
 
     // 插件自定义tips
-    const [assistantTypeCustomTips, setAssistantTypeCustomTips] = useState<
-        Map<string, string>
-    >(new Map<string, string>());
+    const [assistantTypeCustomTips, setAssistantTypeCustomTips] = useState<Map<string, string>>(
+        new Map<string, string>()
+    );
 
     // 插件隐藏字段
-    const [assistantTypeHideField, setAssistantTypeHideField] = useState<
-        Array<string>
-    >([]);
+    const [assistantTypeHideField, setAssistantTypeHideField] = useState<Array<string>>([]);
 
     // 助手类型
-    const [assistantTypes, setAssistantTypes] = useState<AssistantType[]>([
-        { code: 0, name: "普通对话助手" },
-    ]);
+    const [assistantTypes, setAssistantTypes] = useState<AssistantType[]>([{ code: 0, name: "普通对话助手" }]);
 
     // 使用 useMemo 缓存 assistantTypeApi
     const assistantTypeApi: AssistantTypeApi = useMemo(
         () => ({
-            typeRegist: (
-                code: number,
-                label: string,
-                pluginInstance: TeaAssistantTypePlugin,
-            ) => {
+            typeRegist: (code: number, label: string, pluginInstance: AippAssistantTypePlugin) => {
                 // 检查是否已存在相同的 code
                 setAssistantTypes((prev) => {
                     if (!prev.some((type) => type.code === code)) {
@@ -66,7 +56,7 @@ export const useAssistantTypePlugin = (pluginList: any[]) => {
                     return newMap;
                 });
             },
-            markdownRemarkRegist: (_: any) => { },
+            markdownRemarkRegist: (_: any) => {},
             changeFieldLabel: (fieldName: string, label: string) => {
                 setAssistantTypeCustomLabel((prev) => {
                     const newMap = new Map(prev);
@@ -74,12 +64,7 @@ export const useAssistantTypePlugin = (pluginList: any[]) => {
                     return newMap;
                 });
             },
-            addField: (
-                fieldName: string,
-                label: string,
-                type: string,
-                fieldConfig?: FieldConfig,
-            ) => {
+            addField: (fieldName: string, label: string, type: string, fieldConfig?: FieldConfig) => {
                 setAssistantTypeCustomField((prev) => {
                     const newField = {
                         key: fieldName,
@@ -89,7 +74,7 @@ export const useAssistantTypePlugin = (pluginList: any[]) => {
                                 label: label,
                                 value: "",
                             },
-                            fieldConfig,
+                            fieldConfig
                         ),
                     };
                     return [...prev, newField];
@@ -107,10 +92,10 @@ export const useAssistantTypePlugin = (pluginList: any[]) => {
                     return newMap;
                 });
             },
-            runLogic: (_: (assistantRunApi: AssistantRunApi) => void) => { },
-            forceFieldValue: function (_: string, __: string): void { },
+            runLogic: (_: (assistantRunApi: AssistantRunApi) => void) => {},
+            forceFieldValue: function (_: string, __: string): void {},
         }),
-        [],
+        []
     );
 
     // 给默认的字段增加Label和Tips
@@ -129,9 +114,7 @@ export const useAssistantTypePlugin = (pluginList: any[]) => {
     // 加载助手类型的插件
     useEffect(() => {
         pluginList
-            .filter((plugin: any) =>
-                plugin.pluginType.includes("assistantType"),
-            )
+            .filter((plugin: any) => plugin.pluginType.includes("assistantType"))
             .forEach((plugin: any) => {
                 plugin?.instance?.onAssistantTypeInit(assistantTypeApi);
             });
