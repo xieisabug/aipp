@@ -1,4 +1,4 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useRef } from "react";
 import { UseFormReturn } from "react-hook-form";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { emit } from "@tauri-apps/api/event";
@@ -12,6 +12,8 @@ interface DisplayConfigFormProps {
 }
 
 export const DisplayConfigForm: React.FC<DisplayConfigFormProps> = ({ form, onSave }) => {
+    const previousNotificationValue = useRef<boolean | undefined>(undefined);
+    
     const themeOptions = [{ value: "default", label: "默认主题" }];
 
     const colorModeOptions = [
@@ -38,9 +40,15 @@ export const DisplayConfigForm: React.FC<DisplayConfigFormProps> = ({ form, onSa
 
     const handleSaveDisplayConfig = useCallback(async () => {
         const values = form.getValues();
+        const currentNotificationValue = values.notification_on_completion;
 
-        // 如果用户开启了通知，需要检查和申请权限
-        if (values.notification_on_completion) {
+        // 检查通知设置是否从 false 变为 true
+        const notificationJustEnabled = 
+            previousNotificationValue.current === false && 
+            currentNotificationValue === true;
+
+        // 如果用户刚刚开启了通知，需要检查和申请权限
+        if (notificationJustEnabled) {
             try {
                 let permissionGranted = await isPermissionGranted();
 
@@ -71,6 +79,9 @@ export const DisplayConfigForm: React.FC<DisplayConfigFormProps> = ({ form, onSa
 
         try {
             await onSave();
+
+            // 更新上次的通知设置值
+            previousNotificationValue.current = currentNotificationValue;
 
             // 发出主题变化事件，通知其他窗口和组件
             await emit("theme-changed", {
