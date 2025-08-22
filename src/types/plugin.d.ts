@@ -9,7 +9,18 @@ enum PluginType {
 interface AddFieldOptions {
     fieldName: string;
     label: string;
-    type: string;
+    type:
+        | "select"
+        | "textarea"
+        | "input"
+        | "password"
+        | "checkbox"
+        | "radio"
+        | "static"
+        | "custom"
+        | "button"
+        | "switch"
+        | "model-select";
     fieldConfig?: FieldConfig;
 }
 
@@ -60,6 +71,7 @@ interface FieldConfig {
     // default false
     hidden?: boolean;
     tips?: string;
+    disabled?: boolean;
     onClick?: () => void;
 }
 
@@ -114,5 +126,5 @@ export {
     AskAiResponse,
     Config,
     AippPlugin,
-    AippAssistantTypePlugin
+    AippAssistantTypePlugin,
 };
