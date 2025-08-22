@@ -499,3 +499,53 @@ pub async fn open_artifact_window(
     }
     Ok(())
 }
+
+// Create plugin store window
+fn create_plugin_store_window(app_handle: &AppHandle) {
+    let (window_size, window_position) =
+        get_window_size_and_position(app_handle, 1200.0, 800.0, &["chat_ui", "ask", "config"]);
+
+    let builder = WebviewWindowBuilder::new(
+        app_handle,
+        "plugin_store",
+        WebviewUrl::App("index.html".into()),
+    )
+    .title("插件商店")
+    .inner_size(window_size.width, window_size.height)
+    .resizable(true)
+    .minimizable(true)
+    .maximizable(true)
+    .center();
+
+    let builder = if let Some(position) = window_position {
+        builder.position(position.x, position.y)
+    } else {
+        builder.center()
+    };
+
+    match builder.build() {
+        Ok(_window) => {
+            println!("Plugin store window created successfully");
+        }
+        Err(e) => {
+            eprintln!("Failed to create plugin store window: {}", e);
+        }
+    }
+}
+
+/// Open plugin store window
+#[tauri::command]
+pub async fn open_plugin_store_window(app_handle: AppHandle) -> Result<(), String> {
+    if app_handle.get_webview_window("plugin_store").is_none() {
+        println!("Creating plugin store window");
+        create_plugin_store_window(&app_handle);
+    } else if let Some(window) = app_handle.get_webview_window("plugin_store") {
+        println!("Showing plugin store window");
+        if window.is_minimized().unwrap_or(false) {
+            window.unminimize().unwrap();
+        }
+        window.show().unwrap();
+        window.set_focus().unwrap();
+    }
+    Ok(())
+}

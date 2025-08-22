@@ -73,7 +73,7 @@ use crate::db::system_db::SystemDatabase;
 use crate::window::{
     awaken_aipp, create_ask_window, handle_open_ask_window,
     open_artifact_collections_window, open_artifact_preview_window, open_chat_ui_window,
-    open_config_window, open_plugin_window,
+    open_config_window, open_plugin_store_window, open_plugin_window,
 };
 use chrono::Local;
 use db::conversation_db::ConversationDatabase;
@@ -298,6 +298,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             open_config_window,
             open_chat_ui_window,
             open_plugin_window,
+            open_plugin_store_window,
             open_artifact_preview_window,
             save_config,
             get_config,
