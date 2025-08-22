@@ -1,5 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
-import { FieldConfig } from "@/types/forms";
+import { 
+    AddFieldOptions, 
+    AippAssistantTypePlugin,
+    AssistantTypeApi,
+    AssistantRunApi
+} from "@/types/plugin";
 import { AssistantType } from "@/types/assistant";
 
 export const useAssistantTypePlugin = (pluginList: any[]) => {
@@ -64,7 +69,8 @@ export const useAssistantTypePlugin = (pluginList: any[]) => {
                     return newMap;
                 });
             },
-            addField: (fieldName: string, label: string, type: string, fieldConfig?: FieldConfig) => {
+            addField: (options: AddFieldOptions) => {
+                const { fieldName, label, type, fieldConfig } = options;
                 setAssistantTypeCustomField((prev) => {
                     const newField = {
                         key: fieldName,

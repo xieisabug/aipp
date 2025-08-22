@@ -1,4 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
+import { 
+    AddFieldOptions, 
+    AssistantRunApi, 
+    AippAssistantTypePlugin,
+    AssistantTypeApi,
+    AippPlugin
+} from "../types/plugin";
 
 // 用于存储AskAssistantApi中对应的处理函数
 interface AskAssistantApiFunctions {
@@ -39,7 +46,7 @@ export function usePluginManagement(pluginList: any[]): UsePluginManagementRetur
         },
         markdownRemarkRegist: (_: any) => {},
         changeFieldLabel: (_: string, __: string) => {},
-        addField: (_: string, __: string, ___: string, ____?: FieldConfig) => {},
+        addField: (_: AddFieldOptions) => {},
         addFieldTips: (_: string, __: string) => {},
         hideField: (_: string) => {},
         runLogic: (_: (assistantRunApi: AssistantRunApi) => void) => {},

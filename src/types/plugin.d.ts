@@ -6,11 +6,41 @@ enum PluginType {
     ApplicationType = 3,
 }
 
+interface AddFieldOptions {
+    fieldName: string;
+    label: string;
+    type: string;
+    fieldConfig?: FieldConfig;
+}
+
+interface AskAiOptions {
+    question: string;
+    modelId: string;
+    prompt?: string;
+    conversationId?: string;
+}
+
+interface AskAssistantOptions {
+    question: string;
+    assistantId: string;
+    conversationId?: string;
+    fileInfoList?: FileInfo[];
+    overrideModelConfig?: Map<string, any>;
+    overrideSystemPrompt?: string;
+    onCustomUserMessage?: (question: string, assistantId: string, conversationId?: string) => any;
+    onCustomUserMessageComing?: (aiResponse: AiResponse) => void;
+    onStreamMessageListener?: (
+        payload: string,
+        aiResponse: AiResponse,
+        responseIsResponsingFunction: (isFinish: boolean) => void
+    ) => void;
+}
+
 interface AssistantTypeApi {
     typeRegist(pluginType: PluginType, label: string, plugin: AippAssistantTypePlugin): void;
     markdownRemarkRegist(component: any): void;
     changeFieldLabel(fieldName: string, label: string): void;
-    addField(fieldName: string, label: string, type: string, fieldConfig?: FieldConfig): void;
+    addField(options: AddFieldOptions): void;
     hideField(fieldName: string): void;
     forceFieldValue(fieldName: string, value: string): void;
     addFieldTips(fieldName: string, tips: string): void;
@@ -34,22 +64,8 @@ interface FieldConfig {
 }
 
 interface AssistantRunApi {
-    askAI(question: string, modelId: string, prompt?: string, conversationId?: string): AskAiResponse;
-    askAssistant(
-        question: string,
-        assistantId: string,
-        conversationId?: string,
-        fileInfoList?: FileInfo[],
-        overrideModelConfig?: Map<string, any>,
-        overrideSystemPrompt?: string,
-        onCustomUserMessage?: (question: string, assistantId: string, conversationId?: string) => any,
-        onCustomUserMessageComing?: (aiResponse: AiResponse) => void,
-        onStreamMessageListener?: (
-            payload: string,
-            aiResponse: AiResponse,
-            responseIsResponsingFunction: (isFinish: boolean) => void
-        ) => void
-    ): Promise<AiResponse>;
+    askAI(options: AskAiOptions): AskAiResponse;
+    askAssistant(options: AskAssistantOptions): Promise<AiResponse>;
     getUserInput(): string;
     getModelId(): string;
     getAssistantId(): string;
@@ -83,3 +99,20 @@ declare class AippAssistantTypePlugin {
     onAssistantTypeSelect(assistantTypeApi: AssistantTypeApi): void;
     onAssistantTypeRun(assistantRunApi: AssistantRunApi): void;
 }
+
+export {
+    SystemApi,
+    PluginType,
+    AddFieldOptions,
+    AskAiOptions,
+    AskAssistantOptions,
+    AssistantTypeApi,
+    AssistantConfigApi,
+    FieldConfig,
+    AssistantRunApi,
+    AiResponse,
+    AskAiResponse,
+    Config,
+    AippPlugin,
+    AippAssistantTypePlugin
+};

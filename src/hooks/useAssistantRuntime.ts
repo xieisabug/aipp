@@ -1,49 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { Conversation, Message, FileInfo } from "../data/Conversation";
-
-// 从 plugin.d.ts 导入的接口类型
-interface AiResponse {
-    conversation_id: number;
-    request_prompt_result_with_context: string;
-}
-
-interface AskAiResponse {
-    answer: string;
-}
-
-interface AssistantRunApi {
-    askAI(
-        question: string,
-        modelId: string,
-        prompt?: string,
-        conversationId?: string,
-    ): AskAiResponse;
-    askAssistant(
-        question: string,
-        assistantId: string,
-        conversationId?: string,
-        fileInfoList?: FileInfo[],
-        overrideModelConfig?: Map<string, any>,
-        overrideSystemPrompt?: string,
-        onCustomUserMessage?: (
-            question: string,
-            assistantId: string,
-            conversationId?: string,
-        ) => any,
-        onCustomUserMessageComing?: (aiResponse: AiResponse) => void,
-        onStreamMessageListener?: (
-            payload: string,
-            aiResponse: AiResponse,
-            responseIsResponsingFunction: (isFinish: boolean) => void,
-        ) => void,
-    ): Promise<AiResponse>;
-    getUserInput(): string;
-    getModelId(): string;
-    getAssistantId(): string;
-    getField(assistantId: string, fieldName: string): Promise<string>;
-    appendAiResponse(messageId: number, response: string): void;
-    setAiResponse(messageId: number, response: string): void;
-}
+import { AssistantRunApi, AiResponse, AskAiResponse, AskAiOptions, AskAssistantOptions } from "../types/plugin";
 
 export interface UseAssistantRuntimeProps {
     conversation?: Conversation;
@@ -75,36 +32,26 @@ export function useAssistantRuntime({
     
     // 助手运行时API接口，提供给插件在运行时使用
     const assistantRunApi: AssistantRunApi = {
-        askAI: function (
-            question: string,
-            modelId: string,
-            prompt?: string,
-            conversationId?: string,
-        ): AskAiResponse {
+        askAI: function (options: AskAiOptions): AskAiResponse {
+            const { question, modelId, prompt, conversationId } = options;
             console.log("ask AI", question, modelId, prompt, conversationId);
             return {
                 answer: "",
             };
         },
-        askAssistant: function (
-            question: string,
-            assistantId: string,
-            conversationId?: string,
-            fileInfoListParam?: FileInfo[],
-            overrideModelConfig?: Map<string, any>,
-            overrideSystemPrompt?: string,
-            onCustomUserMessage?: (
-                question: string,
-                assistantId: string,
-                conversationId?: string,
-            ) => any,
-            _onCustomUserMessageComing?: (_: AiResponse) => void,
-            _onStreamMessageListener?: (
-                _: string,
-                __: AiResponse,
-                responseFinishFunction: (_: boolean) => void,
-            ) => void,
-        ): Promise<AiResponse> {
+        askAssistant: function (options: AskAssistantOptions): Promise<AiResponse> {
+            const {
+                question,
+                assistantId,
+                conversationId,
+                fileInfoList: fileInfoListParam,
+                overrideModelConfig,
+                overrideSystemPrompt,
+                onCustomUserMessage,
+                onCustomUserMessageComing: _onCustomUserMessageComing,
+                onStreamMessageListener: _onStreamMessageListener
+            } = options;
+            
             console.log(
                 "ask assistant",
                 question,

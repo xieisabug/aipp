@@ -12,6 +12,7 @@ import { Checkbox } from "./ui/checkbox";
 import { Switch } from "./ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { useModels } from "../hooks/useModels";
+import { AssistantConfigApi } from "../types/plugin";
 
 interface ConfigField {
     type:

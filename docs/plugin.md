@@ -74,12 +74,12 @@ class MyPlugin {
     assistantTypeApi.typeRegist(100, "代码生成助手", this);
 
     // 2. 新增字段
-    assistantTypeApi.addField(
-      "language",
-      "目标语言",
-      "string",
-      { position: "body", tips: "例如 javascript / python" }
-    );
+    assistantTypeApi.addField({
+      fieldName: "language",
+      label: "目标语言",
+      type: "string",
+      fieldConfig: { position: "body", tips: "例如 javascript / python" }
+    });
   }
 
   onAssistantTypeSelect(assistantTypeApi) {
@@ -90,7 +90,10 @@ class MyPlugin {
   onAssistantTypeRun(assistantRunApi) {
     // 点击「运行」后触发，可调用 askAI / askAssistant
     const question = assistantRunApi.getUserInput();
-    return assistantRunApi.askAI(question, assistantRunApi.getModelId());
+    return assistantRunApi.askAI({
+      question: question,
+      modelId: assistantRunApi.getModelId()
+    });
   }
 
   /** InterfaceType 可实现如下方法 ↓ */
@@ -108,8 +111,8 @@ window.SamplePlugin = MyPlugin;
 ## 5. 公共类型（TypeScript 声明）
 `src/types/plugin.d.ts` 暴露了所有可调用接口，常用结构如下：
 
-* `TeaPlugin`：基础类，定义 `onPluginLoad` / `renderComponent` / `config`。
-* `TeaAssistantTypePlugin`：扩展了 `TeaPlugin`，增加 **助手类型三大生命周期**：
+* `AippPlugin`：基础类，定义 `onPluginLoad` / `renderComponent` / `config`。
+* `AippAssistantTypePlugin`：扩展了 `AippPlugin`，增加 **助手类型三大生命周期**：
   * `onAssistantTypeInit`
   * `onAssistantTypeSelect`
   * `onAssistantTypeRun`
