@@ -5,17 +5,23 @@ import { toast } from "sonner";
 
 interface SummaryConfigFormProps {
     form: UseFormReturn<any>;
-    onSave: () => void;
+    onSave: () => Promise<void>;
 }
 
 export const SummaryConfigForm: React.FC<SummaryConfigFormProps> = ({ form, onSave }) => {
-    const handleSaveSummary = useCallback(() => {
+    const handleSaveSummary = useCallback(async () => {
         const values = form.getValues();
         if (!values.model || values.model === "-1") {
             toast.error("请选择一个模型");
             return;
         }
-        onSave();
+        
+        try {
+            await onSave();
+            toast.success("AI总结配置保存成功");
+        } catch (e) {
+            toast.error("保存AI总结配置失败: " + e);
+        }
     }, [form, onSave]);
 
     const summaryLengthOptions = [50, 100, 300, 500, 1000, -1].map((m) => ({

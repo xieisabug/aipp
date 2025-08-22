@@ -1,13 +1,23 @@
-import React from "react";
+import React, { useCallback } from "react";
 import { UseFormReturn } from "react-hook-form";
 import ConfigForm from "@/components/ConfigForm";
+import { toast } from "sonner";
 
 interface NetworkConfigFormProps {
     form: UseFormReturn<any>;
-    onSave: () => void;
+    onSave: () => Promise<void>;
 }
 
 export const NetworkConfigForm: React.FC<NetworkConfigFormProps> = ({ form, onSave }) => {
+    const handleSaveNetwork = useCallback(async () => {
+        try {
+            await onSave();
+            toast.success("网络配置保存成功");
+        } catch (e) {
+            toast.error("保存网络配置失败: " + e);
+        }
+    }, [onSave]);
+
     const NETWORK_FORM_CONFIG = [
         {
             key: "request_timeout",
@@ -46,7 +56,7 @@ export const NetworkConfigForm: React.FC<NetworkConfigFormProps> = ({ form, onSa
             layout="default"
             classNames="bottom-space"
             useFormReturn={form}
-            onSave={onSave}
+            onSave={handleSaveNetwork}
         />
     );
 };

@@ -8,7 +8,7 @@ import { AVAILABLE_CODE_THEMES } from "@/hooks/useCodeTheme";
 
 interface DisplayConfigFormProps {
     form: UseFormReturn<any>;
-    onSave: () => void;
+    onSave: () => Promise<void>;
 }
 
 export const DisplayConfigForm: React.FC<DisplayConfigFormProps> = ({ form, onSave }) => {
@@ -65,7 +65,7 @@ export const DisplayConfigForm: React.FC<DisplayConfigFormProps> = ({ form, onSa
                 }
 
                 // 权限获取成功，发送测试通知
-                await sendNotification({
+                sendNotification({
                     title: "AIPP - 系统通知已开启",
                     body: "AI 消息完成时将发送系统通知",
                 });

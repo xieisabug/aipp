@@ -33,9 +33,9 @@ interface FeatureFormRendererProps {
         installBun: () => void;
         installUv: () => void;
     };
-    onSaveDisplay: () => void;
-    onSaveSummary: () => void;
-    onSaveNetwork: () => void;
+    onSaveDisplay: () => Promise<void>;
+    onSaveSummary: () => Promise<void>;
+    onSaveNetwork: () => Promise<void>;
 }
 
 export const FeatureFormRenderer: React.FC<FeatureFormRendererProps> = ({
