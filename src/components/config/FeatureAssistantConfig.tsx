@@ -6,7 +6,6 @@ import { useForm } from "react-hook-form";
 import { ConfigPageLayout, SidebarList, ListItemButton, SelectOption } from "../common";
 
 // 导入新的 hooks 和组件
-import { useModels } from "@/hooks/useModels";
 import { useFeatureConfig } from "@/hooks/feature/useFeatureConfig";
 import { useVersionManager } from "@/hooks/feature/useVersionManager";
 import { FeatureFormRenderer } from "./feature/FeatureFormRenderer";
@@ -70,7 +69,6 @@ const FeatureAssistantConfig: React.FC = () => {
     const [selectedFeature, setSelectedFeature] = useState<FeatureItem>(featureList[0]);
 
     // 使用新的 hooks
-    const { models } = useModels();
     const { featureConfig, saveFeatureConfig, loading } = useFeatureConfig();
     const versionManager = useVersionManager();
 
@@ -265,7 +263,6 @@ const FeatureAssistantConfig: React.FC = () => {
                     networkForm,
                     dataFolderForm,
                 }}
-                models={models}
                 versionManager={versionManager}
                 onSaveDisplay={handleSaveDisplayConfig}
                 onSaveSummary={handleSaveSummaryConfig}

@@ -9,16 +9,9 @@ import { validateConfig } from "../../utils/validate";
 import AddAssistantDialog from "./AddAssistantDialog";
 
 // 导入公共组件
-import {
-    ConfigPageLayout,
-    SidebarList,
-    ListItemButton,
-    EmptyState,
-    SelectOption
-} from "../common";
+import { ConfigPageLayout, SidebarList, ListItemButton, EmptyState, SelectOption } from "../common";
 
 // 导入新的 hooks 和组件
-import { useModels } from "@/hooks/useModels";
 import { useAssistantTypePlugin } from "@/hooks/assistant/useAssistantTypePlugin";
 import { useAssistantOperations } from "@/hooks/assistant/useAssistantOperations";
 import { useAssistantFormConfig } from "@/hooks/assistant/useAssistantFormConfig";
@@ -33,9 +26,7 @@ interface AssistantConfigProps {
 }
 const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateTo }) => {
     const form = useForm();
-    
-    // 使用新的 hooks
-    const { models } = useModels();
+
     const {
         assistantTypes,
         assistantTypePluginMap,
@@ -47,7 +38,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
         assistantTypeHideField,
         assistantTypeApi,
     } = useAssistantTypePlugin(pluginList);
-    
+
     const {
         assistants,
         currentAssistant,
@@ -62,7 +53,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
         updateAssistantInfo,
         addAssistant,
     } = useAssistantOperations();
-    
+
     const {
         dialogStates,
         shareCode,
@@ -82,16 +73,12 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
             clearFieldValue: function (fieldName: string): void {
                 handleConfigChange(fieldName, "", "");
             },
-            changeFieldValue: function (
-                fieldName: string,
-                value: any,
-                valueType: string,
-            ): void {
+            changeFieldValue: function (fieldName: string, value: any, valueType: string): void {
                 console.log("changeFieldValue", fieldName, value, valueType);
                 handleConfigChange(fieldName, value, valueType);
             },
         }),
-        [currentAssistant],
+        [currentAssistant]
     );
 
     // 初始化助手列表
@@ -104,69 +91,55 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
     }, [loadAssistants]);
     // 监听助手列表变化
     useAssistantListListener({
-        onAssistantListChanged: useCallback((assistantList: AssistantListItem[]) => {
-            // 使用 operations hook 的方法更新列表
-            // 这里需要手动更新，因为 hook 内部不知道这个事件
-            if (assistantList.length > 0) {
-                const currentAssistantExists = assistantList.some(
-                    assistant => assistant.id === currentAssistant?.assistant.id
-                );
-                if (!currentAssistantExists) {
-                    handleChooseAssistant(assistantList[0]);
+        onAssistantListChanged: useCallback(
+            (assistantList: AssistantListItem[]) => {
+                // 使用 operations hook 的方法更新列表
+                // 这里需要手动更新，因为 hook 内部不知道这个事件
+                if (assistantList.length > 0) {
+                    const currentAssistantExists = assistantList.some(
+                        (assistant) => assistant.id === currentAssistant?.assistant.id
+                    );
+                    if (!currentAssistantExists) {
+                        handleChooseAssistant(assistantList[0]);
+                    }
+                } else {
+                    setCurrentAssistant(null);
                 }
-            } else {
-                setCurrentAssistant(null);
-            }
-        }, [currentAssistant?.assistant.id])
+            },
+            [currentAssistant?.assistant.id]
+        ),
     });
 
     // 选择助手
     const handleChooseAssistant = useCallback(
         (assistant: AssistantListItem) => {
-            if (
-                !currentAssistant ||
-                currentAssistant.assistant.id !== assistant.id
-            ) {
-                loadAssistantDetail(assistant.id)
-                    .then((assistantDetail) => {
-                        form.reset({
-                            assistantType: assistantDetail.assistant.assistant_type,
-                            model:
-                                assistantDetail.model.length > 0
-                                    ? `${assistantDetail.model[0].model_code}%%${assistantDetail.model[0].provider_id}`
-                                    : "-1",
-                            prompt: assistantDetail.prompts[0].prompt,
-                            ...assistantDetail.model_configs.reduce(
-                                (acc, config) => {
-                                    acc[config.name] =
-                                        config.value_type === "boolean"
-                                            ? config.value == "true"
-                                            : config.value;
-                                    return acc;
-                                },
-                                {} as Record<string, any>,
-                            ),
-                            ...assistantTypeCustomField.reduce(
-                                (acc, field) => {
-                                    acc[field.key] =
-                                        field.value.type === "checkbox"
-                                            ? assistantDetail.model_configs.find(
-                                                (config) =>
-                                                    config.name === field.key,
-                                            )?.value === "true"
-                                            : (assistantDetail.model_configs.find(
-                                                (config) =>
-                                                    config.name === field.key,
-                                            )?.value ?? "");
-                                    return acc;
-                                },
-                                {} as Record<string, any>,
-                            ),
-                        });
-                        setAssistantTypeCustomField([]);
-                        const plugin = assistantTypePluginMap.get(assistantDetail.assistant.assistant_type);
-                        plugin?.onAssistantTypeSelect?.(assistantTypeApi);
+            if (!currentAssistant || currentAssistant.assistant.id !== assistant.id) {
+                loadAssistantDetail(assistant.id).then((assistantDetail) => {
+                    form.reset({
+                        assistantType: assistantDetail.assistant.assistant_type,
+                        model:
+                            assistantDetail.model.length > 0
+                                ? `${assistantDetail.model[0].model_code}%%${assistantDetail.model[0].provider_id}`
+                                : "-1",
+                        prompt: assistantDetail.prompts[0].prompt,
+                        ...assistantDetail.model_configs.reduce((acc, config) => {
+                            acc[config.name] = config.value_type === "boolean" ? config.value == "true" : config.value;
+                            return acc;
+                        }, {} as Record<string, any>),
+                        ...assistantTypeCustomField.reduce((acc, field) => {
+                            acc[field.key] =
+                                field.value.type === "checkbox"
+                                    ? assistantDetail.model_configs.find((config) => config.name === field.key)
+                                          ?.value === "true"
+                                    : assistantDetail.model_configs.find((config) => config.name === field.key)
+                                          ?.value ?? "";
+                            return acc;
+                        }, {} as Record<string, any>),
                     });
+                    setAssistantTypeCustomField([]);
+                    const plugin = assistantTypePluginMap.get(assistantDetail.assistant.assistant_type);
+                    plugin?.onAssistantTypeSelect?.(assistantTypeApi);
+                });
             }
         },
         [
@@ -176,27 +149,16 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
             assistantTypeApi,
             form,
             loadAssistantDetail,
-        ],
+        ]
     );
 
     // 修改配置
     const handleConfigChange = useCallback(
         (key: string, value: string | boolean, value_type: string) => {
-            console.log(
-                "handleConfigChange",
-                key,
-                value,
-                value_type,
-                currentAssistant,
-            );
+            console.log("handleConfigChange", key, value, value_type, currentAssistant);
             if (currentAssistant) {
-                const index = currentAssistant.model_configs.findIndex(
-                    (config) => config.name === key,
-                );
-                const { isValid, parsedValue } = validateConfig(
-                    value,
-                    value_type,
-                );
+                const index = currentAssistant.model_configs.findIndex((config) => config.name === key);
+                const { isValid, parsedValue } = validateConfig(value, value_type);
                 if (!isValid) return;
 
                 // 更新表单值
@@ -207,30 +169,29 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                     const newConfigs =
                         index !== -1
                             ? prev.model_configs.map((config, i) =>
-                                i === index
-                                    ? {
-                                        ...config,
-                                        value: parsedValue.toString(),
-                                    }
-                                    : config,
-                            )
+                                  i === index
+                                      ? {
+                                            ...config,
+                                            value: parsedValue.toString(),
+                                        }
+                                      : config
+                              )
                             : [
-                                ...prev.model_configs,
-                                {
-                                    name: key,
-                                    value: parsedValue.toString(),
-                                    value_type: value_type,
-                                    id: 0,
-                                    assistant_id: prev.assistant.id,
-                                    assistant_model_id:
-                                        prev.model[0]?.id ?? 0,
-                                },
-                            ];
+                                  ...prev.model_configs,
+                                  {
+                                      name: key,
+                                      value: parsedValue.toString(),
+                                      value_type: value_type,
+                                      id: 0,
+                                      assistant_id: prev.assistant.id,
+                                      assistant_model_id: prev.model[0]?.id ?? 0,
+                                  },
+                              ];
                     return { ...prev, model_configs: newConfigs };
                 });
             }
         },
-        [currentAssistant, form, setCurrentAssistant],
+        [currentAssistant, form, setCurrentAssistant]
     );
 
     // 修改 prompt
@@ -251,13 +212,12 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                 };
             });
         },
-        [currentAssistant, setCurrentAssistant],
+        [currentAssistant, setCurrentAssistant]
     );
 
     // 使用新的 hook 生成表单配置
     const { formConfig } = useAssistantFormConfig({
         currentAssistant,
-        models,
         assistantTypeNameMap,
         assistantTypeCustomField,
         assistantTypeCustomLabel,
@@ -292,27 +252,20 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
             ],
             model_configs: Object.entries(values)
                 .filter(
-                    ([key]) =>
-                        key !== "assistantType" &&
-                        key !== "model" &&
-                        key !== "prompt" &&
-                        key !== "mcp_config",
+                    ([key]) => key !== "assistantType" && key !== "model" && key !== "prompt" && key !== "mcp_config"
                 )
                 .filter(([key]) => {
-                    const config = currentAssistant.model_configs.find(
-                        (config) => config.name === key,
-                    );
+                    const config = currentAssistant.model_configs.find((config) => config.name === key);
                     return (
-                        config && config.value_type &&
+                        config &&
+                        config.value_type &&
                         config?.value_type !== "static" &&
                         config?.value_type !== "button" &&
                         config?.value_type !== "custom"
                     );
                 })
                 .map(([key, value]) => {
-                    const config = currentAssistant.model_configs.find(
-                        (config) => config.name === key,
-                    );
+                    const config = currentAssistant.model_configs.find((config) => config.name === key);
                     return {
                         name: key,
                         value: value.toString(),
@@ -335,48 +288,43 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
 
     // 删除助手
     const handleDelete = useCallback(() => {
-        deleteAssistant().then((result) => {
-            if (result.shouldSelectFirst && result.assistants.length > 0) {
-                handleChooseAssistant(result.assistants[0]);
-            }
-            closeConfirmDeleteDialog();
-        }).catch(() => {
-            // 错误已在 hook 中处理
-        });
+        deleteAssistant()
+            .then((result) => {
+                if (result.shouldSelectFirst && result.assistants.length > 0) {
+                    handleChooseAssistant(result.assistants[0]);
+                }
+                closeConfirmDeleteDialog();
+            })
+            .catch(() => {
+                // 错误已在 hook 中处理
+            });
     }, [deleteAssistant, closeConfirmDeleteDialog, handleChooseAssistant]);
 
     // 添加新助手处理
-    const handleAssistantAdded = useCallback((assistantDetail: AssistantDetail) => {
-        addAssistant(assistantDetail);
-        
-        // 重置表单状态为新助手的配置
-        form.reset({
-            assistantType: assistantDetail.assistant.assistant_type,
-            model:
-                assistantDetail.model.length > 0
-                    ? `${assistantDetail.model[0].model_code}%%${assistantDetail.model[0].provider_id}`
-                    : "-1",
-            prompt: assistantDetail.prompts[0]?.prompt || "",
-            ...assistantDetail.model_configs.reduce(
-                (acc, config) => {
-                    acc[config.name] =
-                        config.value_type === "boolean"
-                            ? config.value == "true"
-                            : config.value;
+    const handleAssistantAdded = useCallback(
+        (assistantDetail: AssistantDetail) => {
+            addAssistant(assistantDetail);
+
+            // 重置表单状态为新助手的配置
+            form.reset({
+                assistantType: assistantDetail.assistant.assistant_type,
+                model:
+                    assistantDetail.model.length > 0
+                        ? `${assistantDetail.model[0].model_code}%%${assistantDetail.model[0].provider_id}`
+                        : "-1",
+                prompt: assistantDetail.prompts[0]?.prompt || "",
+                ...assistantDetail.model_configs.reduce((acc, config) => {
+                    acc[config.name] = config.value_type === "boolean" ? config.value == "true" : config.value;
                     return acc;
-                },
-                {} as Record<string, any>,
-            ),
-        });
-    }, [addAssistant, form]);
+                }, {} as Record<string, any>),
+            });
+        },
+        [addAssistant, form]
+    );
 
     // 侧边栏内容
     const sidebar = (
-        <SidebarList
-            title="助手列表"
-            description="选择助手进行配置"
-            icon={<Bot className="h-5 w-5" />}
-        >
+        <SidebarList title="助手列表" description="选择助手进行配置" icon={<Bot className="h-5 w-5" />}>
             {assistants.map((assistant, index) => (
                 <ListItemButton
                     key={index}
@@ -401,40 +349,50 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
     }, [shareAssistant, openShareDialog]);
 
     // 下拉菜单选项
-    const selectOptions: SelectOption[] = useMemo(() =>
-        assistants.map(assistant => ({
-            id: assistant.id.toString(),
-            label: assistant.name,
-            icon: <User className="h-4 w-4" />
-        })), [assistants]);
+    const selectOptions: SelectOption[] = useMemo(
+        () =>
+            assistants.map((assistant) => ({
+                id: assistant.id.toString(),
+                label: assistant.name,
+                icon: <User className="h-4 w-4" />,
+            })),
+        [assistants]
+    );
 
     // 下拉菜单选择回调
-    const handleSelectFromDropdown = useCallback((assistantId: string) => {
-        const assistant = assistants.find(a => a.id.toString() === assistantId);
-        if (assistant) {
-            handleChooseAssistant(assistant);
-        }
-    }, [assistants, handleChooseAssistant]);
+    const handleSelectFromDropdown = useCallback(
+        (assistantId: string) => {
+            const assistant = assistants.find((a) => a.id.toString() === assistantId);
+            if (assistant) {
+                handleChooseAssistant(assistant);
+            }
+        },
+        [assistants, handleChooseAssistant]
+    );
 
     // 新增按钮组件
-    const addButton = useMemo(() => (
-        <div className="flex gap-2">
-            <AddAssistantDialog
-                assistantTypes={assistantTypes}
-                onAssistantAdded={handleAssistantAdded}
-                triggerButtonProps={{
-                    className: "gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm hover:shadow-md transition-all"
-                }}
-            />
-            <Button
-                variant="outline"
-                onClick={openImportDialog}
-                className="shadow-sm hover:shadow-md transition-all"
-            >
-                <Download className="h-4 w-4" />
-            </Button>
-        </div>
-    ), [assistantTypes, handleAssistantAdded, openImportDialog]);
+    const addButton = useMemo(
+        () => (
+            <div className="flex gap-2">
+                <AddAssistantDialog
+                    assistantTypes={assistantTypes}
+                    onAssistantAdded={handleAssistantAdded}
+                    triggerButtonProps={{
+                        className:
+                            "gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm hover:shadow-md transition-all",
+                    }}
+                />
+                <Button
+                    variant="outline"
+                    onClick={openImportDialog}
+                    className="shadow-sm hover:shadow-md transition-all"
+                >
+                    <Download className="h-4 w-4" />
+                </Button>
+            </div>
+        ),
+        [assistantTypes, handleAssistantAdded, openImportDialog]
+    );
 
     // 空状态
     if (assistants.length === 0) {
@@ -467,7 +425,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                         />
                     }
                 />
-                
+
                 <AssistantDialogs
                     dialogStates={dialogStates}
                     shareCode={shareCode}

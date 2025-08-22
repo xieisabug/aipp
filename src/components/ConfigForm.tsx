@@ -11,6 +11,7 @@ import { Input } from "./ui/input";
 import { Checkbox } from "./ui/checkbox";
 import { Switch } from "./ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
+import { useModels } from "../hooks/useModels";
 
 interface ConfigField {
     type:
@@ -23,7 +24,8 @@ interface ConfigField {
         | "static"
         | "custom"
         | "button"
-        | "switch";
+        | "switch"
+        | "model-select";
     label: string;
     className?: string;
     options?: { value: string; label: string; tooltip?: string }[];
@@ -73,6 +75,9 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
     const [isExpanded, setIsExpanded] = useState<boolean>(defaultExpanded);
     const contentRef = useRef<HTMLDivElement>(null);
 
+    // 获取模型数据用于 model-select 类型
+    const { models, loading: modelsLoading, error: modelsError } = useModels();
+
     const toggleExpand = () => {
         if (enableExpand) {
             setIsExpanded(!isExpanded);
@@ -115,9 +120,20 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
     }, []);
 
     const CustomFormField = React.memo(({ field, name }: { field: ConfigField; name: string }) => {
+        // 生成模型选项用于 model-select 类型
+        const modelOptions = useMemo(() => {
+            if (field.type === "model-select" && models) {
+                return models.map((model) => ({
+                    value: `${model.code}%%${model.llm_provider_id}`,
+                    label: model.name,
+                }));
+            }
+            return [];
+        }, [field.type, models]);
+
         const renderField = (fieldRenderData: any) => {
-            if (field.type == "switch") {
-                console.log("field render data", fieldRenderData.value, fieldRenderData.value === "true");
+            if (field.type == "model-select") {
+                console.log("field render data", fieldRenderData.value, modelOptions);
             }
             switch (field.type) {
                 case "select":
@@ -132,6 +148,27 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                             </SelectTrigger>
                             <SelectContent>
                                 {field.options?.map((option) => (
+                                    <SelectItem key={option.value} value={option.value}>
+                                        {option.label}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    );
+                case "model-select":
+                    return (
+                        <Select
+                            disabled={field.disabled || modelsLoading}
+                            value={fieldRenderData.value}
+                            onValueChange={fieldRenderData.onChange}
+                        >
+                            <SelectTrigger className="w-full max-w-full focus:ring-ring/20 focus:border-ring overflow-hidden">
+                                <SelectValue
+                                    placeholder={modelsLoading ? "加载中..." : modelsError ? "加载失败" : "选择模型"}
+                                />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {modelOptions.map((option) => (
                                     <SelectItem key={option.value} value={option.value}>
                                         {option.label}
                                     </SelectItem>

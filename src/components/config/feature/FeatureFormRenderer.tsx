@@ -1,6 +1,5 @@
 import React from "react";
 import { UseFormReturn } from "react-hook-form";
-import { ModelForSelect } from "@/hooks/useModels";
 import { DisplayConfigForm } from "./forms/DisplayConfigForm";
 import { SummaryConfigForm } from "./forms/SummaryConfigForm";
 import { PreviewConfigForm } from "./forms/PreviewConfigForm";
@@ -24,7 +23,6 @@ interface FeatureFormRendererProps {
         networkForm: UseFormReturn<any>;
         dataFolderForm: UseFormReturn<any>;
     };
-    models: ModelForSelect[];
     versionManager: {
         bunVersion: string;
         uvVersion: string;
@@ -43,7 +41,6 @@ interface FeatureFormRendererProps {
 export const FeatureFormRenderer: React.FC<FeatureFormRendererProps> = ({
     selectedFeature,
     forms,
-    models,
     versionManager,
     onSaveDisplay,
     onSaveSummary,
@@ -61,7 +58,6 @@ export const FeatureFormRenderer: React.FC<FeatureFormRendererProps> = ({
             return (
                 <SummaryConfigForm
                     form={forms.summaryForm}
-                    models={models}
                     onSave={onSaveSummary}
                 />
             );

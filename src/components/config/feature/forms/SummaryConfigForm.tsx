@@ -1,20 +1,14 @@
 import React, { useCallback } from "react";
 import { UseFormReturn } from "react-hook-form";
 import ConfigForm from "@/components/ConfigForm";
-import { ModelForSelect } from "@/hooks/useModels";
 import { toast } from "sonner";
 
 interface SummaryConfigFormProps {
     form: UseFormReturn<any>;
-    models: ModelForSelect[];
     onSave: () => void;
 }
 
-export const SummaryConfigForm: React.FC<SummaryConfigFormProps> = ({ 
-    form, 
-    models, 
-    onSave 
-}) => {
+export const SummaryConfigForm: React.FC<SummaryConfigFormProps> = ({ form, onSave }) => {
     const handleSaveSummary = useCallback(() => {
         const values = form.getValues();
         if (!values.model || values.model === "-1") {
@@ -23,11 +17,6 @@ export const SummaryConfigForm: React.FC<SummaryConfigFormProps> = ({
         }
         onSave();
     }, [form, onSave]);
-
-    const modelOptions = models.map((m) => ({
-        value: `${m.llm_provider_id}%%${m.code}`,
-        label: m.name,
-    }));
 
     const summaryLengthOptions = [50, 100, 300, 500, 1000, -1].map((m) => ({
         value: m.toString(),
@@ -38,9 +27,8 @@ export const SummaryConfigForm: React.FC<SummaryConfigFormProps> = ({
         {
             key: "model",
             config: {
-                type: "select" as const,
+                type: "model-select" as const,
                 label: "总结 Model",
-                options: modelOptions,
             },
         },
         {
@@ -54,9 +42,8 @@ export const SummaryConfigForm: React.FC<SummaryConfigFormProps> = ({
         {
             key: "form_autofill_model",
             config: {
-                type: "select" as const,
+                type: "model-select" as const,
                 label: "表单填写 Model",
-                options: modelOptions,
             },
         },
         {

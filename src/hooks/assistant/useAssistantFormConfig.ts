@@ -2,13 +2,11 @@ import { useMemo, useCallback } from "react";
 import React from "react";
 import { AssistantDetail } from "@/data/Assistant";
 import { AssistantFormConfig } from "@/types/forms";
-import { ModelForSelect } from "@/hooks/useModels";
 import { validateConfig } from "@/utils/validate";
 import AssistantMCPFieldDisplay from "@/components/config/AssistantMCPFieldDisplay";
 
 interface UseAssistantFormConfigProps {
     currentAssistant: AssistantDetail | null;
-    models: ModelForSelect[];
     assistantTypeNameMap: Map<number, string>;
     assistantTypeCustomField: Array<{ key: string; value: Record<string, any> }>;
     assistantTypeCustomLabel: Map<string, string>;
@@ -21,7 +19,6 @@ interface UseAssistantFormConfigProps {
 
 export const useAssistantFormConfig = ({
     currentAssistant,
-    models,
     assistantTypeNameMap,
     assistantTypeCustomField,
     assistantTypeCustomLabel,
@@ -31,17 +28,6 @@ export const useAssistantFormConfig = ({
     onConfigChange,
     onPromptChange,
 }: UseAssistantFormConfigProps) => {
-    
-    // 模型选项
-    const modelOptions = useMemo(
-        () =>
-            models.map((m) => ({
-                value: `${m.code}%%${m.llm_provider_id}`,
-                label: m.name,
-            })),
-        [models],
-    );
-
     // 处理配置修改
     const handleConfigChange = useCallback(
         (key: string, value: string | boolean, value_type: string) => {
@@ -52,7 +38,7 @@ export const useAssistantFormConfig = ({
 
             onConfigChange(key, parsedValue, value_type);
         },
-        [currentAssistant, onConfigChange],
+        [currentAssistant, onConfigChange]
     );
 
     // 处理模型变化
@@ -63,7 +49,7 @@ export const useAssistantFormConfig = ({
             // 这里需要外部组件处理模型变化逻辑
             onConfigChange("model", value as string, "string");
         },
-        [currentAssistant, onConfigChange],
+        [currentAssistant, onConfigChange]
     );
 
     // 生成表单配置
@@ -75,23 +61,17 @@ export const useAssistantFormConfig = ({
                 key: "assistantType",
                 config: {
                     type: "static" as const,
-                    label:
-                        assistantTypeCustomLabel.get("assistantType") ??
-                        "助手类型",
-                    value:
-                        assistantTypeNameMap.get(
-                            currentAssistant?.assistant.assistant_type ?? 0,
-                        ) ?? "普通对话助手",
+                    label: assistantTypeCustomLabel.get("assistantType") ?? "助手类型",
+                    value: assistantTypeNameMap.get(currentAssistant?.assistant.assistant_type ?? 0) ?? "普通对话助手",
                 },
             },
             {
                 key: "model",
                 config: {
-                    type: "select" as const,
+                    type: "model-select" as const,
                     label: assistantTypeCustomLabel.get("model") ?? "Model",
-                    options: modelOptions,
                     value:
-                        (currentAssistant?.model.length ?? 0 > 0)
+                        currentAssistant?.model.length ?? 0 > 0
                             ? `${currentAssistant?.model[0].model_code}%%${currentAssistant?.model[0].provider_id}`
                             : "-1",
                     onChange: handleModelChange,
@@ -99,36 +79,21 @@ export const useAssistantFormConfig = ({
             },
             ...(currentAssistant?.model_configs ?? [])
                 .filter(
-                    (config) => !assistantTypeHideField.includes(config.name) && 
-                                !assistantTypeCustomField.find((field) => field.key === config.name),
+                    (config) =>
+                        !assistantTypeHideField.includes(config.name) &&
+                        !assistantTypeCustomField.find((field) => field.key === config.name)
                 )
                 .map((config) => ({
                     key: config.name,
                     config: {
-                        type:
-                            config.value_type === "boolean"
-                                ? ("checkbox" as const)
-                                : ("input" as const),
-                        label:
-                            assistantTypeCustomLabel.get(config.name) ??
-                            config.name,
-                        value:
-                            config.value_type === "boolean"
-                                ? config.value == "true"
-                                : config.value,
+                        type: config.value_type === "boolean" ? ("checkbox" as const) : ("input" as const),
+                        label: assistantTypeCustomLabel.get(config.name) ?? config.name,
+                        value: config.value_type === "boolean" ? config.value == "true" : config.value,
                         tooltip: assistantTypeCustomTips.get(config.name),
                         onChange: (value: string | boolean) =>
-                            handleConfigChange(
-                                config.name,
-                                value,
-                                config.value_type,
-                            ),
+                            handleConfigChange(config.name, value, config.value_type),
                         onBlur: (value: string | boolean) =>
-                            handleConfigChange(
-                                config.name,
-                                value as string,
-                                config.value_type,
-                            ),
+                            handleConfigChange(config.name, value as string, config.value_type),
                     },
                 })),
             ...assistantTypeCustomField
@@ -138,13 +103,9 @@ export const useAssistantFormConfig = ({
                     config: {
                         ...field.value,
                         type: field.value.type,
-                        label:
-                            assistantTypeCustomLabel.get(field.key) ??
-                            field.value.label,
+                        label: assistantTypeCustomLabel.get(field.key) ?? field.value.label,
                         value: (() => {
-                            const config = currentAssistant?.model_configs.find(
-                                (config) => config.name === field.key,
-                            );
+                            const config = currentAssistant?.model_configs.find((config) => config.name === field.key);
                             if (field.value.type === "checkbox") {
                                 return config?.value === "true";
                             } else if (field.value.type === "static") {
@@ -158,17 +119,13 @@ export const useAssistantFormConfig = ({
                             handleConfigChange(
                                 field.key,
                                 value,
-                                field.value.type === "checkbox"
-                                    ? "boolean"
-                                    : "string",
+                                field.value.type === "checkbox" ? "boolean" : "string"
                             ),
                         onBlur: (value: string | boolean) =>
                             handleConfigChange(
                                 field.key,
                                 value as string,
-                                field.value.type === "checkbox"
-                                    ? "boolean"
-                                    : "string",
+                                field.value.type === "checkbox" ? "boolean" : "string"
                             ),
                     },
                 })),
@@ -184,9 +141,9 @@ export const useAssistantFormConfig = ({
                         return React.createElement(AssistantMCPFieldDisplay, {
                             assistantId: currentAssistant?.assistant.id ?? 0,
                             onConfigChange: () => {
-                                console.log('MCP configuration changed');
+                                console.log("MCP configuration changed");
                             },
-                            navigateTo: navigateTo
+                            navigateTo: navigateTo,
                         });
                     },
                 },
@@ -201,8 +158,7 @@ export const useAssistantFormConfig = ({
                     label: assistantTypeCustomLabel.get("prompt") ?? "Prompt",
                     className: "h-64",
                     value: currentAssistant?.prompts[0]?.prompt ?? "",
-                    onChange: (value: string | boolean) =>
-                        onPromptChange(value as string),
+                    onChange: (value: string | boolean) => onPromptChange(value as string),
                 },
             });
         }
@@ -215,7 +171,6 @@ export const useAssistantFormConfig = ({
         assistantTypeCustomLabel,
         assistantTypeHideField,
         assistantTypeCustomTips,
-        modelOptions,
         handleConfigChange,
         handleModelChange,
         navigateTo,

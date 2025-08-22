@@ -26,9 +26,13 @@ export type FieldType =
     | "textarea" 
     | "select" 
     | "checkbox" 
+    | "radio"
     | "button" 
     | "static" 
-    | "custom";
+    | "custom"
+    | "switch"
+    | "password"
+    | "model-select";
 
 export interface SelectOption {
     value: string;
