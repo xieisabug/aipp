@@ -1,6 +1,5 @@
 use crate::db::artifacts_db::ArtifactCollection;
 use serde::{Deserialize, Serialize};
-use tauri::Emitter;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri::{LogicalPosition, LogicalSize};
 
@@ -546,6 +545,46 @@ pub async fn open_plugin_store_window(app_handle: AppHandle) -> Result<(), Strin
         }
         window.show().unwrap();
         window.set_focus().unwrap();
+    }
+    Ok(())
+}
+
+// Create hidden search window for builtin MCP tools
+fn create_hidden_search_window(app_handle: &AppHandle) {
+    let builder = WebviewWindowBuilder::new(
+        app_handle,
+        "hidden_search",
+        WebviewUrl::External("about:blank".parse().unwrap()),
+    )
+    .title("Hidden Search Window")
+    .inner_size(800.0, 600.0)
+    .resizable(false)
+    .minimizable(false)
+    .maximizable(false)
+    .closable(false)
+    .visible(false) // 关键：窗口不可见
+    .skip_taskbar(true)
+    .decorations(false);
+
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.transparent(true);
+
+    match builder.build() {
+        Ok(_window) => {
+            println!("Hidden search window created successfully");
+        }
+        Err(e) => {
+            eprintln!("Failed to create hidden search window: {}", e);
+        }
+    }
+}
+
+/// Create or get hidden search window for builtin MCP tools
+#[tauri::command]
+pub async fn ensure_hidden_search_window(app_handle: AppHandle) -> Result<(), String> {
+    if app_handle.get_webview_window("hidden_search").is_none() {
+        println!("Creating hidden search window");
+        create_hidden_search_window(&app_handle);
     }
     Ok(())
 }

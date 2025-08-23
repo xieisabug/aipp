@@ -4,7 +4,7 @@ export interface MCPTemplate {
     id: string;
     name: string;
     description: string;
-    category: 'Quick Start' | 'Import';
+    category: 'Quick Start' | 'Import' | 'Builtin Tools';
     template: Partial<MCPServerRequest>;
 }
 
@@ -49,6 +49,20 @@ export const MCP_QUICK_TEMPLATES: MCPTemplate[] = [
         }
     },
     {
+        id: 'builtin-search',
+        name: '内置工具',
+        description: '通过内置协议（aipp:*）快速添加官方内置工具',
+        category: 'Import',
+        template: {
+            transport_type: 'stdio',
+            command: 'aipp:search',
+            is_long_running: false,
+            is_enabled: true,
+            timeout: 10000,
+            is_builtin: true,
+        }
+    },
+    {
         id: 'json-import',
         name: 'JSON导入',
         description: '从JSON配置导入MCP服务器',
@@ -67,4 +81,8 @@ export const getQuickStartTemplates = (): MCPTemplate[] => {
 
 export const getImportTemplates = (): MCPTemplate[] => {
     return MCP_QUICK_TEMPLATES.filter(template => template.category === 'Import');
+};
+
+export const getBuiltinToolsTemplates = (): MCPTemplate[] => {
+    return MCP_QUICK_TEMPLATES.filter(template => template.category === 'Builtin Tools');
 };

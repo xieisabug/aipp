@@ -2,13 +2,14 @@ export interface MCPServer {
     id: number;
     name: string;
     description: string | null;
-    transport_type: string; // 'stdio' | 'sse' | 'http'
+    transport_type: string; // 'stdio' | 'sse' | 'http' | 'builtin'
     command: string | null;
     environment_variables: string | null;
     url: string | null;
     timeout: number | null;
     is_long_running: boolean;
     is_enabled: boolean;
+    is_builtin: boolean; // 标识是否为内置服务器
     created_time: string;
 }
 
@@ -50,6 +51,7 @@ export interface MCPServerRequest {
     timeout?: number;
     is_long_running: boolean;
     is_enabled: boolean;
+    is_builtin?: boolean; // 可选字段，用于创建内置服务器
 }
 
 export interface MCPToolConfig {
@@ -79,6 +81,7 @@ export const MCP_TRANSPORT_TYPES: { value: MCPTransportType; label: string }[] =
     { value: 'stdio', label: 'Stdio' },
     { value: 'sse', label: 'SSE (Server-Sent Events)' },
     { value: 'http', label: 'HTTP' },
+    // { value: 'builtin', label: '内置工具' }, // Removed builtin transport option
 ];
 
 export interface MCPConnectionStatus {

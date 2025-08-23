@@ -11,6 +11,7 @@ import MCPServerDialog from "./MCPServerDialog";
 import MCPActionDropdown from "./MCPActionDropdown";
 import JSONImportDialog from "./JSONImportDialog";
 import MCPToolItem from "./MCPToolItem";
+import BuiltinToolDialog from "./BuiltinToolDialog";
 
 // 导入公共组件
 import {
@@ -36,7 +37,10 @@ const MCPConfig: React.FC = () => {
     const [editingServer, setEditingServer] = useState<MCPServer | null>(null);
     const [jsonImportDialogOpen, setJsonImportDialogOpen] = useState(false);
     const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+    const [builtinDialogOpen, setBuiltinDialogOpen] = useState(false);
     const [deletingServerId, setDeletingServerId] = useState<number | null>(null);
+    const [builtinEditOpen, setBuiltinEditOpen] = useState(false);
+    const [builtinEditEnv, setBuiltinEditEnv] = useState<string>("");
 
     // Dialog initial data
     const [dialogInitialServerType, setDialogInitialServerType] = useState<string | undefined>(undefined);
@@ -156,6 +160,14 @@ const MCPConfig: React.FC = () => {
 
     // 打开编辑服务器对话框
     const openEditServerDialog = useCallback((server: MCPServer) => {
+        // Built-in servers (identified by is_builtin or aipp:* command) use env-only dialog
+        const isBuiltin = server.is_builtin || (!!server.command && server.command.startsWith('aipp:'));
+        if (isBuiltin) {
+            setEditingServer(server);
+            setBuiltinEditEnv(server.environment_variables || "");
+            setBuiltinEditOpen(true);
+            return;
+        }
         setEditingServer(server);
         setServerDialogOpen(true);
     }, []);
@@ -245,6 +257,10 @@ const MCPConfig: React.FC = () => {
 
     // 处理模板选择
     const handleTemplateSelect = useCallback((template: MCPTemplate) => {
+        if (template.id === 'builtin-search') {
+            setBuiltinDialogOpen(true);
+            return;
+        }
         openAddServerDialog(template.template.transport_type, template.template);
     }, [openAddServerDialog]);
 
@@ -363,6 +379,16 @@ const MCPConfig: React.FC = () => {
                     isOpen={jsonImportDialogOpen}
                     onClose={closeJSONImportDialog}
                     onImport={handleJSONImportConfirm}
+                />
+
+                {/* 内置工具对话框 - 空状态时也需要渲染 */}
+                <BuiltinToolDialog
+                    isOpen={builtinDialogOpen}
+                    onClose={() => setBuiltinDialogOpen(false)}
+                    onSubmit={() => {
+                        setBuiltinDialogOpen(false);
+                        getMcpServers();
+                    }}
                 />
             </>
         );
@@ -612,6 +638,53 @@ const MCPConfig: React.FC = () => {
                 onClose={closeJSONImportDialog}
                 onImport={handleJSONImportConfirm}
             />
+
+            {/* 内置工具对话框 */}
+            <BuiltinToolDialog
+                isOpen={builtinDialogOpen}
+                onClose={() => setBuiltinDialogOpen(false)}
+                onSubmit={() => {
+                    setBuiltinDialogOpen(false);
+                    getMcpServers();
+                }}
+            />
+
+            {/* 内置工具编辑对话框（仅环境变量） */}
+            {editingServer && (
+                <BuiltinToolDialog
+                    isOpen={builtinEditOpen}
+                    editing
+                    initialName={editingServer.name}
+                    initialDescription={editingServer.description || ''}
+                    initialCommand={editingServer.command || ''}
+                    initialEnvText={builtinEditEnv}
+                    onEnvChange={setBuiltinEditEnv}
+                    onClose={() => setBuiltinEditOpen(false)}
+                    onSubmit={async () => {
+                        // Save env-only changes via update API
+                        try {
+                            const req: MCPServerRequest = {
+                                name: editingServer.name,
+                                description: editingServer.description || undefined,
+                                transport_type: editingServer.transport_type,
+                                command: editingServer.command || undefined,
+                                environment_variables: builtinEditEnv,
+                                url: editingServer.url || undefined,
+                                timeout: editingServer.timeout || undefined,
+                                is_long_running: editingServer.is_long_running,
+                                is_enabled: editingServer.is_enabled,
+                                is_builtin: editingServer.is_builtin,
+                            };
+                            await invoke('update_mcp_server', { id: editingServer.id, request: req });
+                            toast.success('已保存内置工具环境变量');
+                            setBuiltinEditOpen(false);
+                            getMcpServers();
+                        } catch (e) {
+                            toast.error('保存失败: ' + e);
+                        }
+                    }}
+                />
+            )}
 
             {/* 确认删除对话框 */}
             <ConfirmDialog

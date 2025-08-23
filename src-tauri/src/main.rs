@@ -47,6 +47,9 @@ use crate::api::mcp_api::{
     refresh_mcp_server_capabilities, test_mcp_connection, toggle_mcp_server, update_mcp_server,
     update_mcp_server_prompt, update_mcp_server_tool,
 };
+use crate::api::builtin_mcp_api::{
+    list_aipp_builtin_templates, add_or_update_aipp_builtin_server, execute_aipp_builtin_tool,
+};
 use crate::api::mcp_execution_api::{
     create_mcp_tool_call, execute_mcp_tool_call, get_mcp_tool_call,
     get_mcp_tool_calls_by_conversation,
@@ -73,7 +76,7 @@ use crate::db::system_db::SystemDatabase;
 use crate::window::{
     awaken_aipp, create_ask_window, handle_open_ask_window,
     open_artifact_collections_window, open_artifact_preview_window, open_chat_ui_window,
-    open_config_window, open_plugin_store_window, open_plugin_window,
+    open_config_window, open_plugin_store_window, open_plugin_window, ensure_hidden_search_window,
 };
 use chrono::Local;
 use db::conversation_db::ConversationDatabase;
@@ -276,6 +279,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let _ = database_upgrade(&app_handle, system_db, llm_db, assistant_db, conversation_db);
 
+            // 无需启动时初始化内置服务器，改为使用模板创建
+
             app.manage(initialize_state(&app_handle));
             app.manage(initialize_name_cache_state(&app_handle));
 
@@ -388,7 +393,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             create_mcp_tool_call,
             execute_mcp_tool_call,
             get_mcp_tool_call,
-            get_mcp_tool_calls_by_conversation
+            get_mcp_tool_calls_by_conversation,
+            list_aipp_builtin_templates,
+            add_or_update_aipp_builtin_server,
+            execute_aipp_builtin_tool,
+            ensure_hidden_search_window
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application");

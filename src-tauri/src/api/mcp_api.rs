@@ -15,6 +15,7 @@ pub struct MCPServerRequest {
     pub timeout: Option<i32>,
     pub is_long_running: bool,
     pub is_enabled: bool,
+    pub is_builtin: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -46,7 +47,7 @@ pub async fn add_mcp_server(
     let db = MCPDatabase::new(&app_handle).map_err(|e: rusqlite::Error| e.to_string())?;
 
     let server_id = db
-        .upsert_mcp_server(
+        .upsert_mcp_server_with_builtin(
             &request.name,
             request.description.as_deref(),
             &request.transport_type,
@@ -56,6 +57,7 @@ pub async fn add_mcp_server(
             request.timeout,
             request.is_long_running,
             request.is_enabled,
+            request.is_builtin.unwrap_or(false),
         )
         .map_err(|e| e.to_string())?;
 
@@ -70,7 +72,7 @@ pub async fn update_mcp_server(
 ) -> Result<(), String> {
     let db = MCPDatabase::new(&app_handle).map_err(|e: rusqlite::Error| e.to_string())?;
 
-    db.update_mcp_server(
+    db.update_mcp_server_with_builtin(
         id,
         &request.name,
         request.description.as_deref(),
@@ -81,6 +83,7 @@ pub async fn update_mcp_server(
         request.timeout,
         request.is_long_running,
         request.is_enabled,
+        request.is_builtin.unwrap_or(false),
     )
     .map_err(|e| e.to_string())?;
 
@@ -147,7 +150,18 @@ pub async fn test_mcp_connection(
 
     // 测试实际的MCP连接
     let test_result = match server.transport_type.as_str() {
-        "stdio" => test_stdio_connection(&server).await,
+        "stdio" => {
+            if let Some(cmd) = &server.command {
+                if crate::api::builtin_mcp_api::is_builtin_mcp_call(cmd) {
+                    // 内置 aipp:* 不需要实际连接
+                    Ok(())
+                } else {
+                    test_stdio_connection(&server).await
+                }
+            } else {
+                test_stdio_connection(&server).await
+            }
+        }
         "sse" => test_sse_connection(&server).await,
         "http" => test_http_connection(&server).await,
         _ => Err(format!("Unsupported transport type: {}", server.transport_type)),
@@ -325,7 +339,23 @@ pub async fn refresh_mcp_server_capabilities(
 
     // Try to connect to MCP server and get capabilities
     let result = match server.transport_type.as_str() {
-        "stdio" => get_stdio_capabilities(app_handle.clone(), server_id, server.clone()).await,
+        "stdio" => {
+            // If aipp builtin server, register tools directly
+            if let Some(cmd) = &server.command {
+                if crate::api::builtin_mcp_api::is_builtin_mcp_call(cmd) {
+                    let db = MCPDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+                    for tool in crate::api::builtin_mcp_api::get_builtin_tools_for_command(cmd) {
+                        let params_json = tool.input_schema.to_string();
+                        let _ = db.upsert_mcp_server_tool(server_id, &tool.name, Some(&tool.description), Some(&params_json));
+                    }
+                    Ok(())
+                } else {
+                    get_stdio_capabilities(app_handle.clone(), server_id, server.clone()).await
+                }
+            } else {
+                get_stdio_capabilities(app_handle.clone(), server_id, server.clone()).await
+            }
+        },
         "sse" => get_sse_capabilities(app_handle.clone(), server_id, server.clone()).await,
         "http" => get_http_capabilities(app_handle.clone(), server_id, server.clone()).await,
         _ => Err(format!("Unsupported transport type: {}", server.transport_type)),

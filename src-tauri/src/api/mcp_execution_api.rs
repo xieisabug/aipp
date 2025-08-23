@@ -248,7 +248,8 @@ pub async fn execute_mcp_tool_call(
 
     // 执行工具
     let execution_result =
-        execute_tool_by_transport(&server, &tool_call.tool_name, &tool_call.parameters).await;
+        execute_tool_by_transport(&app_handle, &server, &tool_call.tool_name, &tool_call.parameters)
+            .await;
 
     // 处理执行结果
     handle_tool_execution_result(
@@ -335,7 +336,7 @@ async fn handle_retry_success_continuation(
     let conversation_db = ConversationDatabase::new(app_handle)
         .map_err(|e| format!("初始化对话数据库失败: {}", e))?;
 
-    // 更新现有的 tool_result 消息在数据库中（用于记录保存）
+    // 更新现有的 tool_result 消消息在数据库中（用于记录保存）
     let messages = conversation_db
         .message_repo()
         .unwrap()
@@ -443,14 +444,28 @@ async fn trigger_conversation_continuation(
 
 // 统一的工具执行函数，根据传输类型选择相应的执行策略
 async fn execute_tool_by_transport(
+    app_handle: &tauri::AppHandle,
     server: &MCPServer,
     tool_name: &str,
     parameters: &str,
 ) -> Result<String, String> {
     match server.transport_type.as_str() {
-        "stdio" => execute_stdio_tool(server, tool_name, parameters).await,
-        "sse" => execute_sse_tool(server, tool_name, parameters).await,
-        "http" => execute_http_tool(server, tool_name, parameters).await,
+        // If stdio but command is aipp:*, route to builtin executor
+        "stdio" => {
+            if let Some(cmd) = &server.command {
+                if crate::api::builtin_mcp_api::is_builtin_mcp_call(cmd) {
+                    execute_builtin_tool(app_handle, server, tool_name, parameters).await
+                } else {
+                    execute_stdio_tool(app_handle, server, tool_name, parameters).await
+                }
+            } else {
+                execute_stdio_tool(app_handle, server, tool_name, parameters).await
+            }
+        },
+        "sse" => execute_sse_tool(app_handle, server, tool_name, parameters).await,
+        "http" => execute_http_tool(app_handle, server, tool_name, parameters).await,
+        // Legacy builtin type is no longer used, but keep for backward compatibility
+        "builtin" => execute_builtin_tool(app_handle, server, tool_name, parameters).await,
         _ => {
             let error_msg = format!("不支持的传输类型: {}", server.transport_type);
             Err(error_msg)
@@ -458,10 +473,17 @@ async fn execute_tool_by_transport(
     }
 }
 async fn execute_stdio_tool(
+    app_handle: &tauri::AppHandle,
     server: &MCPServer,
     tool_name: &str,
     parameters: &str,
 ) -> Result<String, String> {
+    // If command is aipp:*, delegate to builtin executor
+    if let Some(cmd) = &server.command {
+        if crate::api::builtin_mcp_api::is_builtin_mcp_call(cmd) {
+            return execute_builtin_tool(app_handle, server, tool_name, parameters).await;
+        }
+    }
     use rmcp::{
         model::CallToolRequestParam,
         transport::{ConfigureCommandExt, TokioChildProcess},
@@ -538,6 +560,7 @@ async fn execute_stdio_tool(
 }
 
 async fn execute_sse_tool(
+    _app_handle: &tauri::AppHandle,
     server: &MCPServer,
     tool_name: &str,
     parameters: &str,
@@ -612,7 +635,42 @@ async fn execute_sse_tool(
     }
 }
 
+// 执行内置工具
+async fn execute_builtin_tool(
+    app_handle: &tauri::AppHandle,
+    server: &MCPServer,
+    tool_name: &str,
+    parameters: &str,
+) -> Result<String, String> {
+    use crate::api::builtin_mcp_api::{execute_aipp_builtin_tool, is_builtin_mcp_call};
+
+    // 验证是否为内置工具调用
+    let command = server.command.clone().unwrap_or_default();
+    if !is_builtin_mcp_call(&command) {
+        return Err(format!("Unknown builtin tool: {} for command: {}", tool_name, command));
+    }
+
+    // 通过 rmcp 的内置服务执行工具，并规范化返回为 content JSON 字符串
+    let params_clean = normalize_parameters_json(parameters);
+    let raw = execute_aipp_builtin_tool(app_handle.clone(), command.clone(), tool_name.to_string(), params_clean).await?;
+
+    // raw 是序列化后的 ToolResult，提取其中的 content 字段以与其他传输保持一致
+    let v: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|e| format!("解析内置工具结果失败: {}", e))?;
+    let is_error = v
+        .get("is_error")
+        .or_else(|| v.get("isError"))
+        .and_then(|x| x.as_bool())
+        .unwrap_or(false);
+    if is_error {
+        return Err(format!("工具执行错误: {}", v.get("content").unwrap_or(&serde_json::Value::Null)));
+    }
+    let content = v.get("content").cloned().unwrap_or(serde_json::Value::Null);
+    serde_json::to_string(&content).map_err(|e| format!("序列化结果失败: {}", e))
+}
+
 async fn execute_http_tool(
+    _app_handle: &tauri::AppHandle,
     server: &MCPServer,
     tool_name: &str,
     parameters: &str,
@@ -685,3 +743,4 @@ async fn execute_http_tool(
         Err(_) => Err("Timeout while executing tool".to_string()),
     }
 }
+

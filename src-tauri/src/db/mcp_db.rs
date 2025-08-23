@@ -8,13 +8,14 @@ pub struct MCPServer {
     pub id: i64,
     pub name: String,
     pub description: String,
-    pub transport_type: String, // stdio, sse, http
+    pub transport_type: String, // stdio, sse, http, builtin
     pub command: Option<String>,
     pub environment_variables: Option<String>,
     pub url: Option<String>,
     pub timeout: Option<i32>,
     pub is_long_running: bool,
     pub is_enabled: bool,
+    pub is_builtin: bool, // 标识是否为内置服务器
     pub created_time: String,
 }
 
@@ -86,13 +87,14 @@ impl MCPDatabase {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
                 description TEXT,
-                transport_type TEXT NOT NULL CHECK (transport_type IN ('stdio', 'sse', 'http')),
+                transport_type TEXT NOT NULL,
                 command TEXT,
                 environment_variables TEXT,
                 url TEXT,
                 timeout INTEGER DEFAULT 30000,
                 is_long_running BOOLEAN NOT NULL DEFAULT 0,
                 is_enabled BOOLEAN NOT NULL DEFAULT 1,
+                is_builtin BOOLEAN NOT NULL DEFAULT 0,
                 created_time DATETIME DEFAULT CURRENT_TIMESTAMP
             );",
             [],
@@ -170,8 +172,66 @@ impl MCPDatabase {
             [],
         )?;
 
-        // Migrate existing table to add new columns if they don't exist
+    // Migrate existing tables to add new columns or relax constraints
+    self.migrate_mcp_server_table()?;
         self.migrate_mcp_tool_call_table()?;
+
+        Ok(())
+    }
+
+    /// Migrate mcp_server table if it was created with a CHECK constraint on transport_type
+    /// and/or missing the is_builtin column. We'll recreate the table without the CHECK and
+    /// ensure the is_builtin column exists with default 0.
+    fn migrate_mcp_server_table(&self) -> rusqlite::Result<()> {
+        // Detect current schema
+        let mut stmt = self.conn.prepare(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='mcp_server'",
+        )?;
+        let sql_opt: Option<String> = stmt.query_row([], |row| row.get(0)).optional()?;
+
+        if let Some(create_sql) = sql_opt {
+            let has_check = create_sql
+                .to_lowercase()
+                .contains("check (transport_type in");
+
+            // Detect if is_builtin column exists
+            let mut has_is_builtin = false;
+            if let Ok(mut cols) = self.conn.prepare("PRAGMA table_info(mcp_server)") {
+                let rows = cols.query_map([], |row| Ok((row.get::<_, i32>(0)?, row.get::<_, String>(1)?)))?;
+                for r in rows {
+                    if let Ok((_cid, name)) = r {
+                        if name == "is_builtin" { has_is_builtin = true; }
+                    }
+                }
+            }
+
+            if has_check || !has_is_builtin {
+                // Perform table rebuild
+                self.conn.execute_batch(
+                    "BEGIN TRANSACTION;\
+                    CREATE TABLE IF NOT EXISTS mcp_server_new (\
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,\
+                        name TEXT NOT NULL UNIQUE,\
+                        description TEXT,\
+                        transport_type TEXT NOT NULL,\
+                        command TEXT,\
+                        environment_variables TEXT,\
+                        url TEXT,\
+                        timeout INTEGER DEFAULT 30000,\
+                        is_long_running BOOLEAN NOT NULL DEFAULT 0,\
+                        is_enabled BOOLEAN NOT NULL DEFAULT 1,\
+                        is_builtin BOOLEAN NOT NULL DEFAULT 0,\
+                        created_time DATETIME DEFAULT CURRENT_TIMESTAMP\
+                    );\
+                    INSERT INTO mcp_server_new (id, name, description, transport_type, command, environment_variables, url, timeout, is_long_running, is_enabled, is_builtin, created_time)\
+                    SELECT id, name, description, transport_type, command, environment_variables, url, timeout, is_long_running, is_enabled,\
+                           COALESCE(is_builtin, 0), created_time FROM mcp_server;\
+                    DROP TABLE mcp_server;\
+                    ALTER TABLE mcp_server_new RENAME TO mcp_server;\
+                    COMMIT;"
+                )?;
+            }
+        }
 
         Ok(())
     }
@@ -225,7 +285,7 @@ impl MCPDatabase {
 
     pub fn get_mcp_servers(&self) -> rusqlite::Result<Vec<MCPServer>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, description, transport_type, command, environment_variables, url, timeout, is_long_running, is_enabled, created_time 
+            "SELECT id, name, description, transport_type, command, environment_variables, url, timeout, is_long_running, is_enabled, COALESCE(is_builtin, 0), created_time 
              FROM mcp_server ORDER BY created_time DESC"
         )?;
 
@@ -241,7 +301,8 @@ impl MCPDatabase {
                 timeout: row.get(7)?,
                 is_long_running: row.get(8)?,
                 is_enabled: row.get(9)?,
-                created_time: row.get(10)?,
+                is_builtin: row.get(10)?,
+                created_time: row.get(11)?,
             })
         })?;
 
@@ -254,7 +315,7 @@ impl MCPDatabase {
 
     pub fn get_mcp_server(&self, id: i64) -> rusqlite::Result<MCPServer> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, description, transport_type, command, environment_variables, url, timeout, is_long_running, is_enabled, created_time 
+            "SELECT id, name, description, transport_type, command, environment_variables, url, timeout, is_long_running, is_enabled, COALESCE(is_builtin, 0), created_time 
              FROM mcp_server WHERE id = ?"
         )?;
 
@@ -271,7 +332,8 @@ impl MCPDatabase {
                     timeout: row.get(7)?,
                     is_long_running: row.get(8)?,
                     is_enabled: row.get(9)?,
-                    created_time: row.get(10)?,
+                    is_builtin: row.get(10)?,
+                    created_time: row.get(11)?,
                 })
             })?
             .next()
@@ -296,9 +358,26 @@ impl MCPDatabase {
         is_long_running: bool,
         is_enabled: bool,
     ) -> rusqlite::Result<()> {
+        self.update_mcp_server_with_builtin(id, name, description, transport_type, command, environment_variables, url, timeout, is_long_running, is_enabled, false)
+    }
+
+    pub fn update_mcp_server_with_builtin(
+        &self,
+        id: i64,
+        name: &str,
+        description: Option<&str>,
+        transport_type: &str,
+        command: Option<&str>,
+        environment_variables: Option<&str>,
+        url: Option<&str>,
+        timeout: Option<i32>,
+        is_long_running: bool,
+        is_enabled: bool,
+        is_builtin: bool,
+    ) -> rusqlite::Result<()> {
         self.conn.execute(
-            "UPDATE mcp_server SET name = ?, description = ?, transport_type = ?, command = ?, environment_variables = ?, url = ?, timeout = ?, is_long_running = ?, is_enabled = ? WHERE id = ?",
-            params![name, description, transport_type, command, environment_variables, url, timeout, is_long_running, is_enabled, id],
+            "UPDATE mcp_server SET name = ?, description = ?, transport_type = ?, command = ?, environment_variables = ?, url = ?, timeout = ?, is_long_running = ?, is_enabled = ?, is_builtin = ? WHERE id = ?",
+            params![name, description, transport_type, command, environment_variables, url, timeout, is_long_running, is_enabled, is_builtin, id],
         )?;
         Ok(())
     }
@@ -329,6 +408,22 @@ impl MCPDatabase {
         is_long_running: bool,
         is_enabled: bool,
     ) -> rusqlite::Result<i64> {
+        self.upsert_mcp_server_with_builtin(name, description, transport_type, command, environment_variables, url, timeout, is_long_running, is_enabled, false)
+    }
+
+    pub fn upsert_mcp_server_with_builtin(
+        &self,
+        name: &str,
+        description: Option<&str>,
+        transport_type: &str,
+        command: Option<&str>,
+        environment_variables: Option<&str>,
+        url: Option<&str>,
+        timeout: Option<i32>,
+        is_long_running: bool,
+        is_enabled: bool,
+        is_builtin: bool,
+    ) -> rusqlite::Result<i64> {
         // First try to get existing server by name
         let existing_id = self
             .conn
@@ -341,17 +436,17 @@ impl MCPDatabase {
                 // Update existing server
                 self.conn.execute(
                     "UPDATE mcp_server SET description = ?, transport_type = ?, command = ?, 
-                     environment_variables = ?, url = ?, timeout = ?, is_long_running = ?, is_enabled = ?
+                     environment_variables = ?, url = ?, timeout = ?, is_long_running = ?, is_enabled = ?, is_builtin = ?
                      WHERE id = ?",
-                    params![description, transport_type, command, environment_variables, url, timeout, is_long_running, is_enabled, id],
+                    params![description, transport_type, command, environment_variables, url, timeout, is_long_running, is_enabled, is_builtin, id],
                 )?;
                 Ok(id)
             }
             None => {
                 // Insert new server
                 let mut stmt = self.conn.prepare(
-                    "INSERT INTO mcp_server (name, description, transport_type, command, environment_variables, url, timeout, is_long_running, is_enabled) 
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                    "INSERT INTO mcp_server (name, description, transport_type, command, environment_variables, url, timeout, is_long_running, is_enabled, is_builtin) 
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 )?;
 
                 stmt.execute(params![
@@ -363,7 +458,8 @@ impl MCPDatabase {
                     url,
                     timeout,
                     is_long_running,
-                    is_enabled
+                    is_enabled,
+                    is_builtin
                 ])?;
 
                 Ok(self.conn.last_insert_rowid())

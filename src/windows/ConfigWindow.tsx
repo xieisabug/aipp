@@ -87,7 +87,6 @@ function ConfigWindow() {
                     if (SamplePlugin) {
                         const instance = new SamplePlugin();
                         plugin.instance = instance;
-                        console.log("plugin loaded", instance);
                     }
                 };
                 document.body.appendChild(script);
