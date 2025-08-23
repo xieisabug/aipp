@@ -2,15 +2,15 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 
-export interface ModelForSelect {
-    name: string;
-    code: string;
+export interface MCPServerForSelect {
     id: number;
-    llm_provider_id: number;
+    name: string;
+    description?: string;
+    is_enabled: boolean;
 }
 
-export const useModels = (shouldFetch: boolean = true) => {
-    const [models, setModels] = useState<ModelForSelect[]>([]);
+export const useMcpServers = (shouldFetch: boolean = true) => {
+    const [mcpServers, setMcpServers] = useState<MCPServerForSelect[]>([]);
     const [loading, setLoading] = useState(shouldFetch);
     const [error, setError] = useState<string | null>(null);
 
@@ -21,13 +21,15 @@ export const useModels = (shouldFetch: boolean = true) => {
         }
 
         setLoading(true);
-        invoke<Array<ModelForSelect>>("get_models_for_select")
-            .then((modelList) => {
-                setModels(modelList);
+        invoke<Array<MCPServerForSelect>>("get_mcp_servers")
+            .then((serverList) => {
+                // Filter to only enabled servers for selection
+                const enabledServers = serverList.filter(server => server.is_enabled);
+                setMcpServers(enabledServers);
                 setError(null);
             })
             .catch((err) => {
-                const errorMsg = "获取模型列表失败: " + err;
+                const errorMsg = "获取MCP服务器列表失败: " + err;
                 setError(errorMsg);
                 toast.error(errorMsg);
             })
@@ -36,5 +38,5 @@ export const useModels = (shouldFetch: boolean = true) => {
             });
     }, [shouldFetch]);
 
-    return { models, loading, error };
+    return { mcpServers, loading, error };
 };

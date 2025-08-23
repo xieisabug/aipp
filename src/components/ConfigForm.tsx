@@ -12,6 +12,7 @@ import { Checkbox } from "./ui/checkbox";
 import { Switch } from "./ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { useModels } from "../hooks/useModels";
+import { useMcpServers } from "../hooks/useMcpServers";
 import { AssistantConfigApi } from "../types/plugin";
 
 interface ConfigField {
@@ -26,7 +27,8 @@ interface ConfigField {
         | "custom"
         | "button"
         | "switch"
-        | "model-select";
+        | "model-select"
+        | "mcp-select";
     label: string;
     className?: string;
     options?: { value: string; label: string; tooltip?: string }[];
@@ -76,8 +78,21 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
     const [isExpanded, setIsExpanded] = useState<boolean>(defaultExpanded);
     const contentRef = useRef<HTMLDivElement>(null);
 
-    // 获取模型数据用于 model-select 类型
-    const { models, loading: modelsLoading, error: modelsError } = useModels();
+    // 检查是否需要获取模型数据
+    const hasModelSelect = useMemo(() => {
+        return config.some(item => item.config.type === "model-select");
+    }, [config]);
+
+    // 检查是否需要获取MCP服务器数据
+    const hasMcpSelect = useMemo(() => {
+        return config.some(item => item.config.type === "mcp-select");
+    }, [config]);
+
+    // 条件获取模型数据用于 model-select 类型
+    const { models, loading: modelsLoading, error: modelsError } = useModels(hasModelSelect);
+    
+    // 条件获取MCP服务器数据用于 mcp-select 类型
+    const { mcpServers, loading: mcpServersLoading, error: mcpServersError } = useMcpServers(hasMcpSelect);
 
     const toggleExpand = () => {
         if (enableExpand) {
@@ -131,10 +146,24 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
             }
             return [];
         }, [field.type, models]);
+        
+        // 生成MCP服务器选项用于 mcp-select 类型
+        const mcpOptions = useMemo(() => {
+            if (field.type === "mcp-select" && mcpServers) {
+                return mcpServers.map((server) => ({
+                    value: server.name,
+                    label: server.name,
+                }));
+            }
+            return [];
+        }, [field.type, mcpServers]);
 
         const renderField = (fieldRenderData: any) => {
             if (field.type == "model-select") {
                 console.log("field render data", fieldRenderData.value, modelOptions);
+            }
+            if (field.type == "mcp-select") {
+                console.log("mcp field render data", fieldRenderData.value, mcpOptions);
             }
             switch (field.type) {
                 case "select":
@@ -170,6 +199,27 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                             </SelectTrigger>
                             <SelectContent>
                                 {modelOptions.map((option) => (
+                                    <SelectItem key={option.value} value={option.value}>
+                                        {option.label}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    );
+                case "mcp-select":
+                    return (
+                        <Select
+                            disabled={field.disabled || mcpServersLoading}
+                            value={fieldRenderData.value}
+                            onValueChange={fieldRenderData.onChange}
+                        >
+                            <SelectTrigger className="w-full max-w-full focus:ring-ring/20 focus:border-ring overflow-hidden">
+                                <SelectValue
+                                    placeholder={mcpServersLoading ? "加载中..." : mcpServersError ? "加载失败" : "选择MCP服务器"}
+                                />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {mcpOptions.map((option) => (
                                     <SelectItem key={option.value} value={option.value}>
                                         {option.label}
                                     </SelectItem>
