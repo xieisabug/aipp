@@ -48,7 +48,7 @@ interface AskAssistantOptions {
 }
 
 interface AssistantTypeApi {
-    typeRegist(pluginType: PluginType, label: string, plugin: AippAssistantTypePlugin): void;
+    typeRegist(pluginType: PluginType, code: number, label: string, plugin: AippAssistantTypePlugin): void;
     markdownRemarkRegist(component: any): void;
     changeFieldLabel(fieldName: string, label: string): void;
     addField(options: AddFieldOptions): void;

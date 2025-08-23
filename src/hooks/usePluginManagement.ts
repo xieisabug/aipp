@@ -1,11 +1,4 @@
 import { useState, useEffect, useCallback } from "react";
-import { 
-    AddFieldOptions, 
-    AssistantRunApi, 
-    AippAssistantTypePlugin,
-    AssistantTypeApi,
-    AippPlugin
-} from "../types/plugin";
 
 // 用于存储AskAssistantApi中对应的处理函数
 interface AskAssistantApiFunctions {
@@ -37,7 +30,7 @@ export function usePluginManagement(pluginList: any[]): UsePluginManagementRetur
 
     // 助手类型API接口，提供给插件使用
     const assistantTypeApi: AssistantTypeApi = {
-        typeRegist: (code: number, _: string, pluginInstance: AippAssistantTypePlugin & AippPlugin) => {
+        typeRegist: (_: number, code: number, __: string, pluginInstance: AippAssistantTypePlugin & AippPlugin) => {
             setAssistantTypePluginMap((prev) => {
                 const newMap = new Map(prev);
                 newMap.set(code, pluginInstance);

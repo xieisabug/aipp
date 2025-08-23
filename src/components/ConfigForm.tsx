@@ -158,12 +158,6 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
         }, [field.type, mcpServers]);
 
         const renderField = (fieldRenderData: any) => {
-            if (field.type == "model-select") {
-                console.log("field render data", fieldRenderData.value, modelOptions);
-            }
-            if (field.type == "mcp-select") {
-                console.log("mcp field render data", fieldRenderData.value, mcpOptions);
-            }
             switch (field.type) {
                 case "select":
                     return (

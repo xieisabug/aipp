@@ -34,7 +34,7 @@ export const useAssistantTypePlugin = (pluginList: any[]) => {
     // 使用 useMemo 缓存 assistantTypeApi
     const assistantTypeApi: AssistantTypeApi = useMemo(
         () => ({
-            typeRegist: (code: number, label: string, pluginInstance: AippAssistantTypePlugin) => {
+            typeRegist: (_: number, code: number, label: string, pluginInstance: AippAssistantTypePlugin) => {
                 // 检查是否已存在相同的 code
                 setAssistantTypes((prev) => {
                     if (!prev.some((type) => type.code === code)) {

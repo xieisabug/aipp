@@ -64,28 +64,6 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
     onToggleEnabled,
     onShare,
 }) => {
-    useEffect(() => {
-        console.log("Current Props:", {
-            id,
-            index,
-            name,
-            apiType,
-            isOffical,
-            enabled,
-            onToggleEnabled: !!onToggleEnabled,
-            onDelete: !!onDelete,
-        });
-    }, [
-        id,
-        index,
-        name,
-        apiType,
-        isOffical,
-        enabled,
-        onToggleEnabled,
-        onDelete,
-    ]);
-
     const [tags, setTags] = useState<string[]>([]);
     const [isModelListExpanded, setIsModelListExpanded] =
         useState<boolean>(false);
@@ -174,7 +152,6 @@ const LLMProviderConfigForm: React.FC<LLMProviderConfigFormProps> = ({
             llmProviderId: "" + id,
         }).then((modelList) => {
             const newTags = modelList.map((model) => model.name);
-            console.log("LLM Provider Config Form", newTags);
             // 调用子组件的方法，更新 tags
             setTags(newTags);
         });

@@ -56,6 +56,8 @@ export const useAssistantFormConfig = ({
     const formConfig: AssistantFormConfig[] = useMemo(() => {
         if (!currentAssistant) return [];
 
+        console.log((currentAssistant?.model_configs ?? []))
+
         let baseConfigs: AssistantFormConfig[] = [
             {
                 key: "assistantType",

@@ -35,7 +35,6 @@ const TagInputContainer: React.FC<TagInputContainerProps> = ({
     onExpandedChange,
     onFetchModels
 }) => {
-    console.log("TagInputContainer render", { tags });
     const [internalIsExpanded, setInternalIsExpanded] = useState<boolean>(false);
     const [isFetchingModels, setIsFetchingModels] = useState<boolean>(false);
     

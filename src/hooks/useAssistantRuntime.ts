@@ -1,6 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 import { Conversation, Message, FileInfo } from "../data/Conversation";
-import { AssistantRunApi, AiResponse, AskAiResponse, AskAiOptions, AskAssistantOptions } from "../types/plugin";
 
 export interface UseAssistantRuntimeProps {
     conversation?: Conversation;
