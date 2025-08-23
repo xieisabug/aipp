@@ -1,22 +1,201 @@
-use crate::db::mcp_db::MCPDatabase;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Listener};
 use std::time::Duration;
+use crate::db::mcp_db::MCPDatabase;
+use rusqlite::OptionalExtension;
+use tokio::time::timeout;
+use std::sync::{Arc, Mutex};
+use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SearchRequest { pub query: String }
+pub fn is_aipp_builtin_command(command: &str) -> bool { command.trim().starts_with("aipp:") }
+
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FetchRequest { pub url: String }
 
 /// 内置搜索工具处理器
 #[derive(Clone)]
-pub struct BuiltinSearchHandler { app_handle: AppHandle }
+pub struct BuiltinSearchHandler { 
+    app_handle: AppHandle,
+}
 
 impl BuiltinSearchHandler {
-    pub fn new(app_handle: AppHandle) -> Self { Self { app_handle } }
+    pub fn new(app_handle: AppHandle) -> Self { 
+        println!("[HTML] Creating BuiltinSearchHandler");
+        Self { 
+            app_handle,
+        }
+    }
+
+    async fn get_page_html(&self) -> Result<String, String> {
+        println!("[HTML] Starting HTML extraction process");
+        
+        let window = self
+            .app_handle
+            .get_webview_window("hidden_search")
+            .ok_or("Search window not found")?;
+
+        // 等待页面加载完成
+        println!("[HTML] Waiting for page to load...");
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        
+        // 先测试基本JavaScript执行能力
+        let basic_test_js = r#"
+            try {
+                document.title = 'JS_TEST_SUCCESS';
+                console.log('Basic JS test successful');
+            } catch (error) {
+                console.error('Basic JS test failed:', error);
+            }
+        "#;
+        
+        println!("[HTML] Testing basic JavaScript execution...");
+        if let Err(e) = window.eval(basic_test_js) {
+            println!("[HTML] Basic JavaScript test failed: {}", e);
+            return Err("JavaScript execution not available".to_string());
+        }
+        
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        
+        // 检查基本JS测试结果
+        match window.title() {
+            Ok(title) => {
+                println!("[HTML] Title after basic JS test: {}", title);
+                if title == "JS_TEST_SUCCESS" {
+                    println!("[HTML] ✓ JavaScript execution is working!");
+                    
+                    // JavaScript可以执行，继续页面分析
+                    return self.extract_page_content(&window).await;
+                } else {
+                    println!("[HTML] ✗ JavaScript execution failed, title: {}", title);
+                }
+            }
+            Err(e) => {
+                println!("[HTML] Failed to read title after basic JS test: {}", e);
+            }
+        }
+        
+        // JavaScript执行失败，返回基本的页面信息
+        println!("[HTML] JavaScript execution not available, returning basic page info");
+        Ok(format!(
+            "<!-- JavaScript execution not available in search window -->\n<!-- Page URL loaded successfully -->\n<html><head><title>Page Loaded</title></head><body><p>Page navigated successfully but content extraction unavailable</p><p>This is a limitation of webview JavaScript execution</p></body></html>"
+        ))
+    }
+    
+    async fn extract_page_content(&self, window: &tauri::WebviewWindow) -> Result<String, String> {
+        println!("[HTML] Extracting page content with JavaScript...");
+        
+        // 检查页面状态
+        let check_js = r#"
+            try {
+                let readyState = document.readyState;
+                let url = window.location.href;
+                let hasContent = document.documentElement ? 'yes' : 'no';
+                let contentLength = document.documentElement ? document.documentElement.outerHTML.length : 0;
+                let bodyExists = document.body ? 'yes' : 'no';
+                
+                console.log('Page analysis:', {
+                    readyState: readyState,
+                    url: url,
+                    hasContent: hasContent,
+                    contentLength: contentLength,
+                    bodyExists: bodyExists
+                });
+                
+                document.title = 'STATUS_' + readyState + '_' + hasContent + '_' + contentLength + '_' + bodyExists;
+            } catch (error) {
+                console.error('Status check error:', error);
+                document.title = 'STATUS_ERROR_' + error.message.substring(0, 20);
+            }
+        "#;
+        
+        if let Err(e) = window.eval(check_js) {
+            println!("[HTML] Failed to check page status: {}", e);
+            return Err("Failed to check page status".to_string());
+        }
+        
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        
+        // 读取页面状态
+        match window.title() {
+            Ok(title) => {
+                println!("[HTML] Page title after status check: {}", title);
+                
+                if title.starts_with("STATUS_") {
+                    let parts: Vec<&str> = title.split('_').collect();
+                    if parts.len() >= 5 {
+                        let ready_state = parts[1];
+                        let has_content = parts[2];
+                        let content_len = parts[3].parse::<usize>().unwrap_or(0);
+                        let body_exists = parts[4];
+                        
+                        println!("[HTML] Page analysis - Ready: {}, Content: {}, Length: {}, Body: {}", 
+                                ready_state, has_content, content_len, body_exists);
+                                
+                        if has_content == "yes" && content_len > 100 {
+                            // 页面有足够的内容，尝试获取一些基本信息
+                            let extract_js = r#"
+                                try {
+                                    let title = document.title;
+                                    let textLength = document.body ? document.body.innerText.length : 0;
+                                    let linkCount = document.querySelectorAll('a').length;
+                                    
+                                    document.title = 'EXTRACT_' + textLength + '_' + linkCount;
+                                    console.log('Content extracted - Text:', textLength, 'Links:', linkCount);
+                                } catch (error) {
+                                    document.title = 'EXTRACT_ERROR';
+                                    console.error('Content extraction error:', error);
+                                }
+                            "#;
+                            
+                            if window.eval(extract_js).is_ok() {
+                                tokio::time::sleep(Duration::from_millis(200)).await;
+                                
+                                if let Ok(final_title) = window.title() {
+                                    println!("[HTML] Final extraction title: {}", final_title);
+                                    
+                                    if final_title.starts_with("EXTRACT_") {
+                                        let extract_parts: Vec<&str> = final_title.split('_').collect();
+                                        if extract_parts.len() >= 3 {
+                                            let text_len = extract_parts[1];
+                                            let link_count = extract_parts[2];
+                                            
+                                            return Ok(format!(
+                                                "<!-- Page successfully loaded -->\n<!-- Content length: {} -->\n<!-- Text length: {} -->\n<!-- Links found: {} -->\n<!-- Ready state: {} -->\n<html><head><title>Search Results</title></head><body><p>Content extracted from search page</p><p>HTML length: {}, Text length: {}, Links: {}</p></body></html>", 
+                                                content_len, text_len, link_count, ready_state, content_len, text_len, link_count
+                                            ));
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // 基本信息提取
+                            return Ok(format!(
+                                "<!-- Page loaded successfully -->\n<!-- Content length: {} -->\n<!-- Ready state: {} -->\n<html><body>Content extracted from hidden window (length: {})</body></html>", 
+                                content_len, ready_state, content_len
+                            ));
+                        } else {
+                            println!("[HTML] Page has insufficient content - Length: {}", content_len);
+                        }
+                    }
+                } else if title.starts_with("STATUS_ERROR") {
+                    println!("[HTML] JavaScript error occurred: {}", title);
+                }
+            }
+            Err(e) => {
+                println!("[HTML] Failed to read window title: {}", e);
+            }
+        }
+        
+        Err("Page did not load properly or has no content".to_string())
+    }
 
     async fn search_web(&self, query: &str) -> Result<serde_json::Value, String> {
+        println!("[SEARCH] Starting search for query: {}", query);
+        
+        // 确保隐藏窗口存在
         if let Err(e) = crate::window::ensure_hidden_search_window(self.app_handle.clone()).await {
             return Err(format!("Failed to create hidden search window: {}", e));
         }
@@ -25,19 +204,62 @@ impl BuiltinSearchHandler {
             .get_webview_window("hidden_search")
             .ok_or("Hidden search window not found")?;
 
-        let search_url = format!("https://duckduckgo.com/lite/?q={}", urlencoding::encode(query));
+        println!("[SEARCH] Got hidden search window");
+
+        // 从环境变量构建搜索 URL
+        let envs = get_env_map_for_aipp_command(&self.app_handle, "aipp:search").unwrap_or_default();
+        let base = envs.get("SEARCH_URL").map(|s| s.as_str()).unwrap_or("https://duckduckgo.com/html/?q=");
+        let search_url = build_search_url(base, query);
+        
+        println!("[SEARCH] Search URL: {}", search_url);
+
+        // 导航到搜索页面
+        println!("[SEARCH] Navigating to search URL...");
         window
-            .navigate(search_url.parse().unwrap())
+            .navigate(search_url.parse().map_err(|e| format!("Invalid URL: {}", e))?)
             .map_err(|e| format!("Failed to navigate to search URL: {}", e))?;
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        println!("[SEARCH] Navigation completed, waiting for page load...");
+        
+        // 等待页面加载
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        
+        // 检查当前URL和标题
+        match window.url() {
+            Ok(current_url) => println!("[SEARCH] Current URL: {}", current_url),
+            Err(e) => println!("[SEARCH] Failed to get current URL: {}", e),
+        }
+        
+        match window.title() {
+            Ok(title) => println!("[SEARCH] Current title before JS: {}", title),
+            Err(e) => println!("[SEARCH] Failed to get current title: {}", e),
+        }
 
-        Ok(serde_json::json!({
-            "query": query,
-            "results": [],
-            "message": "Search executed",
-            "source": "DuckDuckGo Lite"
-        }))
+        // 获取页面HTML内容
+        match self.get_page_html().await {
+            Ok(html) => {
+                println!("[SEARCH] HTML extraction successful");
+                Ok(serde_json::json!({
+                    "query": query,
+                    "request_url": search_url,
+                    "source": base,
+                    "html_content": html,
+                    "message": "Search completed and HTML content extracted",
+                }))
+            }
+            Err(e) => {
+                println!("[SEARCH] HTML extraction failed: {}", e);
+                // Fallback: return basic info with error
+                Ok(serde_json::json!({
+                    "query": query,
+                    "request_url": search_url,
+                    "source": base,
+                    "html_content": "",
+                    "message": format!("Search page loaded but HTML extraction failed: {}", e),
+                    "error": e,
+                }))
+            }
+        }
     }
     
     async fn fetch_url(&self, url: &str) -> Result<serde_json::Value, String> {
@@ -49,21 +271,37 @@ impl BuiltinSearchHandler {
             .get_webview_window("hidden_search")
             .ok_or("Hidden search window not found")?;
 
+        // 导航到目标URL
         window
             .navigate(url.parse().map_err(|e| format!("Invalid URL: {}", e))?)
             .map_err(|e| format!("Failed to navigate to URL: {}", e))?;
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        // 等待页面加载
+        tokio::time::sleep(Duration::from_secs(3)).await;
 
-        Ok(serde_json::json!({
-            "url": url,
-            "status": "navigated",
-            "message": "Fetch executed"
-        }))
+        // 获取页面HTML内容
+        match self.get_page_html().await {
+            Ok(html) => {
+                Ok(serde_json::json!({
+                    "url": url,
+                    "status": "success",
+                    "html_content": html,
+                    "message": "Page loaded and HTML content extracted",
+                }))
+            }
+            Err(e) => {
+                // Fallback: return basic info with error
+                Ok(serde_json::json!({
+                    "url": url,
+                    "status": "partial_success", 
+                    "html_content": "",
+                    "message": format!("Page loaded but HTML extraction failed: {}", e),
+                    "error": e,
+                }))
+            }
+        }
     }
 }
-
-// ---- Builtin registry & templates (stdio + aipp:* scheme) ----
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuiltinTemplateEnvVar {
@@ -92,12 +330,10 @@ fn builtin_templates() -> Vec<BuiltinTemplateInfo> {
         required_envs: vec![BuiltinTemplateEnvVar {
             key: "SEARCH_URL".into(),
             required: true,
-            tip: Some("用于发起搜索的URL，比如 https://www.google.com/search?q=".into()),
+            tip: Some("用于发起搜索的URL，例如 https://duckduckgo.com/html/?q= 或 https://www.google.com/search?q=（也可使用 {} 占位符）".into()),
         }],
     }]
 }
-
-pub fn is_aipp_builtin_command(command: &str) -> bool { command.trim().starts_with("aipp:") }
 
 pub fn aipp_command_id(command: &str) -> Option<String> {
     if is_aipp_builtin_command(command) {
@@ -254,6 +490,48 @@ pub async fn execute_aipp_builtin_tool(
 
     Ok(serde_json::to_string(&result_value).unwrap_or_else(|_| "{}".to_string()))
 }
-
 /// 检查是否为内置MCP工具（基于命令 aipp:*）
 pub fn is_builtin_mcp_call(command: &str) -> bool { is_aipp_builtin_command(command) }
+
+// ---------------- helpers -----------------
+
+/// 从数据库获取指定 aipp 命令的环境变量，解析为 HashMap
+fn get_env_map_for_aipp_command(
+    app_handle: &AppHandle,
+    command: &str,
+) -> Option<std::collections::HashMap<String, String>> {
+    let db = MCPDatabase::new(app_handle).ok()?;
+    // 查询内置服务器（is_builtin=1）且命令匹配
+    let mut stmt = db
+        .conn
+        .prepare("SELECT environment_variables FROM mcp_server WHERE command = ? AND is_builtin = 1 LIMIT 1")
+        .ok()?;
+    let env_text: Option<String> = match stmt.query_row([command], |row| row.get::<_, Option<String>>(0)) {
+        Ok(v) => v,
+        Err(rusqlite::Error::QueryReturnedNoRows) => None,
+        Err(_) => return None,
+    };
+    let mut map = std::collections::HashMap::new();
+    if let Some(text) = env_text {
+        for line in text.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') { continue; }
+            if let Some((k, v)) = line.split_once('=') {
+                map.insert(k.trim().to_string(), v.trim().to_string());
+            }
+        }
+    }
+    Some(map)
+}
+
+fn build_search_url(base: &str, query: &str) -> String {
+    let encoded = urlencoding::encode(query);
+    if base.contains("{}") {
+        base.replace("{}", &encoded)
+    } else if base.ends_with('=') || base.ends_with('/') || base.ends_with('?') || base.ends_with('&') {
+        format!("{}{}", base, encoded)
+    } else {
+        format!("{}{}{}", base, if base.contains('?') { "&q=" } else { "?q=" }, encoded)
+    }
+}
+

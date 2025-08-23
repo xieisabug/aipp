@@ -556,34 +556,43 @@ fn create_hidden_search_window(app_handle: &AppHandle) {
         "hidden_search",
         WebviewUrl::External("about:blank".parse().unwrap()),
     )
-    .title("Hidden Search Window")
+    .title("Search Window")
     .inner_size(800.0, 600.0)
     .resizable(false)
-    .minimizable(false)
+    .minimizable(true)
     .maximizable(false)
     .closable(false)
-    .visible(false) // 关键：窗口不可见
-    .skip_taskbar(true)
-    .decorations(false);
-
-    #[cfg(not(target_os = "macos"))]
-    let builder = builder.transparent(true);
+    .visible(true) // 改为可见，但会立即最小化
+    .skip_taskbar(false) // 允许在任务栏显示
+    .decorations(true);
 
     match builder.build() {
-        Ok(_window) => {
-            println!("Hidden search window created successfully");
+        Ok(window) => {
+            println!("Search window created successfully");
+            
+            // 立即最小化窗口，让用户看不到但JavaScript仍可执行
+            if let Err(e) = window.minimize() {
+                println!("Warning: Failed to minimize search window: {}", e);
+            }
+            
+            // 测试JavaScript执行能力
+            if let Err(e) = window.eval("console.log('JavaScript execution test in search window');") {
+                eprintln!("Warning: JavaScript execution failed in search window: {}", e);
+            } else {
+                println!("JavaScript execution test successful in search window");
+            }
         }
         Err(e) => {
-            eprintln!("Failed to create hidden search window: {}", e);
+            eprintln!("Failed to create search window: {}", e);
         }
     }
 }
 
-/// Create or get hidden search window for builtin MCP tools
+/// Create or get search window for builtin MCP tools
 #[tauri::command]
 pub async fn ensure_hidden_search_window(app_handle: AppHandle) -> Result<(), String> {
     if app_handle.get_webview_window("hidden_search").is_none() {
-        println!("Creating hidden search window");
+        println!("Creating search window for content extraction");
         create_hidden_search_window(&app_handle);
     }
     Ok(())
