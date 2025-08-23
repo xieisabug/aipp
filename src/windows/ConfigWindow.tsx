@@ -65,6 +65,12 @@ function ConfigWindow() {
                 pluginType: ["assistantType"],
                 instance: null,
             },
+            {
+                name: "DeepResearch",
+                code: "deepresearch",
+                pluginType: ["assistantType"],
+                instance: null,
+            }
         ];
 
         const initPlugin = async () => {

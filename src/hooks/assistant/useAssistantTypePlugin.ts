@@ -1,10 +1,4 @@
 import { useState, useEffect, useMemo } from "react";
-import { 
-    AddFieldOptions, 
-    AippAssistantTypePlugin,
-    AssistantTypeApi,
-    AssistantRunApi
-} from "@/types/plugin";
 import { AssistantType } from "@/types/assistant";
 
 export const useAssistantTypePlugin = (pluginList: any[]) => {

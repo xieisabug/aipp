@@ -111,20 +111,3 @@ declare class AippAssistantTypePlugin {
     onAssistantTypeSelect(assistantTypeApi: AssistantTypeApi): void;
     onAssistantTypeRun(assistantRunApi: AssistantRunApi): void;
 }
-
-export {
-    SystemApi,
-    PluginType,
-    AddFieldOptions,
-    AskAiOptions,
-    AskAssistantOptions,
-    AssistantTypeApi,
-    AssistantConfigApi,
-    FieldConfig,
-    AssistantRunApi,
-    AiResponse,
-    AskAiResponse,
-    Config,
-    AippPlugin,
-    AippAssistantTypePlugin,
-};

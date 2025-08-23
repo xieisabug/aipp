@@ -13,7 +13,6 @@ import { Switch } from "./ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { useModels } from "../hooks/useModels";
 import { useMcpServers } from "../hooks/useMcpServers";
-import { AssistantConfigApi } from "../types/plugin";
 
 interface ConfigField {
     type:
