@@ -256,6 +256,14 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                 )
                 .filter(([key]) => {
                     const config = currentAssistant.model_configs.find((config) => config.name === key);
+                    const customField = assistantTypeCustomField.find((field) => field.key === key);
+                    
+                    // 如果是插件自定义字段，直接允许保存
+                    if (customField) {
+                        return true;
+                    }
+                    
+                    // 原有的过滤逻辑
                     return (
                         config &&
                         config.value_type &&
@@ -266,10 +274,26 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
                 })
                 .map(([key, value]) => {
                     const config = currentAssistant.model_configs.find((config) => config.name === key);
+                    const customField = assistantTypeCustomField.find((field) => field.key === key);
+                    
+                    // 为插件自定义字段确定正确的 value_type
+                    let valueType = config?.value_type ?? "string";
+                    if (customField) {
+                        // 根据插件字段的类型映射到数据库的 value_type
+                        const fieldType = customField.value.type;
+                        if (fieldType === "checkbox" || fieldType === "switch") {
+                            valueType = "boolean";
+                        } else if (fieldType === "select" || fieldType === "radio") {
+                            valueType = "string";
+                        } else {
+                            valueType = "string";
+                        }
+                    }
+                    
                     return {
                         name: key,
-                        value: value.toString(),
-                        value_type: config?.value_type ?? "string",
+                        value: value ? value.toString() : null,
+                        value_type: valueType,
                         id: config?.id ?? 0,
                         assistant_id: currentAssistant.assistant.id,
                         assistant_model_id: currentAssistant.model[0]?.id ?? 0,
@@ -284,7 +308,7 @@ const AssistantConfig: React.FC<AssistantConfigProps> = ({ pluginList, navigateT
         })
             .then(() => toast.success("保存成功"))
             .catch((error) => toast.error("保存失败: " + error));
-    }, [currentAssistant, form, saveAssistant]);
+    }, [currentAssistant, form, saveAssistant, assistantTypeCustomField]);
 
     // 删除助手
     const handleDelete = useCallback(() => {
