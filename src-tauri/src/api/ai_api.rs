@@ -363,7 +363,7 @@ pub async fn tool_result_continue_ask_ai(
         tool_call_id, tool_result
     );
 
-    let _tool_result_message = add_message(
+    let tool_result_message = add_message(
         &app_handle,
         None,
         conversation_id_i64,
@@ -380,6 +380,28 @@ pub async fn tool_result_continue_ask_ai(
 
     // Get all existing messages
     let all_messages = db.message_repo().unwrap().list_by_conversation_id(conversation_id_i64)?;
+
+    // 尝试复用上一次包含工具调用的 assistant 响应的 generation_group_id，
+    // 这样 tooluse 的“请求消息(assistant)”与“分析消息(assistant)”会处于同一分组
+    let reuse_generation_group_id: Option<String> = {
+        // 找到刚插入的 tool_result 之前最近的一条 response 消息
+        let current_tool_result_id = tool_result_message.id;
+        let mut candidate: Option<crate::db::conversation_db::Message> = None;
+        for (msg, _att) in &all_messages {
+            if msg.id < current_tool_result_id && msg.message_type == "response" {
+                match &candidate {
+                    Some(existing) if existing.id > msg.id => {}
+                    _ => {
+                        // 记录离 tool_result 最近（id 最大但小于它）的 response
+                        if candidate.as_ref().map(|m| m.id).unwrap_or(0) < msg.id {
+                            candidate = Some(msg.clone());
+                        }
+                    }
+                }
+            }
+        }
+        candidate.and_then(|m| m.generation_group_id)
+    };
 
     // 使用统一的排序逻辑
     let (latest_children, child_ids) = get_latest_child_messages(&all_messages);
@@ -629,7 +651,7 @@ pub async fn tool_result_continue_ask_ai(
             false,          // no title generation needed
             String::new(),  // no user prompt
             HashMap::new(), // no feature config needed
-            None,           // no generation_group_id reuse
+            reuse_generation_group_id.clone(),           // 复用上一条assistant响应的generation_group_id
             None,           // no parent_group_id
             model_id,
             model_code.clone(),
@@ -650,7 +672,7 @@ pub async fn tool_result_continue_ask_ai(
             false,          // no title generation needed
             String::new(),  // no user prompt
             HashMap::new(), // no feature config needed
-            None,           // no generation_group_id reuse
+            reuse_generation_group_id,           // 复用上一条assistant响应的generation_group_id
             None,           // no parent_group_id
             model_id,
             model_code.clone(),
