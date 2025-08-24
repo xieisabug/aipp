@@ -49,6 +49,7 @@ impl BuiltinSearchHandler {
             .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes"))
             .unwrap_or(false);
         let ua_opt = envs.get("USER_AGENT").cloned();
+        let proxy_opt = envs.get("PROXY_SERVER").cloned();
 
         // 选择用户数据目录：优先环境变量，否则使用应用数据目录下的专用 profile
         let user_data_dir = if let Some(p) = envs.get("USER_DATA_DIR") {
@@ -92,6 +93,16 @@ impl BuiltinSearchHandler {
         }
         if let Some(ua) = ua_opt.as_deref() {
             launcher = launcher.user_agent(ua);
+        }
+        if let Some(proxy) = proxy_opt.as_deref() {
+            use playwright::api::ProxySettings;
+            let proxy_settings = ProxySettings {
+                server: proxy.to_string(),
+                bypass: None,
+                username: None,
+                password: None,
+            };
+            launcher = launcher.proxy(proxy_settings);
         }
 
         let context = launcher
@@ -180,14 +191,14 @@ impl BuiltinSearchHandler {
         #[cfg(target_os = "windows")]
         {
             let candidates = [
-                // Edge
-                r"C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
-                r"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
-                "msedge.exe",
                 // Chrome
                 r"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
                 r"C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
                 "chrome.exe",
+                // Edge
+                r"C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+                r"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+                "msedge.exe",
             ];
             for path in candidates.iter() {
                 let p = PathBuf::from(path);
@@ -219,7 +230,7 @@ impl BuiltinSearchHandler {
         println!("[HEADLESS] Using browser: {}", browser.display());
 
         let mut cmd = TokioCommand::new(browser);
-        let ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+        let _ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
         cmd.arg("--headless=new")
             .arg("--disable-gpu")
             .arg("--no-first-run")
@@ -227,7 +238,6 @@ impl BuiltinSearchHandler {
             .arg("--disable-dev-shm-usage")
             .arg("--disable-extensions")
             .arg("--disable-blink-features=AutomationControlled")
-            .arg(format!("--user-agent={}", ua))
             .arg("--virtual-time-budget=15000")
             .arg("--timeout=45000")
             .arg("--hide-scrollbars")
@@ -250,11 +260,22 @@ impl BuiltinSearchHandler {
 
     /// 使用 HTTP 直接抓取页面内容，避免 WebView JS 注入与 CSP/同源等限制
     async fn http_fetch_html(&self, url: &str, user_agent: Option<&str>) -> Result<String, String> {
+        let envs = get_env_map_for_aipp_command(&self.app_handle, "aipp:search").unwrap_or_default();
         let ua = user_agent.unwrap_or("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
-        let client = reqwest::Client::builder()
+        
+        let mut client_builder = reqwest::Client::builder()
             .user_agent(ua)
             .redirect(reqwest::redirect::Policy::limited(10))
-            .timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(15));
+            
+        // 添加代理支持
+        if let Some(proxy_server) = envs.get("PROXY_SERVER") {
+            let proxy = reqwest::Proxy::all(proxy_server)
+                .map_err(|e| format!("Invalid proxy configuration: {}", e))?;
+            client_builder = client_builder.proxy(proxy);
+        }
+        
+        let client = client_builder
             .build()
             .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
 
@@ -449,11 +470,53 @@ fn builtin_templates() -> Vec<BuiltinTemplateInfo> {
         description: "内置的网络搜索和网页访问工具".into(),
         command: "aipp:search".into(),
         transport_type: "stdio".into(),
-        required_envs: vec![BuiltinTemplateEnvVar {
-            key: "SEARCH_URL".into(),
-            required: true,
-            tip: Some("用于发起搜索的URL，例如 https://duckduckgo.com/html/?q= 或 https://www.google.com/search?q=（也可使用 {} 占位符）".into()),
-        }],
+        required_envs: vec![
+            BuiltinTemplateEnvVar {
+                key: "SEARCH_URL".into(),
+                required: true,
+                tip: Some("用于发起搜索的URL，例如 https://duckduckgo.com/html/?q= 或 https://www.google.com/search?q=（也可使用 {} 占位符）".into()),
+            },
+            BuiltinTemplateEnvVar {
+                key: "USER_DATA_DIR".into(),
+                required: false,
+                tip: Some("浏览器用户数据目录，可以指向用户日常使用的浏览器profile目录以共享配置".into()),
+            },
+            BuiltinTemplateEnvVar {
+                key: "PROXY_SERVER".into(),
+                required: false,
+                tip: Some("代理服务器地址，格式：http://proxy:port 或 socks5://proxy:port".into()),
+            },
+            BuiltinTemplateEnvVar {
+                key: "BROWSER_EXECUTABLE".into(),
+                required: false,
+                tip: Some("自定义浏览器可执行文件路径，优先级高于自动查找".into()),
+            },
+            BuiltinTemplateEnvVar {
+                key: "HEADLESS".into(),
+                required: false,
+                tip: Some("是否无头模式运行浏览器（默认true），设置为false可显示浏览器窗口".into()),
+            },
+            BuiltinTemplateEnvVar {
+                key: "USER_AGENT".into(),
+                required: false,
+                tip: Some("自定义User-Agent字符串".into()),
+            },
+            BuiltinTemplateEnvVar {
+                key: "BYPASS_CSP".into(),
+                required: false,
+                tip: Some("是否绕过CSP内容安全策略（默认false）".into()),
+            },
+            BuiltinTemplateEnvVar {
+                key: "WAIT_SELECTORS".into(),
+                required: false,
+                tip: Some("等待页面元素的CSS选择器，多个用逗号分隔".into()),
+            },
+            BuiltinTemplateEnvVar {
+                key: "WAIT_TIMEOUT_MS".into(),
+                required: false,
+                tip: Some("等待页面元素的超时时间（毫秒），默认15000ms".into()),
+            },
+        ],
     }]
 }
 
