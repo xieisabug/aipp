@@ -65,7 +65,9 @@ const BuiltinToolDialog: React.FC<BuiltinToolDialogProps> = ({
     }, [selectedId, editing]);
 
     const handleSubmit = async () => {
-        if (!selected) return;
+        // In editing mode, we don't need selected template
+        if (!editing && !selected) return;
+        
         setBusy(true);
         // Parse envText to map
         const envs: Record<string, string> = {};
@@ -85,16 +87,14 @@ const BuiltinToolDialog: React.FC<BuiltinToolDialogProps> = ({
         try {
             if (!editing) {
                 await invoke<number>("add_or_update_aipp_builtin_server", {
-                    templateId: selected.id,
-                    name: selected.name,
-                    description: selected.description,
+                    templateId: selected!.id,
+                    name: selected!.name,
+                    description: selected!.description,
                     envs,
                 });
             } else {
-                // editing: update existing server envs only via general update API
-                // We need server id to update, but MCPConfig will handle opening standard edit for non-builtin.
-                // Here we cannot update without id; so we call generic add_or_update by matching name+command is not supported.
-                // As a fallback, we emit onSubmit and let parent refresh; parent should call update flow separately if needed.
+                // In editing mode, just call onSubmit with the parsed environment variables
+                // The parent component (MCPConfig) will handle the actual update
             }
             onSubmit();
         } catch (e) {
