@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
+use search::types::{SearchRequest, SearchResultType};
 
 pub mod search;
 pub mod templates;
@@ -51,11 +52,42 @@ pub async fn execute_aipp_builtin_tool(
                         .get("query")
                         .and_then(|v| v.as_str())
                         .ok_or_else(|| "Missing required parameter: query".to_string())?;
-                    match handler.search_web(query).await {
-                        Ok(v) => serde_json::json!({
-                            "content": [{"type": "json", "json": v}],
-                            "isError": false
-                        }),
+                    
+                    // 获取result_type参数，默认为html
+                    let result_type_str = args
+                        .get("result_type")
+                        .and_then(|v| v.as_str());
+                    
+                    let result_type = SearchResultType::from_str(result_type_str);
+                    let request = SearchRequest {
+                        query: query.to_string(),
+                        result_type,
+                    };
+                    
+                    match handler.search_web_with_type(request).await {
+                        Ok(response) => {
+                            // 根据result_type返回不同格式的内容
+                            match response {
+                                search::types::SearchResponse::Html { html_content, .. } => {
+                                    serde_json::json!({
+                                        "content": [{"type": "text", "text": html_content}],
+                                        "isError": false
+                                    })
+                                }
+                                search::types::SearchResponse::Markdown { markdown_content, .. } => {
+                                    serde_json::json!({
+                                        "content": [{"type": "text", "text": markdown_content}],
+                                        "isError": false
+                                    })
+                                }
+                                search::types::SearchResponse::Items(search_results) => {
+                                    serde_json::json!({
+                                        "content": [{"type": "json", "json": search_results}],
+                                        "isError": false
+                                    })
+                                }
+                            }
+                        }
                         Err(e) => serde_json::json!({
                             "content": [{"type": "text", "text": e}],
                             "isError": true

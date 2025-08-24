@@ -29,8 +29,8 @@ pub struct BuiltinToolInfo {
 fn builtin_templates() -> Vec<BuiltinTemplateInfo> {
     vec![BuiltinTemplateInfo {
         id: "search".into(),
-        name: "内置搜索工具".into(),
-        description: "内置的网络搜索和网页访问工具，支持多种搜索引擎和浏览器".into(),
+        name: "搜索工具".into(),
+        description: "内置的网络搜索和网页访问工具，支持多种搜索引擎和浏览器，可以通过搜索引擎获取到相关信息，并且可以调用访问工具进一步获取页面的具体信息".into(),
         command: "aipp:search".into(),
         transport_type: "stdio".into(),
         required_envs: vec![
@@ -88,10 +88,21 @@ pub fn get_builtin_tools_for_command(command: &str) -> Vec<BuiltinToolInfo> {
         Some("search") => vec![
             BuiltinToolInfo {
                 name: "search_web".into(),
-                description: "搜索网络内容".into(),
+                description: "搜索网络内容，支持多种结果格式。可以返回原始HTML、Markdown格式或结构化搜索结果。适合大型语言模型处理和理解搜索内容。".into(),
                 input_schema: serde_json::json!({
                     "type": "object",
-                    "properties": {"query": {"type": "string", "description": "搜索查询关键词"}},
+                    "properties": {
+                        "query": {
+                            "type": "string", 
+                            "description": "搜索查询关键词，支持中英文和各种搜索语法"
+                        },
+                        "result_type": {
+                            "type": "string",
+                            "enum": ["html", "markdown", "items"],
+                            "default": "html",
+                            "description": "结果格式类型：\n- html: 返回原始HTML内容，适合需要完整页面信息的场景\n- markdown: 将HTML转换为Markdown格式，便于阅读和处理\n- items: 返回结构化的搜索结果列表，包含标题、URL、摘要等字段"
+                        }
+                    },
                     "required": ["query"]
                 }),
             },

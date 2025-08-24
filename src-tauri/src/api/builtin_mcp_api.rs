@@ -36,8 +36,25 @@ impl BuiltinSearchHandler {
     }
 
     pub async fn search_web(&self, query: &str) -> Result<serde_json::Value, String> {
+        use crate::api::builtin_mcp::search::types::{SearchRequest, SearchResultType, SearchResponse};
+        
         let handler = SearchHandler::new(self.app_handle.clone());
-        handler.search_web(query).await
+        let request = SearchRequest {
+            query: query.to_string(),
+            result_type: SearchResultType::Html, // 默认HTML格式保持兼容
+        };
+        
+        match handler.search_web_with_type(request).await {
+            Ok(SearchResponse::Html { html_content, .. }) => {
+                Ok(serde_json::json!({
+                    "query": query,
+                    "html_content": html_content,
+                    "message": "Search completed"
+                }))
+            }
+            Ok(_) => Err("Unexpected response format".to_string()),
+            Err(e) => Err(e),
+        }
     }
 
     pub async fn fetch_url(&self, url: &str) -> Result<serde_json::Value, String> {
