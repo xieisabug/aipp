@@ -34,9 +34,6 @@ impl SearchEngineBase {
             .await
             .map_err(|e| format!("Failed to navigate to {}: {}", homepage_url, e))?;
         
-        // 等待页面初始加载
-        sleep(Duration::from_millis(2500)).await;
-        
         // 等待搜索框出现
         Self::wait_for_search_input(page, display_name, search_input_selectors).await?;
 
