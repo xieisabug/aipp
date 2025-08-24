@@ -20,6 +20,8 @@ reqwest = { version = "0.12.5", features = ["json", "stream", "blocking"] }
 htmd = "0.1"
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7.11" }
+which = "6"
+playwright = "0.0.20"
 rusqlite = { version = "0.31.0", features = ["bundled", "chrono"] }
 get-selected-text = "0.1.6"
 config = "0.14.0"

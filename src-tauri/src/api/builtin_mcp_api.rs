@@ -1,11 +1,12 @@
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, Listener};
+use tauri::{AppHandle, Manager};
 use std::time::Duration;
 use crate::db::mcp_db::MCPDatabase;
-use rusqlite::OptionalExtension;
-use tokio::time::timeout;
-use std::sync::{Arc, Mutex};
-use uuid::Uuid;
+use reqwest;
+use tokio::process::Command as TokioCommand;
+use std::path::PathBuf;
+use playwright::Playwright;
+use std::fs;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SearchRequest { pub query: String }
@@ -29,183 +30,216 @@ impl BuiltinSearchHandler {
         }
     }
 
-    async fn get_page_html(&self) -> Result<String, String> {
-        println!("[HTML] Starting HTML extraction process");
-        
-        let window = self
-            .app_handle
-            .get_webview_window("hidden_search")
-            .ok_or("Search window not found")?;
+    /// 使用 Playwright 启动系统浏览器（不下载），并通过“持久上下文”加载页面、返回渲染后的 HTML。
+    /// 配置优先级（来自 aipp:search 环境变量）：
+    /// - BROWSER_EXECUTABLE: 自定义浏览器可执行文件路径（优先）
+    /// - USER_DATA_DIR: 复用的用户数据目录（可直接指向系统浏览器的配置目录；注意可能被占用）
+    /// - HEADLESS: 是否无头模式（默认 true）
+    /// - USER_AGENT: 可选自定义 UA
+    /// - BYPASS_CSP: 是否绕过 CSP（默认 false）
+    async fn playwright_fetch_html(&self, url: &str) -> Result<String, String> {
+        let envs = get_env_map_for_aipp_command(&self.app_handle, "aipp:search").unwrap_or_default();
 
-        // 等待页面加载完成
-        println!("[HTML] Waiting for page to load...");
-        tokio::time::sleep(Duration::from_secs(3)).await;
-        
-        // 先测试基本JavaScript执行能力
-        let basic_test_js = r#"
-            try {
-                document.title = 'JS_TEST_SUCCESS';
-                console.log('Basic JS test successful');
-            } catch (error) {
-                console.error('Basic JS test failed:', error);
-            }
-        "#;
-        
-        println!("[HTML] Testing basic JavaScript execution...");
-        if let Err(e) = window.eval(basic_test_js) {
-            println!("[HTML] Basic JavaScript test failed: {}", e);
-            return Err("JavaScript execution not available".to_string());
+        let headless = envs
+            .get("HEADLESS")
+            .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes"))
+            .unwrap_or(true);
+        let bypass_csp = envs
+            .get("BYPASS_CSP")
+            .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes"))
+            .unwrap_or(false);
+        let ua_opt = envs.get("USER_AGENT").cloned();
+
+        // 选择用户数据目录：优先环境变量，否则使用应用数据目录下的专用 profile
+        let user_data_dir = if let Some(p) = envs.get("USER_DATA_DIR") {
+            PathBuf::from(p)
+        } else {
+            let base = self
+                .app_handle
+                .path()
+                .app_data_dir()
+                .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+            base.join("playwright_profile")
+        };
+        if let Err(e) = fs::create_dir_all(&user_data_dir) {
+            println!("[PW] Failed to create user_data_dir {:?}: {}", user_data_dir, e);
         }
-        
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        
-        // 检查基本JS测试结果
-        match window.title() {
-            Ok(title) => {
-                println!("[HTML] Title after basic JS test: {}", title);
-                if title == "JS_TEST_SUCCESS" {
-                    println!("[HTML] ✓ JavaScript execution is working!");
-                    
-                    // JavaScript可以执行，继续页面分析
-                    return self.extract_page_content(&window).await;
-                } else {
-                    println!("[HTML] ✗ JavaScript execution failed, title: {}", title);
+
+        // 选择浏览器可执行文件：优先环境变量，其次自动查找系统 Edge/Chrome
+        let browser_exe = if let Some(p) = envs.get("BROWSER_EXECUTABLE") {
+            let pb = PathBuf::from(p);
+            if !pb.exists() {
+                return Err(format!("BROWSER_EXECUTABLE not found: {}", p));
+            }
+            Some(pb)
+        } else {
+            Self::find_headless_browser()
+        };
+
+        let playwright = Playwright::initialize()
+            .await
+            .map_err(|e| format!("Playwright init error: {}", e))?;
+        // 不调用 prepare()，避免下载捆绑浏览器
+        let chromium = playwright.chromium();
+
+        let mut launcher = chromium.persistent_context_launcher(&user_data_dir);
+        if let Some(exe) = &browser_exe {
+            launcher = launcher.executable(exe.as_path());
+        }
+        launcher = launcher.headless(headless);
+        if bypass_csp {
+            launcher = launcher.bypass_csp(true);
+        }
+        if let Some(ua) = ua_opt.as_deref() {
+            launcher = launcher.user_agent(ua);
+        }
+
+        let context = launcher
+            .launch()
+            .await
+            .map_err(|e| format!("Playwright launch error: {}", e))?;
+        let page = context
+            .new_page()
+            .await
+            .map_err(|e| format!("Playwright new_page error: {}", e))?;
+        page
+            .goto_builder(url)
+            .goto()
+            .await
+            .map_err(|e| format!("Playwright goto error: {}", e))?;
+
+        // 简单等待一小段时间以保证动态渲染基本完成（可按需增强为等待选择器/网络空闲）
+        tokio::time::sleep(Duration::from_millis(800)).await;
+
+        let html: String = page
+            .eval("() => document.documentElement.outerHTML")
+            .await
+            .map_err(|e| format!("Playwright eval error: {}", e))?;
+
+        if html.trim().is_empty() {
+            return Err("Empty HTML from Playwright".to_string());
+        }
+        Ok(html)
+    }
+
+    /// 查找可用的无头浏览器（优先 Edge，其次 Chrome）
+    fn find_headless_browser() -> Option<PathBuf> {
+        #[cfg(target_os = "windows")]
+        {
+            let candidates = [
+                // Edge
+                r"C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+                r"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+                "msedge.exe",
+                // Chrome
+                r"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+                r"C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+                "chrome.exe",
+            ];
+            for path in candidates.iter() {
+                let p = PathBuf::from(path);
+                if p.is_file() {
+                    return Some(p);
+                }
+                // try calling it from PATH
+                if path.ends_with(".exe") && which::which(path).is_ok() {
+                    return which::which(path).ok();
                 }
             }
-            Err(e) => {
-                println!("[HTML] Failed to read title after basic JS test: {}", e);
-            }
+            None
         }
-        
-        // JavaScript执行失败，返回基本的页面信息
-        println!("[HTML] JavaScript execution not available, returning basic page info");
-        Ok(format!(
-            "<!-- JavaScript execution not available in search window -->\n<!-- Page URL loaded successfully -->\n<html><head><title>Page Loaded</title></head><body><p>Page navigated successfully but content extraction unavailable</p><p>This is a limitation of webview JavaScript execution</p></body></html>"
-        ))
-    }
-    
-    async fn extract_page_content(&self, window: &tauri::WebviewWindow) -> Result<String, String> {
-        println!("[HTML] Extracting page content with JavaScript...");
-        
-        // 检查页面状态
-        let check_js = r#"
-            try {
-                let readyState = document.readyState;
-                let url = window.location.href;
-                let hasContent = document.documentElement ? 'yes' : 'no';
-                let contentLength = document.documentElement ? document.documentElement.outerHTML.length : 0;
-                let bodyExists = document.body ? 'yes' : 'no';
-                
-                console.log('Page analysis:', {
-                    readyState: readyState,
-                    url: url,
-                    hasContent: hasContent,
-                    contentLength: contentLength,
-                    bodyExists: bodyExists
-                });
-                
-                document.title = 'STATUS_' + readyState + '_' + hasContent + '_' + contentLength + '_' + bodyExists;
-            } catch (error) {
-                console.error('Status check error:', error);
-                document.title = 'STATUS_ERROR_' + error.message.substring(0, 20);
-            }
-        "#;
-        
-        if let Err(e) = window.eval(check_js) {
-            println!("[HTML] Failed to check page status: {}", e);
-            return Err("Failed to check page status".to_string());
-        }
-        
-        tokio::time::sleep(Duration::from_millis(300)).await;
-        
-        // 读取页面状态
-        match window.title() {
-            Ok(title) => {
-                println!("[HTML] Page title after status check: {}", title);
-                
-                if title.starts_with("STATUS_") {
-                    let parts: Vec<&str> = title.split('_').collect();
-                    if parts.len() >= 5 {
-                        let ready_state = parts[1];
-                        let has_content = parts[2];
-                        let content_len = parts[3].parse::<usize>().unwrap_or(0);
-                        let body_exists = parts[4];
-                        
-                        println!("[HTML] Page analysis - Ready: {}, Content: {}, Length: {}, Body: {}", 
-                                ready_state, has_content, content_len, body_exists);
-                                
-                        if has_content == "yes" && content_len > 100 {
-                            // 页面有足够的内容，尝试获取一些基本信息
-                            let extract_js = r#"
-                                try {
-                                    let title = document.title;
-                                    let textLength = document.body ? document.body.innerText.length : 0;
-                                    let linkCount = document.querySelectorAll('a').length;
-                                    
-                                    document.title = 'EXTRACT_' + textLength + '_' + linkCount;
-                                    console.log('Content extracted - Text:', textLength, 'Links:', linkCount);
-                                } catch (error) {
-                                    document.title = 'EXTRACT_ERROR';
-                                    console.error('Content extraction error:', error);
-                                }
-                            "#;
-                            
-                            if window.eval(extract_js).is_ok() {
-                                tokio::time::sleep(Duration::from_millis(200)).await;
-                                
-                                if let Ok(final_title) = window.title() {
-                                    println!("[HTML] Final extraction title: {}", final_title);
-                                    
-                                    if final_title.starts_with("EXTRACT_") {
-                                        let extract_parts: Vec<&str> = final_title.split('_').collect();
-                                        if extract_parts.len() >= 3 {
-                                            let text_len = extract_parts[1];
-                                            let link_count = extract_parts[2];
-                                            
-                                            return Ok(format!(
-                                                "<!-- Page successfully loaded -->\n<!-- Content length: {} -->\n<!-- Text length: {} -->\n<!-- Links found: {} -->\n<!-- Ready state: {} -->\n<html><head><title>Search Results</title></head><body><p>Content extracted from search page</p><p>HTML length: {}, Text length: {}, Links: {}</p></body></html>", 
-                                                content_len, text_len, link_count, ready_state, content_len, text_len, link_count
-                                            ));
-                                        }
-                                    }
-                                }
-                            }
-                            
-                            // 基本信息提取
-                            return Ok(format!(
-                                "<!-- Page loaded successfully -->\n<!-- Content length: {} -->\n<!-- Ready state: {} -->\n<html><body>Content extracted from hidden window (length: {})</body></html>", 
-                                content_len, ready_state, content_len
-                            ));
-                        } else {
-                            println!("[HTML] Page has insufficient content - Length: {}", content_len);
-                        }
-                    }
-                } else if title.starts_with("STATUS_ERROR") {
-                    println!("[HTML] JavaScript error occurred: {}", title);
+        #[cfg(not(target_os = "windows"))]
+        {
+            let candidates = ["chromium", "google-chrome", "chrome", "edge", "msedge", "chromium-browser"]; 
+            for name in candidates.iter() {
+                if let Ok(p) = which::which(name) {
+                    return Some(p);
                 }
             }
-            Err(e) => {
-                println!("[HTML] Failed to read window title: {}", e);
-            }
+            None
         }
-        
-        Err("Page did not load properly or has no content".to_string())
     }
+
+    /// 使用系统浏览器以无头模式打开并导出 DOM（支持部分动态渲染，较接近“真实浏览器”）
+    async fn headless_dump_dom(&self, url: &str) -> Result<String, String> {
+        let browser = Self::find_headless_browser().ok_or_else(|| "No headless browser (Edge/Chrome) found".to_string())?;
+        println!("[HEADLESS] Using browser: {}", browser.display());
+
+        let mut cmd = TokioCommand::new(browser);
+        let ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+        cmd.arg("--headless=new")
+            .arg("--disable-gpu")
+            .arg("--no-first-run")
+            .arg("--no-default-browser-check")
+            .arg("--disable-dev-shm-usage")
+            .arg("--disable-extensions")
+            .arg("--disable-blink-features=AutomationControlled")
+            .arg(format!("--user-agent={}", ua))
+            .arg("--virtual-time-budget=15000")
+            .arg("--timeout=45000")
+            .arg("--hide-scrollbars")
+            .arg("--window-size=1280,800")
+            .arg("--dump-dom")
+            .arg(url);
+
+        let output = cmd.output().await.map_err(|e| format!("Failed to run headless browser: {}", e))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("Headless browser exited with code {:?}: {}", output.status.code(), stderr.trim()));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        if stdout.trim().is_empty() {
+            return Err("Empty DOM output from headless browser".to_string());
+        }
+        println!("[HEADLESS] Dumped {} bytes", stdout.len());
+        Ok(stdout)
+    }
+
+    /// 使用 HTTP 直接抓取页面内容，避免 WebView JS 注入与 CSP/同源等限制
+    async fn http_fetch_html(&self, url: &str, user_agent: Option<&str>) -> Result<String, String> {
+        let ua = user_agent.unwrap_or("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+        let client = reqwest::Client::builder()
+            .user_agent(ua)
+            .redirect(reqwest::redirect::Policy::limited(10))
+            .timeout(Duration::from_secs(15))
+            .build()
+            .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+
+        let resp = client
+            .get(url)
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+            .send()
+            .await
+            .map_err(|e| format!("HTTP request error: {}", e))?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            return Err(format!("HTTP status {} when fetching {}", status.as_u16(), url));
+        }
+
+        let content_type = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+
+        let text = resp.text().await.map_err(|e| format!("Failed to read body: {}", e))?;
+        if text.trim().is_empty() {
+            return Err("Empty response body".to_string());
+        }
+
+        // 简单判断：不是 HTML 也放行，由上层决定如何处理
+        println!("[HTTP] Fetched {} bytes (content-type: {})", text.len(), content_type);
+        Ok(text)
+    }
+
+    // 旧的 WebView 注入方案已删除（跨域与平台差异导致不稳定）
 
     async fn search_web(&self, query: &str) -> Result<serde_json::Value, String> {
         println!("[SEARCH] Starting search for query: {}", query);
         
-        // 确保隐藏窗口存在
-        if let Err(e) = crate::window::ensure_hidden_search_window(self.app_handle.clone()).await {
-            return Err(format!("Failed to create hidden search window: {}", e));
-        }
-        let window = self
-            .app_handle
-            .get_webview_window("hidden_search")
-            .ok_or("Hidden search window not found")?;
-
-        println!("[SEARCH] Got hidden search window");
-
         // 从环境变量构建搜索 URL
         let envs = get_env_map_for_aipp_command(&self.app_handle, "aipp:search").unwrap_or_default();
         let base = envs.get("SEARCH_URL").map(|s| s.as_str()).unwrap_or("https://duckduckgo.com/html/?q=");
@@ -213,93 +247,128 @@ impl BuiltinSearchHandler {
         
         println!("[SEARCH] Search URL: {}", search_url);
 
-        // 导航到搜索页面
-        println!("[SEARCH] Navigating to search URL...");
-        window
-            .navigate(search_url.parse().map_err(|e| format!("Invalid URL: {}", e))?)
-            .map_err(|e| format!("Failed to navigate to search URL: {}", e))?;
-
-        println!("[SEARCH] Navigation completed, waiting for page load...");
-        
-        // 等待页面加载
-        tokio::time::sleep(Duration::from_secs(3)).await;
-        
-        // 检查当前URL和标题
-        match window.url() {
-            Ok(current_url) => println!("[SEARCH] Current URL: {}", current_url),
-            Err(e) => println!("[SEARCH] Failed to get current URL: {}", e),
-        }
-        
-        match window.title() {
-            Ok(title) => println!("[SEARCH] Current title before JS: {}", title),
-            Err(e) => println!("[SEARCH] Failed to get current title: {}", e),
-        }
-
-        // 获取页面HTML内容
-        match self.get_page_html().await {
+        // 首选：Playwright（系统浏览器、可复用会话/更强动态能力）
+        match self.playwright_fetch_html(&search_url).await {
             Ok(html) => {
-                println!("[SEARCH] HTML extraction successful");
-                Ok(serde_json::json!({
+                println!("[SEARCH][PW] HTML fetched successfully");
+                return Ok(serde_json::json!({
                     "query": query,
                     "request_url": search_url,
                     "source": base,
+                    "via": "playwright",
                     "html_content": html,
-                    "message": "Search completed and HTML content extracted",
-                }))
+                    "message": "Search completed via Playwright",
+                }));
             }
-            Err(e) => {
-                println!("[SEARCH] HTML extraction failed: {}", e);
-                // Fallback: return basic info with error
-                Ok(serde_json::json!({
-                    "query": query,
-                    "request_url": search_url,
-                    "source": base,
-                    "html_content": "",
-                    "message": format!("Search page loaded but HTML extraction failed: {}", e),
-                    "error": e,
-                }))
+            Err(pw_err) => {
+                println!("[SEARCH][PW] Failed: {}", pw_err);
             }
         }
+
+        // 次选：系统浏览器 --dump-dom（无需下载，较轻量）
+        match self.headless_dump_dom(&search_url).await {
+            Ok(html) => {
+                println!("[SEARCH][HEADLESS] DOM dumped successfully");
+                return Ok(serde_json::json!({
+                    "query": query,
+                    "request_url": search_url,
+                    "source": base,
+                    "via": "headless",
+                    "html_content": html,
+                    "message": "Search completed via headless browser",
+                }));
+            }
+            Err(h_err) => println!("[SEARCH][HEADLESS] Failed: {}", h_err),
+        }
+
+        // 次选：HTTP 直接抓取（某些站点仍可用）
+        if let Ok(html) = self.http_fetch_html(&search_url, None).await {
+            println!("[SEARCH][HTTP] HTML fetched successfully");
+            return Ok(serde_json::json!({
+                "query": query,
+                "request_url": search_url,
+                "source": base,
+                "via": "http",
+                "html_content": html,
+                "message": "Search completed via HTTP fetch",
+            }));
+        }
+
+        // 兜底：尝试 WebView 导航（不再承诺提取 HTML，仅返回状态信息）
+        if let Err(e) = crate::window::ensure_hidden_search_window(self.app_handle.clone()).await {
+            println!("[SEARCH][WebView] Failed to create hidden search window: {}", e);
+        } else if let Some(window) = self.app_handle.get_webview_window("hidden_search") {
+            let _ = window.navigate(search_url.parse().map_err(|e| format!("Invalid URL: {}", e))?);
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+
+        Ok(serde_json::json!({
+            "query": query,
+            "request_url": search_url,
+            "source": base,
+            "via": "webview",
+            "html_content": "",
+            "message": "HTTP fetch failed; navigated WebView but extraction is disabled",
+        }))
     }
     
     async fn fetch_url(&self, url: &str) -> Result<serde_json::Value, String> {
-        if let Err(e) = crate::window::ensure_hidden_search_window(self.app_handle.clone()).await {
-            return Err(format!("Failed to create hidden search window: {}", e));
-        }
-        let window = self
-            .app_handle
-            .get_webview_window("hidden_search")
-            .ok_or("Hidden search window not found")?;
-
-        // 导航到目标URL
-        window
-            .navigate(url.parse().map_err(|e| format!("Invalid URL: {}", e))?)
-            .map_err(|e| format!("Failed to navigate to URL: {}", e))?;
-
-        // 等待页面加载
-        tokio::time::sleep(Duration::from_secs(3)).await;
-
-        // 获取页面HTML内容
-        match self.get_page_html().await {
+        // 首选：Playwright（系统浏览器、可复用会话/更强动态能力）
+        match self.playwright_fetch_html(url).await {
             Ok(html) => {
-                Ok(serde_json::json!({
+                return Ok(serde_json::json!({
                     "url": url,
                     "status": "success",
+                    "via": "playwright",
                     "html_content": html,
-                    "message": "Page loaded and HTML content extracted",
-                }))
+                    "message": "Fetched via Playwright",
+                }));
             }
-            Err(e) => {
-                // Fallback: return basic info with error
-                Ok(serde_json::json!({
-                    "url": url,
-                    "status": "partial_success", 
-                    "html_content": "",
-                    "message": format!("Page loaded but HTML extraction failed: {}", e),
-                    "error": e,
-                }))
+            Err(pw_err) => {
+                println!("[FETCH][PW] Failed: {}", pw_err);
             }
         }
+
+        // 次选：系统浏览器 --dump-dom
+        match self.headless_dump_dom(url).await {
+            Ok(html) => {
+                return Ok(serde_json::json!({
+                    "url": url,
+                    "status": "success",
+                    "via": "headless",
+                    "html_content": html,
+                    "message": "Fetched via headless browser",
+                }));
+            }
+            Err(h_err) => println!("[FETCH][HEADLESS] Failed: {}", h_err),
+        }
+
+        // 次选：HTTP 直接抓取
+        if let Ok(html) = self.http_fetch_html(url, None).await {
+            return Ok(serde_json::json!({
+                "url": url,
+                "status": "success",
+                "via": "http",
+                "html_content": html,
+                "message": "Fetched via HTTP",
+            }));
+        }
+
+        // 兜底：WebView 导航但不提取
+        if let Ok(()) = crate::window::ensure_hidden_search_window(self.app_handle.clone()).await {
+            if let Some(window) = self.app_handle.get_webview_window("hidden_search") {
+                let _ = window.navigate(url.parse().map_err(|e| format!("Invalid URL: {}", e))?);
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+        }
+
+        Ok(serde_json::json!({
+            "url": url,
+            "status": "partial_success",
+            "via": "webview",
+            "html_content": "",
+            "message": "HTTP fetch failed; navigated WebView but extraction is disabled",
+        }))
     }
 }
 
