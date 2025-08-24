@@ -65,7 +65,7 @@ impl SearchHandler {
         config: &std::collections::HashMap<String, String>,
     ) -> Result<String, String> {
         let fetch_config = self.build_fetch_config(config, &SearchEngineManager::new(None), search_engine)?;
-        let fetcher = ContentFetcher::new(self.app_handle.clone(), fetch_config);
+        let mut fetcher = ContentFetcher::new(self.app_handle.clone(), fetch_config);
         fetcher.fetch_search_content(query, search_engine, browser_manager).await
     }
 
@@ -105,7 +105,8 @@ impl SearchHandler {
                     SearchEngine::DuckDuckGo => super::engines::duckduckgo::DuckDuckGoEngine::parse_search_results(&html, &request.query),
                     SearchEngine::Kagi => super::engines::kagi::KagiEngine::parse_search_results(&html, &request.query),
                 };
-                Ok(SearchResponse::Items(search_results))
+                // 返回简化格式，仅包含搜索结果项数组
+                Ok(SearchResponse::ItemsOnly(search_results.items))
             }
         }
     }
@@ -118,7 +119,7 @@ impl SearchHandler {
         let browser_manager = BrowserManager::new(config.get("BROWSER_TYPE").map(|s| s.as_str()));
         
         let fetch_config = self.build_general_fetch_config(&config)?;
-        let fetcher = ContentFetcher::new(self.app_handle.clone(), fetch_config);
+        let mut fetcher = ContentFetcher::new(self.app_handle.clone(), fetch_config);
 
         match fetcher.fetch_content(url, &browser_manager).await {
             Ok(html) => {

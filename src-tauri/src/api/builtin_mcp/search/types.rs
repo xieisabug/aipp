@@ -95,6 +95,8 @@ pub enum SearchResponse {
         markdown_content: String,
         message: String,
     },
-    /// 结构化结果响应
+    /// 结构化结果响应（完整对象）
     Items(SearchResults),
+    /// 简化的搜索结果响应（仅包含结果项数组）
+    ItemsOnly(Vec<SearchItem>),
 }

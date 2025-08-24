@@ -86,6 +86,12 @@ pub async fn execute_aipp_builtin_tool(
                                         "isError": false
                                     })
                                 }
+                                search::types::SearchResponse::ItemsOnly(items) => {
+                                    serde_json::json!({
+                                        "content": [{"type": "json", "json": items}],
+                                        "isError": false
+                                    })
+                                }
                             }
                         }
                         Err(e) => serde_json::json!({

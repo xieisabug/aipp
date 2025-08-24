@@ -15,35 +15,71 @@ impl GoogleEngine {
     
     pub fn search_input_selectors() -> Vec<&'static str> {
         vec![
-            "textarea[name='q']",
-            "input[name='q']",
-            "textarea[title='搜索']",
-            "input[title='搜索']",
-            "textarea[title='Search']", 
+            // 主要搜索框选择器（按优先级排序）
+            "textarea[name='q']",           // 新版 Google 主搜索框
+            "input[name='q']",              // 传统搜索框
+            "textarea[title='搜索']",        // 中文界面搜索框
+            "input[title='搜索']",           
+            "textarea[title='Search']",      // 英文界面搜索框
             "input[title='Search']",
-            "#APjFqb",
-            ".gLFyf",
-            ".a4bIc input",
-            "form[role='search'] textarea",
-            "form[role='search'] input",
+            "#APjFqb",                      // Google 特定 ID
+            ".gLFyf",                       // Google 特定类名
+            ".a4bIc input",                 // 容器内的输入框
+            ".a4bIc textarea",              // 容器内的文本域
+            "form[role='search'] textarea", // 表单内搜索框
+            "form[role='search'] input[type='text']",
+            "form[role='search'] input[type='search']",
+            // 备用选择器（更广泛的匹配）
+            "input[aria-label*='搜索']",
+            "textarea[aria-label*='搜索']",
+            "input[aria-label*='Search']",
+            "textarea[aria-label*='Search']",
+            "input[autocomplete='off'][name='q']",
+            "textarea[autocomplete='off'][name='q']",
         ]
     }
     
     pub fn search_button_selectors() -> Vec<&'static str> {
         vec![
-            "input[name='btnK']",
-            "button[type='submit']",
-            ".FPdoLc input[name='btnK']",
-            ".tfB0Bf input[name='btnK']",
+            // 主要搜索按钮选择器
+            "input[name='btnK']",              // 标准 Google 搜索按钮
+            "button[type='submit']",           // 通用提交按钮
+            "input[value='Google 搜索']",       // 中文搜索按钮
+            "input[value='Google Search']",    // 英文搜索按钮
+            ".FPdoLc input[name='btnK']",      // 容器内的搜索按钮
+            ".tfB0Bf input[name='btnK']",      // 另一个容器
+            // 高级选择器
+            "center input[name='btnK']",       // 居中容器内的按钮
+            "form input[type='submit'][name='btnK']",
+            "form button[aria-label*='搜索']",
+            "form button[aria-label*='Search']",
+            // 备用按钮选择器
+            "input[type='submit'][value*='搜索']",
+            "input[type='submit'][value*='Search']",
+            "button[data-ved]:not([disabled])", // Google 特有的按钮
         ]
     }
     
     pub fn default_wait_selectors() -> Vec<String> {
         vec![
-            "#search".to_string(),
-            "#main".to_string(),
-            "#rcnt".to_string(),
-            "#center_col".to_string(),
+            // 主要搜索结果容器
+            "#search".to_string(),             // Google 主搜索结果容器
+            "#main".to_string(),               // 主内容区域
+            "#rcnt".to_string(),               // 结果计数容器
+            "#center_col".to_string(),         // 中心列
+            // 具体结果选择器
+            "[data-ved]".to_string(),          // Google 结果项标识
+            ".g".to_string(),                  // Google 搜索结果项类名
+            ".tF2Cxc".to_string(),            // 新版结果项类名
+            ".yuRUbf".to_string(),            // 结果标题容器
+            // 其他有效容器
+            "#rso".to_string(),                // 搜索结果区域
+            ".srp".to_string(),                // 搜索结果页面
+            "#topads".to_string(),             // 广告区域（也表明页面已加载）
+            "#bottomads".to_string(),          // 底部广告
+            // 错误页面或特殊情况
+            ".med".to_string(),                // 消息区域
+            "#errorPageContainer".to_string(), // 错误页面
         ]
     }
     

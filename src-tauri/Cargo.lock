@@ -12,6 +12,7 @@ dependencies = [
  "chrono",
  "config",
  "dirs 5.0.1",
+ "fastrand",
  "flate2",
  "futures",
  "genai",
