@@ -1,7 +1,7 @@
 use tauri::AppHandle;
 use std::collections::HashMap;
 use super::browser::BrowserManager;
-use super::engines::{SearchEngine, SearchEngineManager};
+use super::engine_manager::{SearchEngine, SearchEngineManager};
 use super::fetcher::{ContentFetcher, FetchConfig};
 
 #[derive(Clone)]

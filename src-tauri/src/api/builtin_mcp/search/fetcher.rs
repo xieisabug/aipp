@@ -5,7 +5,7 @@ use tauri::{AppHandle, Manager};
 use tokio::process::Command as TokioCommand;
 use playwright::Playwright;
 use super::browser::BrowserManager;
-use super::engines::SearchEngine;
+use super::engine_manager::SearchEngine;
 
 #[derive(Debug, Clone)]
 pub struct FetchConfig {
