@@ -108,8 +108,61 @@ impl BuiltinSearchHandler {
             .await
             .map_err(|e| format!("Playwright goto error: {}", e))?;
 
-        // 简单等待一小段时间以保证动态渲染基本完成（可按需增强为等待选择器/网络空闲）
-        tokio::time::sleep(Duration::from_millis(800)).await;
+        // 等待选择器：优先使用环境变量 WAIT_SELECTORS，否则使用默认示例选择器
+        let selectors: Vec<String> = envs
+            .get("WAIT_SELECTORS")
+            .map(|raw| {
+                raw.split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_else(|| vec![
+                "#b_content > main".to_string(),
+                "#search".to_string(),
+                "body > div.app-box-center".to_string(),
+            ]);
+
+        if !selectors.is_empty() {
+            let timeout_ms: u64 = envs
+                .get("WAIT_TIMEOUT_MS")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(15000);
+            let poll_ms: u64 = envs
+                .get("WAIT_POLL_MS")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(250);
+
+            let start = std::time::Instant::now();
+            let sels_json = serde_json::to_string(&selectors).unwrap_or("[]".to_string());
+            let script = format!(
+                "() => {{ const sels = {}; for (const s of sels) {{ if (document.querySelector(s)) return s; }} return null; }}",
+                sels_json
+            );
+            let mut matched: Option<String> = None;
+            loop {
+                let found: Option<String> = page
+                    .eval(&script)
+                    .await
+                    .map_err(|e| format!("Playwright wait eval error: {}", e))?;
+                if let Some(sel) = found {
+                    matched = Some(sel);
+                    break;
+                }
+                if start.elapsed() >= Duration::from_millis(timeout_ms) {
+                    break;
+                }
+                page.wait_for_timeout(poll_ms as f64).await;
+            }
+            if let Some(sel) = matched {
+                println!("[PW] Waited selectors matched: {}", sel);
+            } else {
+                println!("[PW] Waited selectors not found within {} ms", timeout_ms);
+            }
+        } else {
+            // 默认轻量等待，避免过长阻塞
+            page.wait_for_timeout(800.0).await;
+        }
 
         let html: String = page
             .eval("() => document.documentElement.outerHTML")
