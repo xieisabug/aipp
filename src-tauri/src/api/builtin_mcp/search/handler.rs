@@ -111,7 +111,37 @@ impl SearchHandler {
         }
     }
 
-    /// 抓取指定URL的内容
+    /// 抓取指定URL的内容，支持多种格式
+    pub async fn fetch_url_with_type(&self, url: &str, result_type: &str) -> Result<String, String> {
+        println!("[SEARCH] Fetching URL with type {}: {}", result_type, url);
+
+        let config = self.load_search_config()?;
+        let browser_manager = BrowserManager::new(config.get("BROWSER_TYPE").map(|s| s.as_str()));
+        
+        let fetch_config = self.build_general_fetch_config(&config)?;
+        let mut fetcher = ContentFetcher::new(self.app_handle.clone(), fetch_config);
+
+        match fetcher.fetch_content(url, &browser_manager).await {
+            Ok(html) => {
+                println!("[SEARCH] Successfully fetched URL content");
+                
+                match result_type {
+                    "markdown" => {
+                        let markdown_content = SearchEngineBase::html_to_markdown(&html);
+                        Ok(markdown_content)
+                    }
+                    "html" | _ => {
+                        Ok(html)
+                    }
+                }
+            }
+            Err(e) => {
+                Err(format!("Failed to fetch URL: {}", e))
+            }
+        }
+    }
+
+    /// 抓取指定URL的内容（保持向后兼容）
     pub async fn fetch_url(&self, url: &str) -> Result<serde_json::Value, String> {
         println!("[SEARCH] Fetching URL: {}", url);
 

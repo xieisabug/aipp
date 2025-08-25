@@ -105,9 +105,16 @@ pub async fn execute_aipp_builtin_tool(
                         .get("url")
                         .and_then(|v| v.as_str())
                         .ok_or_else(|| "Missing required parameter: url".to_string())?;
-                    match handler.fetch_url(url).await {
+                    
+                    // 获取result_type参数，默认为html
+                    let result_type = args
+                        .get("result_type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("html");
+                    
+                    match handler.fetch_url_with_type(url, result_type).await {
                         Ok(v) => serde_json::json!({
-                            "content": [{"type": "json", "json": v}],
+                            "content": [{"type": "text", "text": v}],
                             "isError": false
                         }),
                         Err(e) => serde_json::json!({

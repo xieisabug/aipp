@@ -152,10 +152,21 @@ pub fn get_builtin_tools_for_command(command: &str) -> Vec<BuiltinToolInfo> {
             },
             BuiltinToolInfo {
                 name: "fetch_url".into(),
-                description: "获取网页内容".into(),
+                description: "获取网页内容，支持多种结果格式。可以返回原始HTML或Markdown格式的网页内容。".into(),
                 input_schema: serde_json::json!({
                     "type": "object",
-                    "properties": {"url": {"type": "string", "description": "要获取内容的URL"}},
+                    "properties": {
+                        "url": {
+                            "type": "string", 
+                            "description": "要获取内容的URL"
+                        },
+                        "result_type": {
+                            "type": "string",
+                            "enum": ["html", "markdown"],
+                            "default": "html",
+                            "description": "结果格式类型：\\n- html: 返回原始HTML内容，适合需要完整页面信息的场景\\n- markdown: 将HTML转换为Markdown格式，便于阅读和处理"
+                        }
+                    },
                     "required": ["url"]
                 }),
             },
