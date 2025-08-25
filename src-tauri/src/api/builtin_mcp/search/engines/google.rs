@@ -1,5 +1,5 @@
-use super::base::SearchEngineBase;
 use crate::api::builtin_mcp::search::types::{SearchItem, SearchResults};
+use scraper::{Html, Selector};
 
 /// Google搜索引擎实现
 pub struct GoogleEngine;
@@ -83,66 +83,33 @@ impl GoogleEngine {
         ]
     }
     
-    pub async fn perform_search(page: &playwright::api::Page, query: &str) -> Result<String, String> {
-        SearchEngineBase::perform_search(
-            page,
-            query,
-            Self::display_name(),
-            Self::homepage_url(),
-            &Self::search_input_selectors(),
-            &Self::search_button_selectors(),
-            &Self::default_wait_selectors(),
-        ).await
-    }
     
-    /// 解析Google搜索结果HTML，提取结构化信息
+    /// 解析Google搜索结果HTML，提取结构化信息（HTML解析器版）
     pub fn parse_search_results(html: &str, query: &str) -> SearchResults {
         let mut items = Vec::new();
-        
-        // 使用简单的字符串匹配来解析HTML
-        // Google搜索结果通常包含在具有特定类名的div中
-        
-        // 查找所有搜索结果项，Google通常使用 .g 类或 [data-ved] 属性
-        let result_patterns = [
-            // 标准搜索结果模式
-            r#"<div[^>]*class="[^"]*\bg\b[^"]*"[^>]*>(.*?)</div>"#,
-            // 带data-ved的搜索结果
-            r#"<div[^>]*data-ved="[^"]*"[^>]*class="[^"]*\bg\b[^"]*"[^>]*>(.*?)</div>"#,
+        let document = Html::parse_document(html);
+
+        // 结果卡片选择器（优先新版，再到通用）
+        let selectors = [
+            Selector::parse("div.tF2Cxc").ok(),
+            Selector::parse("div.g").ok(),
         ];
-        
-        let mut rank = 1;
-        
-        // 尝试不同的匹配模式
-        for pattern in &result_patterns {
-            if let Ok(re) = regex::Regex::new(pattern) {
-                for cap in re.captures_iter(html) {
-                    if let Some(result_html) = cap.get(1) {
-                        if let Some(item) = Self::parse_single_result(result_html.as_str(), rank) {
-                            items.push(item);
-                            rank += 1;
-                            
-                            // 限制结果数量，避免过多结果
-                            if items.len() >= 20 {
-                                break;
-                            }
-                        }
-                    }
-                }
-                
-                if !items.is_empty() {
-                    break; // 如果找到结果就不再尝试其他模式
+
+        let mut rank = 1usize;
+        for sel in selectors.iter().flatten() {
+            for card in document.select(sel) {
+                if let Some(item) = Self::parse_card_element(card, rank) {
+                    items.push(item);
+                    rank += 1;
+                    if items.len() >= 20 { break; }
                 }
             }
+            if !items.is_empty() { break; }
         }
-        
-        // 如果使用正则表达式失败，尝试更简单的文本搜索方法
-        if items.is_empty() {
-            items = Self::fallback_parse_results(html);
-        }
-        
+
         // 提取总结果数量（如果可获取）
         let total_results = Self::extract_total_results(html);
-        
+
         SearchResults {
             query: query.to_string(),
             search_engine: Self::display_name().to_string(),
@@ -150,112 +117,62 @@ impl GoogleEngine {
             homepage_url: Self::homepage_url().to_string(),
             items,
             total_results,
-            search_time_ms: None, // 可以在后续版本中添加计时功能
+            search_time_ms: None,
         }
     }
-    
-    /// 解析单个搜索结果
-    fn parse_single_result(html: &str, rank: usize) -> Option<SearchItem> {
-        // 提取标题 - Google通常使用 h3 标签，可能在 a 标签内
-        let title = Self::extract_text_by_patterns(html, &[
-            r#"<h3[^>]*>(.*?)</h3>"#,
-            r#"<a[^>]*><h3[^>]*>(.*?)</h3></a>"#,
-            r#"<div[^>]*role="heading"[^>]*>(.*?)</div>"#,
-        ]).unwrap_or_else(|| format!("Search Result {}", rank));
-        
-        // 提取URL - 通常在 a 标签的 href 属性中
-        let url = Self::extract_url_from_html(html).unwrap_or_default();
-        
-        // 提取摘要/描述 - 通常在span或div中，Google使用特定的类名
-        let snippet = Self::extract_text_by_patterns(html, &[
-            r#"<span[^>]*class="[^"]*\bst\b[^"]*"[^>]*>(.*?)</span>"#,
-            r#"<div[^>]*class="[^"]*\bVwiC3b\b[^"]*"[^>]*>(.*?)</div>"#,
-            r#"<span[^>]*data-ved="[^"]*"[^>]*>(.*?)</span>"#,
-        ]).unwrap_or_default();
-        
-        // 提取显示URL（绿色URL显示）
-        let display_url = Self::extract_text_by_patterns(html, &[
-            r#"<cite[^>]*>(.*?)</cite>"#,
-            r#"<span[^>]*class="[^"]*\bdDKKM\b[^"]*"[^>]*>(.*?)</span>"#,
-        ]);
-        
-        // 只有在有基本信息的情况下才创建结果项
-        if !title.is_empty() && !url.is_empty() {
+
+    /// 从结果卡片元素中抽取一个条目
+    fn parse_card_element(card: scraper::ElementRef<'_>, rank: usize) -> Option<SearchItem> {
+        // 标题：优先 .yuRUbf h3，其次任意 h3 / role=heading
+        let title = Self::first_text_in(card, &[".yuRUbf h3", "h3", "[role=heading]"])
+            .unwrap_or_else(|| format!("Search Result {}", rank));
+
+        // URL：优先 .yuRUbf a[href]，否则任意 a[href]
+        let url = Self::first_href_in(card, &[".yuRUbf a[href]", "a[href]"]).unwrap_or_default();
+
+        // 摘要：兼容多版本类名
+        let snippet = Self::first_text_in(card, &["div.VwiC3b", "span.VwiC3b", "span[data-ved]"]).unwrap_or_default();
+
+        // 显示 URL（有些页面会有）
+        let display_url = Self::first_text_in(card, &["cite", "span.dDKKM"]);
+
+        if !title.trim().is_empty() && !url.trim().is_empty() {
             Some(SearchItem {
-                title: Self::clean_html_text(&title),
+                title: title.trim().to_string(),
                 url,
-                snippet: Self::clean_html_text(&snippet),
+                snippet: snippet.trim().to_string(),
                 rank,
-                display_url: display_url.map(|s| Self::clean_html_text(&s)),
+                display_url: display_url.map(|s| s.trim().to_string()),
             })
         } else {
             None
         }
     }
-    
-    /// 备用解析方法，使用更简单的文本搜索
-    fn fallback_parse_results(html: &str) -> Vec<SearchItem> {
-        let mut items = Vec::new();
-        
-        // 查找常见的Google搜索结果标记
-        let lines: Vec<&str> = html.lines().collect();
-        let mut current_title: Option<String> = None;
-        let mut current_url: Option<String> = None;
-        let mut current_snippet: Option<String> = None;
-        let mut rank = 1;
-        
-        for line in lines {
-            // 简单匹配，寻找包含链接和标题的行
-            if line.contains("<h3") && line.contains("href=") {
-                if let Some(url) = Self::extract_url_from_html(line) {
-                    if let Some(title) = Self::extract_text_by_patterns(line, &[r#"<h3[^>]*>(.*?)</h3>"#]) {
-                        current_title = Some(Self::clean_html_text(&title));
-                        current_url = Some(url);
-                    }
-                }
-            }
-            
-            // 如果我们有标题和URL，寻找描述
-            if current_title.is_some() && current_url.is_some() && line.contains("span") {
-                if let Some(desc) = Self::extract_text_by_patterns(line, &[r#"<span[^>]*>(.*?)</span>"#]) {
-                    current_snippet = Some(Self::clean_html_text(&desc));
-                }
-            }
-            
-            // 如果我们收集到了完整的信息，创建一个结果项
-            if let (Some(title), Some(url)) = (&current_title, &current_url) {
-                items.push(SearchItem {
-                    title: title.clone(),
-                    url: url.clone(),
-                    snippet: current_snippet.clone().unwrap_or_default(),
-                    rank,
-                    display_url: None,
-                });
-                
-                // 重置当前项
-                current_title = None;
-                current_url = None;
-                current_snippet = None;
-                rank += 1;
-                
-                if items.len() >= 10 {
-                    break;
+
+    /// 在元素内按给定选择器列表找到首个文本
+    fn first_text_in(root: scraper::ElementRef<'_>, selectors: &[&str]) -> Option<String> {
+        for sel in selectors {
+            if let Ok(selector) = Selector::parse(sel) {
+                if let Some(node) = root.select(&selector).next() {
+                    let text = node.text().collect::<String>();
+                    let text = text.trim();
+                    if !text.is_empty() { return Some(text.to_string()); }
                 }
             }
         }
-        
-        items
+        None
     }
-    
-    /// 使用多个模式提取文本
-    fn extract_text_by_patterns(html: &str, patterns: &[&str]) -> Option<String> {
-        for pattern in patterns {
-            if let Ok(re) = regex::Regex::new(pattern) {
-                if let Some(cap) = re.captures(html) {
-                    if let Some(matched) = cap.get(1) {
-                        let text = matched.as_str().trim();
-                        if !text.is_empty() {
-                            return Some(text.to_string());
+
+    /// 在元素内按选择器列表找到首个链接的真实 URL
+    fn first_href_in(root: scraper::ElementRef<'_>, selectors: &[&str]) -> Option<String> {
+        for sel in selectors {
+            if let Ok(selector) = Selector::parse(sel) {
+                for node in root.select(&selector) {
+                    if let Some(href) = node.value().attr("href") {
+                        if href.starts_with("/url?q=") {
+                            if let Some(actual) = Self::decode_google_url(href) { return Some(actual); }
+                        } else if href.starts_with("http") {
+                            return Some(href.to_string());
                         }
                     }
                 }
@@ -263,37 +180,7 @@ impl GoogleEngine {
         }
         None
     }
-    
-    /// 从HTML中提取URL
-    fn extract_url_from_html(html: &str) -> Option<String> {
-        // Google搜索结果中的URL可能是重定向URL，我们需要解析实际URL
-        let url_patterns = [
-            r#"href="(/url\?q=[^"]*)"#,
-            r#"href="(https?://[^"]*)"#,
-            r#"href="([^"]*)"#,
-        ];
-        
-        for pattern in &url_patterns {
-            if let Ok(re) = regex::Regex::new(pattern) {
-                if let Some(cap) = re.captures(html) {
-                    if let Some(url_match) = cap.get(1) {
-                        let url = url_match.as_str();
-                        
-                        // 如果是Google的重定向URL，尝试解析实际URL
-                        if url.starts_with("/url?q=") {
-                            if let Some(actual_url) = Self::decode_google_url(url) {
-                                return Some(actual_url);
-                            }
-                        } else if url.starts_with("http") {
-                            return Some(url.to_string());
-                        }
-                    }
-                }
-            }
-        }
-        None
-    }
-    
+
     /// 解码Google重定向URL
     fn decode_google_url(url: &str) -> Option<String> {
         if let Some(q_start) = url.find("q=") {
@@ -306,26 +193,6 @@ impl GoogleEngine {
             }
         }
         None
-    }
-    
-    /// 清理HTML文本
-    fn clean_html_text(text: &str) -> String {
-        // 移除HTML标签和多余的空白字符
-        let re = regex::Regex::new(r"<[^>]*>").unwrap_or_else(|_| regex::Regex::new(r"").unwrap());
-        let cleaned = re.replace_all(text, "");
-        
-        // 解码HTML实体
-        let cleaned = cleaned
-            .replace("&amp;", "&")
-            .replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&quot;", "\"")
-            .replace("&#39;", "'")
-            .replace("&nbsp;", " ");
-        
-        // 清理多余的空白字符
-        let re = regex::Regex::new(r"\s+").unwrap_or_else(|_| regex::Regex::new(r"").unwrap());
-        re.replace_all(&cleaned, " ").trim().to_string()
     }
     
     /// 提取搜索结果总数
@@ -351,3 +218,4 @@ impl GoogleEngine {
         None
     }
 }
+

@@ -7,6 +7,3 @@ pub mod handler;
 pub mod types;
 
 pub use handler::SearchHandler;
-pub use engine_manager::{SearchEngine, SearchEngineManager};
-pub use types::{SearchResultType, SearchItem, SearchResults, SearchRequest, SearchResponse};
-pub use fingerprint::{FingerprintManager, TimingConfig};

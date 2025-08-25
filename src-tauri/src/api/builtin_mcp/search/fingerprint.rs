@@ -306,16 +306,6 @@ impl FingerprintManager {
         }
     }
 
-    /// 设置Google域名
-    pub fn set_google_domain(&mut self, domain: String) {
-        self.saved_state.google_domain = Some(domain);
-        self.save_state();
-    }
-
-    /// 获取Google域名
-    pub fn get_google_domain(&self) -> Option<&String> {
-        self.saved_state.google_domain.as_ref()
-    }
 }
 
 #[derive(Debug, Clone)]

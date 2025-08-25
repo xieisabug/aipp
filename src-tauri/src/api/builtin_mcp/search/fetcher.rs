@@ -39,7 +39,6 @@ impl Default for FetchConfig {
 pub struct ContentFetcher {
     app_handle: AppHandle,
     config: FetchConfig,
-    search_engine: Option<SearchEngine>,
     fingerprint_manager: FingerprintManager,
     timing_config: TimingConfig,
 }
@@ -57,29 +56,11 @@ impl ContentFetcher {
         Self { 
             app_handle, 
             config, 
-            search_engine: None,
             fingerprint_manager,
             timing_config,
         }
     }
     
-    pub fn with_search_engine(app_handle: AppHandle, config: FetchConfig, search_engine: SearchEngine) -> Self {
-        let app_data_dir = app_handle
-            .path()
-            .app_data_dir()
-            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default().join("data"));
-        
-        let fingerprint_manager = FingerprintManager::new(&app_data_dir);
-        let timing_config = FingerprintManager::get_timing_config();
-        
-        Self { 
-            app_handle, 
-            config, 
-            search_engine: Some(search_engine),
-            fingerprint_manager,
-            timing_config,
-        }
-    }
 
     /// 主要的内容抓取方法，按优先级尝试不同策略
     pub async fn fetch_content(&mut self, url: &str, browser_manager: &BrowserManager) -> Result<String, String> {

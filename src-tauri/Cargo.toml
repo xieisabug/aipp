@@ -28,6 +28,7 @@ config = "0.14.0"
 futures = "0.3.30"
 chrono = { version = "0.4", features = ["serde"] }
 regex = "1.10.5"
+scraper = "0.18"
 thiserror = "1.0.63"
 semver = "1.0"
 sha2 = "0.10.8"

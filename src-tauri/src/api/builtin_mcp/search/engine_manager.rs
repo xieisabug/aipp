@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use playwright::api::Page;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum SearchEngine {
@@ -79,15 +78,6 @@ impl SearchEngine {
         }
     }
 
-    /// 执行完整的搜索流程
-    pub async fn perform_search(&self, page: &Page, query: &str) -> Result<String, String> {
-        match self {
-            SearchEngine::Google => super::engines::google::GoogleEngine::perform_search(page, query).await,
-            SearchEngine::Bing => super::engines::bing::BingEngine::perform_search(page, query).await,
-            SearchEngine::DuckDuckGo => super::engines::duckduckgo::DuckDuckGoEngine::perform_search(page, query).await,
-            SearchEngine::Kagi => super::engines::kagi::KagiEngine::perform_search(page, query).await,
-        }
-    }
 }
 
 pub struct SearchEngineManager {
