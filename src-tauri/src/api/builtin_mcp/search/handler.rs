@@ -182,10 +182,8 @@ impl SearchHandler {
             headless: config.get("HEADLESS")
                 .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes"))
                 .unwrap_or(true),
-            user_agent: config.get("USER_AGENT").cloned(),
-            bypass_csp: config.get("BYPASS_CSP")
-                .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes"))
-                .unwrap_or(false),
+            user_agent: None,
+            bypass_csp: false,
             wait_selectors,
             wait_timeout_ms: config.get("WAIT_TIMEOUT_MS")
                 .and_then(|v| v.parse().ok())
@@ -213,10 +211,8 @@ impl SearchHandler {
             headless: config.get("HEADLESS")
                 .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes"))
                 .unwrap_or(true),
-            user_agent: config.get("USER_AGENT").cloned(),
-            bypass_csp: config.get("BYPASS_CSP")
-                .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes"))
-                .unwrap_or(false),
+            user_agent: None,
+            bypass_csp: false,
             wait_selectors,
             wait_timeout_ms: config.get("WAIT_TIMEOUT_MS")
                 .and_then(|v| v.parse().ok())
