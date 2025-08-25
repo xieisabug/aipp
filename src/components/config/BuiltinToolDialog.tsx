@@ -257,7 +257,7 @@ const BuiltinToolDialog: React.FC<BuiltinToolDialogProps> = ({
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="max-w-4xl min-w-xl max-h-[80vh] flex flex-col">
+            <DialogContent className="max-w-4xl min-w-xl w-1/2 sm:max-w-none max-h-[80vh] flex flex-col">
                 <DialogHeader>
                     <DialogTitle>{editing ? "编辑内置工具环境变量" : "添加内置工具"}</DialogTitle>
                 </DialogHeader>
