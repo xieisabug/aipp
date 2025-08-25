@@ -2,7 +2,9 @@ use crate::db::conversation_db::AttachmentType;
 use crate::db::conversation_db::Repository;
 use crate::db::conversation_db::{Conversation, ConversationDatabase, Message, MessageAttachment};
 use crate::errors::AppError;
+use base64::Engine;
 use genai::chat::{ChatMessage, ToolCall, ToolResponse};
+use regex::Regex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::Emitter;
@@ -41,37 +43,68 @@ pub fn build_chat_messages_with_context(
                     let mut parts = Vec::new();
                     parts.push(genai::chat::ContentPart::from_text(content));
                     for attachment in attachment_list {
-                        if let Some(attachment_url) = &attachment.attachment_url {
-                            match attachment.attachment_type {
-                                AttachmentType::Image => {
-                                    let mime = infer_media_type_from_url(attachment_url);
+                        // 优先处理图片附件（OpenAI 不支持 file:// 本地 URL，需要转为 base64）
+                        if attachment.attachment_type == AttachmentType::Image {
+                            // 1) 若 attachment_content 为 data:URL，直接解析
+                            if let Some(content) = &attachment.attachment_content {
+                                if content.starts_with("data:") {
+                                    if let Some((mime, b64)) = parse_data_url(content) {
+                                        parts.push(genai::chat::ContentPart::from_binary_base64(
+                                            None, mime, b64,
+                                        ));
+                                        continue;
+                                    }
+                                }
+                            }
+
+                            // 2) 若 attachment_url 为 http/https，则可直接使用 URL
+                            if let Some(url) = &attachment.attachment_url {
+                                let url_lower = url.to_lowercase();
+                                if url_lower.starts_with("http://") || url_lower.starts_with("https://") {
+                                    let mime = infer_media_type_from_url(url);
                                     parts.push(genai::chat::ContentPart::from_binary_url(
                                         None,
                                         mime,
-                                        attachment_url.clone(),
+                                        url.clone(),
                                     ));
+                                    continue;
                                 }
-                                AttachmentType::Text => {
-                                    // 文本作为上下文已经合并进 prompt
+
+                                // 3) 若 attachment_url 是 data:URL，则解析为 base64
+                                if url_lower.starts_with("data:") {
+                                    if let Some((mime, b64)) = parse_data_url(url) {
+                                        parts.push(genai::chat::ContentPart::from_binary_base64(
+                                            None, mime, b64,
+                                        ));
+                                        continue;
+                                    }
                                 }
-                                AttachmentType::PDF
-                                | AttachmentType::Word
-                                | AttachmentType::PowerPoint
-                                | AttachmentType::Excel => {
-                                    // 文档类型在下方用内容处理
-                                }
-                            }
-                        }
-                        if let Some(attachment_content) = &attachment.attachment_content {
-                            if attachment.attachment_type == AttachmentType::Image
-                                && attachment_content.starts_with("data:")
-                            {
-                                if let Some((mime, b64)) = parse_data_url(attachment_content) {
+
+                                // 4) 其他情况（如 file:// 或本地路径）：读取文件转 base64
+                                let path = if url_lower.starts_with("file://") {
+                                    // 去掉 file:// 前缀
+                                    url.trim_start_matches("file://").to_string()
+                                } else {
+                                    url.clone()
+                                };
+                                // 尝试读取文件并转换
+                                if let Ok(bytes) = std::fs::read(&path) {
+                                    let mime = infer_media_type_from_url(url);
+                                    let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
                                     parts.push(genai::chat::ContentPart::from_binary_base64(
                                         None, mime, b64,
                                     ));
+                                    continue;
+                                } else {
+                                    // 无法读取则跳过为安全
+                                    eprintln!("[warn] Failed to read image file for attachment: {}", url);
                                 }
-                            } else if matches!(
+                            }
+                        }
+
+                        // 非图片类型或图片回退处理
+                        if let Some(attachment_content) = &attachment.attachment_content {
+                            if matches!(
                                 attachment.attachment_type,
                                 AttachmentType::Text
                                     | AttachmentType::PDF
@@ -174,38 +207,37 @@ pub fn extract_tool_result(content: &str) -> Option<String> {
 // Helper function to reconstruct assistant message with tool calls from MCP_TOOL_CALL comments
 pub fn reconstruct_assistant_with_tool_calls_from_content(content: &str) -> Option<ChatMessage> {
     // 查找所有 MCP_TOOL_CALL 注释
-    if let Ok(mcp_call_regex) = regex::Regex::new(r"<!-- MCP_TOOL_CALL:(.*?) -->") {
-        let mut tool_calls = Vec::new();
+    let mcp_call_regex = Regex::new(r"<!-- MCP_TOOL_CALL:(.*?) -->").ok()?;
+    let mut tool_calls = Vec::new();
 
-        // 提取所有工具调用信息
-        for capture in mcp_call_regex.captures_iter(content) {
-            if let Ok(tool_data) = serde_json::from_str::<serde_json::Value>(&capture[1]) {
-                if let (Some(server_name), Some(tool_name), Some(parameters)) = (
-                    tool_data["server_name"].as_str(),
-                    tool_data["tool_name"].as_str(),
-                    tool_data["parameters"].as_str(),
-                ) {
-                    // 使用正确的格式：server__tool (双下划线)
-                    let fn_name = format!("{}__{}", server_name, tool_name);
-                    let fn_arguments =
-                        serde_json::from_str(parameters).unwrap_or(serde_json::json!({}));
+    // 提取所有工具调用信息
+    for capture in mcp_call_regex.captures_iter(content) {
+        if let Ok(tool_data) = serde_json::from_str::<serde_json::Value>(&capture[1]) {
+            if let (Some(server_name), Some(tool_name), Some(parameters)) = (
+                tool_data["server_name"].as_str(),
+                tool_data["tool_name"].as_str(),
+                tool_data["parameters"].as_str(),
+            ) {
+                // 使用正确的格式：server__tool (双下划线)
+                let fn_name = format!("{}__{}", server_name, tool_name);
+                let fn_arguments =
+                    serde_json::from_str(parameters).unwrap_or(serde_json::json!({}));
 
-                    // 优先使用 llm_call_id，如果没有则使用 call_id 转换为字符串
-                    let call_id = tool_data["llm_call_id"]
-                        .as_str()
-                        .map(|s| s.to_string())
-                        .or_else(|| tool_data["call_id"].as_u64().map(|n| n.to_string()))
-                        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+                // 优先使用 llm_call_id，如果没有则使用 call_id 转换为字符串
+                let call_id = tool_data["llm_call_id"]
+                    .as_str()
+                    .map(|s| s.to_string())
+                    .or_else(|| tool_data["call_id"].as_u64().map(|n| n.to_string()))
+                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
-                    tool_calls.push(ToolCall { call_id, fn_name, fn_arguments });
-                }
+                tool_calls.push(ToolCall { call_id, fn_name, fn_arguments });
             }
         }
+    }
 
-        if !tool_calls.is_empty() {
-            // 创建包含工具调用的 assistant 消息（忽略文本内容以避免混合消息类型的复杂性）
-            return Some(ChatMessage::from(tool_calls));
-        }
+    if !tool_calls.is_empty() {
+        // 创建包含工具调用的 assistant 消息（忽略文本内容以避免混合消息类型的复杂性）
+        return Some(ChatMessage::from(tool_calls));
     }
 
     None
