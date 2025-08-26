@@ -32,8 +32,8 @@ use crate::api::assistant_api::{
 };
 use crate::api::attachment_api::{add_attachment, open_attachment_with_default_app};
 use crate::api::conversation_api::{
-    delete_conversation, fork_conversation, get_conversation_with_messages, list_conversations,
-    update_conversation, update_message_content,
+    create_message, delete_conversation, fork_conversation, get_conversation_with_messages, list_conversations,
+    update_assistant_message, update_conversation, update_message_content,
 };
 use crate::api::llm_api::{
     add_llm_model, add_llm_provider, delete_llm_model, delete_llm_provider, export_llm_provider,
@@ -42,10 +42,10 @@ use crate::api::llm_api::{
     update_llm_provider_config, update_selected_models,
 };
 use crate::api::mcp_api::{
-    add_mcp_server, delete_mcp_server, get_mcp_server, get_mcp_server_prompts,
-    get_mcp_server_resources, get_mcp_server_tools, get_mcp_servers,
-    refresh_mcp_server_capabilities, test_mcp_connection, toggle_mcp_server, update_mcp_server,
-    update_mcp_server_prompt, update_mcp_server_tool,
+    add_mcp_server, build_mcp_prompt, delete_mcp_server, get_mcp_provider,
+    get_mcp_server, get_mcp_server_prompts, get_mcp_server_resources, get_mcp_server_tools,
+    get_mcp_servers, refresh_mcp_server_capabilities, test_mcp_connection, toggle_mcp_server,
+    update_mcp_server, update_mcp_server_prompt, update_mcp_server_tool,
 };
 use crate::api::builtin_mcp_api::{
     list_aipp_builtin_templates, add_or_update_aipp_builtin_server, execute_aipp_builtin_tool,
@@ -374,6 +374,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             retry_preview_after_install,
             get_mcp_servers,
             get_mcp_server,
+            get_mcp_provider,
+            build_mcp_prompt,
+            create_message,
+            update_assistant_message,
             add_mcp_server,
             update_mcp_server,
             delete_mcp_server,

@@ -5,6 +5,29 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct McpToolInfo {
+    pub name: String,
+    pub description: String,
+    pub parameters: String,
+    #[serde(rename = "isEnabled")]
+    pub is_enabled: bool,
+    #[serde(rename = "isAutoRun")]
+    pub is_auto_run: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct McpProviderInfo {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    #[serde(rename = "transportType")]
+    pub transport_type: String,
+    #[serde(rename = "isEnabled")]
+    pub is_enabled: bool,
+    pub tools: Vec<McpToolInfo>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct MCPServerRequest {
     pub name: String,
     pub description: Option<String>,
@@ -764,4 +787,126 @@ async fn get_http_capabilities(
     let _ = client.cancel().await;
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn get_mcp_provider(
+    app_handle: tauri::AppHandle,
+    provider_id: String,
+) -> Result<Option<McpProviderInfo>, String> {
+    let db = MCPDatabase::new(&app_handle).map_err(|e: rusqlite::Error| e.to_string())?;
+    
+    // Parse provider_id as server ID
+    let server_id: i64 = provider_id.parse().map_err(|_| "Invalid provider ID format".to_string())?;
+    
+    // Get server information
+    let server = match db.get_mcp_server(server_id) {
+        Ok(server) => server,
+        Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
+        Err(e) => return Err(e.to_string()),
+    };
+    
+    // Get server tools
+    let server_tools = db.get_mcp_server_tools(server_id).map_err(|e| e.to_string())?;
+    
+    // Convert to McpProviderInfo format
+    let tools: Vec<McpToolInfo> = server_tools
+        .into_iter()
+        .map(|tool| McpToolInfo {
+            name: tool.tool_name,
+            description: tool.tool_description.unwrap_or_default(),
+            parameters: tool.parameters.unwrap_or_else(|| "{}".to_string()),
+            is_enabled: tool.is_enabled,
+            is_auto_run: tool.is_auto_run,
+        })
+        .collect();
+    
+    let provider_info = McpProviderInfo {
+        id: server.id.to_string(),
+        name: server.name,
+        description: if server.description.is_empty() { None } else { Some(server.description) },
+        transport_type: server.transport_type,
+        is_enabled: server.is_enabled,
+        tools,
+    };
+    
+    Ok(Some(provider_info))
+}
+
+#[tauri::command]
+pub async fn build_mcp_prompt(
+    app_handle: tauri::AppHandle,
+    provider_ids: Vec<String>,
+) -> Result<String, String> {
+    use crate::api::ai::mcp::format_mcp_prompt;
+    use crate::api::assistant_api::{MCPServerWithTools, MCPToolInfo};
+    
+    let db = MCPDatabase::new(&app_handle).map_err(|e: rusqlite::Error| e.to_string())?;
+    
+    let mut enabled_servers = Vec::new();
+    
+    // Process each provider ID to build enabled servers list
+    for provider_id in provider_ids {
+        let server_id: i64 = match provider_id.parse() {
+            Ok(id) => id,
+            Err(_) => {
+                eprintln!("Invalid provider ID format: {}", provider_id);
+                continue;
+            }
+        };
+        
+        // Get server information
+        let server = match db.get_mcp_server(server_id) {
+            Ok(server) if server.is_enabled => server,
+            _ => continue, // Skip disabled or non-existent servers
+        };
+        
+        // Get server tools
+        let server_tools = match db.get_mcp_server_tools(server_id) {
+            Ok(tools) => tools,
+            Err(_) => continue,
+        };
+        
+        // Only include enabled tools and convert to the expected format
+        let enabled_tools: Vec<MCPToolInfo> = server_tools
+            .into_iter()
+            .filter(|tool| tool.is_enabled)
+            .map(|tool| MCPToolInfo {
+                id: tool.id,
+                name: tool.tool_name,
+                description: tool.tool_description.unwrap_or_default(),
+                is_enabled: tool.is_enabled,
+                is_auto_run: tool.is_auto_run,
+                parameters: tool.parameters.unwrap_or_else(|| "{}".to_string()),
+            })
+            .collect();
+        
+        if enabled_tools.is_empty() {
+            continue;
+        }
+        
+        // Build MCPServerWithTools
+        let server_with_tools = MCPServerWithTools {
+            id: server.id,
+            name: server.name,
+            is_enabled: server.is_enabled,
+            tools: enabled_tools,
+        };
+        
+        enabled_servers.push(server_with_tools);
+    }
+    
+    if enabled_servers.is_empty() {
+        return Ok("No MCP tools available for the specified providers.".to_string());
+    }
+    
+    // Build MCPInfoForAssistant structure
+    let mcp_info = crate::api::ai::mcp::MCPInfoForAssistant {
+        enabled_servers,
+        use_native_toolcall: false, // For prompt generation, we use prompt-based mode
+    };
+    
+    // Use existing format_mcp_prompt function
+    let result = format_mcp_prompt("".to_string(), &mcp_info).await;
+    Ok(result)
 }

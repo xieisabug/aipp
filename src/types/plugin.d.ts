@@ -6,6 +6,23 @@ enum PluginType {
     ApplicationType = 3,
 }
 
+interface Message {
+    id: number;
+    conversation_id: number;
+    message_type: string;
+    content: string;
+    llm_model_id: number | null;
+    created_time: Date;
+    start_time: Date | null;
+    finish_time: Date | null;
+    token_count: number;
+    generation_group_id?: string | null;
+    parent_group_id?: string | null;
+    parent_id?: number | null;
+    regenerate: Array<Message> | null;
+    attachment_list?: Array<any>;
+}
+
 interface AddFieldOptions {
     fieldName: string;
     label: string;
@@ -20,7 +37,8 @@ interface AddFieldOptions {
         | "custom"
         | "button"
         | "switch"
-        | "model-select";
+        | "model-select"
+        | "mcp-select";
     fieldConfig?: FieldConfig;
 }
 
@@ -70,6 +88,7 @@ interface FieldConfig {
     required?: boolean;
     // default false
     hidden?: boolean;
+    options?: { value: string; label: string; tooltip?: string }[];
     tips?: string;
     disabled?: boolean;
     onClick?: () => void;
@@ -81,14 +100,36 @@ interface AssistantRunApi {
     getUserInput(): string;
     getModelId(): string;
     getAssistantId(): string;
+    getConversationId(): string;
     getField(assistantId: string, fieldName: string): Promise<string>;
     appendAiResponse(messageId: number, response: string): void;
     setAiResponse(messageId: number, response: string): void;
+    getMcpProvider(providerId: string): Promise<McpProviderInfo | null>;
+    buildMcpPrompt(providerIds: string[]): Promise<string>;
+    createMessage(markdownText: string, conversationId: number): Promise<Message>;
+    updateAssistantMessage(messageId: number, markdownText: string): Promise<void>;
 }
 
 interface AiResponse {
     conversation_id: number;
     request_prompt_result_with_context: string;
+}
+
+interface McpToolInfo {
+    name: string;
+    description: string;
+    parameters: string;
+    isEnabled: boolean;
+    isAutoRun: boolean;
+}
+
+interface McpProviderInfo {
+    id: string;
+    name: string;
+    description?: string;
+    transportType: string;
+    isEnabled: boolean;
+    tools: McpToolInfo[];
 }
 
 declare class AskAiResponse {

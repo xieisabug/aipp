@@ -336,3 +336,75 @@ pub async fn fork_conversation(
     
     Ok(created_conversation.id)
 }
+
+#[tauri::command]
+pub async fn create_message(
+    app_handle: tauri::AppHandle,
+    markdown_text: String,
+    conversation_id: i64,
+) -> Result<crate::db::conversation_db::Message, String> {
+    use crate::db::conversation_db::{ConversationDatabase, Message, Repository};
+    use chrono::Utc;
+    
+    let db = ConversationDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+    let repo = db.message_repo().map_err(|e| e.to_string())?;
+    
+    let current_time = Utc::now();
+    
+    // Create new assistant message (not user message)
+    let new_message = Message {
+        id: 0, // Will be set by database
+        parent_id: None,
+        conversation_id,
+        message_type: "assistant".to_string(), // Create assistant message for plugin responses
+        content: markdown_text,
+        llm_model_id: None,
+        llm_model_name: None,
+        created_time: current_time,
+        start_time: Some(current_time),
+        finish_time: Some(current_time), // Mark as completed immediately
+        token_count: 0,
+        generation_group_id: None,
+        parent_group_id: None,
+        tool_calls_json: None,
+    };
+    
+    let created_message = repo.create(&new_message).map_err(|e| e.to_string())?;
+    Ok(created_message)
+}
+
+#[tauri::command]
+pub async fn update_assistant_message(
+    app_handle: tauri::AppHandle,
+    message_id: i64,
+    markdown_text: String,
+) -> Result<(), String> {
+    use crate::db::conversation_db::{ConversationDatabase, Repository};
+    
+    let db = ConversationDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+    let repo = db.message_repo().map_err(|e| e.to_string())?;
+    
+    // First, verify the message exists and is an assistant message
+    let existing_message = repo.read(message_id).map_err(|e| e.to_string())?;
+    
+    match existing_message {
+        Some(message) => {
+            // Only allow updating assistant messages
+            if message.message_type != "assistant" {
+                return Err(format!(
+                    "Cannot update {} message. Only assistant messages can be updated.", 
+                    message.message_type
+                ));
+            }
+            
+            // Update message content
+            repo.update_content(message_id, &markdown_text).map_err(|e| e.to_string())?;
+            
+            // Update finish time to mark when the update was completed
+            repo.update_finish_time(message_id).map_err(|e| e.to_string())?;
+            
+            Ok(())
+        }
+        None => Err(format!("Message with ID {} not found", message_id)),
+    }
+}

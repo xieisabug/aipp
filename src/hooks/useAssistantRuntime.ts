@@ -171,6 +171,98 @@ export function useAssistantRuntime({
                 return conversation.assistant_id + "";
             }
         },
+        getConversationId: function (): string {
+            if (!conversation || !conversation.id) {
+                return "";
+            } else {
+                return conversation.id + "";
+            }
+        },
+        getMcpProvider: async function (providerId: string): Promise<McpProviderInfo | null> {
+            console.log("get mcp provider", providerId);
+            try {
+                const result = await invoke<McpProviderInfo | null>("get_mcp_provider", {
+                    providerId,
+                });
+                return result;
+            } catch (error) {
+                console.error("Failed to get MCP provider:", error);
+                return null;
+            }
+        },
+        buildMcpPrompt: async function (providerIds: string[]): Promise<string> {
+            console.log("build mcp prompt", providerIds);
+            try {
+                const result = await invoke<string>("build_mcp_prompt", {
+                    providerIds,
+                });
+                return result;
+            } catch (error) {
+                console.error("Failed to build MCP prompt:", error);
+                return "Failed to build MCP prompt.";
+            }
+        },
+        createMessage: async function (markdownText: string, conversationId: number): Promise<Message> {
+            console.log("create message", markdownText, conversationId);
+            try {
+                const createdMessage = await invoke<Message>("create_message", {
+                    markdownText,
+                    conversationId,
+                });
+                
+                // Convert the created message to frontend format
+                const newMessage: Message = {
+                    id: createdMessage.id,
+                    conversation_id: createdMessage.conversation_id,
+                    llm_model_id: createdMessage.llm_model_id,
+                    content: createdMessage.content,
+                    token_count: createdMessage.token_count,
+                    message_type: createdMessage.message_type,
+                    created_time: new Date(createdMessage.created_time),
+                    start_time: createdMessage.start_time ? new Date(createdMessage.start_time) : null,
+                    finish_time: createdMessage.finish_time ? new Date(createdMessage.finish_time) : null,
+                    generation_group_id: createdMessage.generation_group_id,
+                    parent_group_id: createdMessage.parent_group_id,
+                    parent_id: createdMessage.parent_id,
+                    attachment_list: [],
+                    regenerate: null,
+                };
+                
+                setMessages((prevMessages) => [...prevMessages, newMessage]);
+                smartScroll();
+                
+                return newMessage;
+            } catch (error) {
+                console.error("Failed to create message:", error);
+                throw error;
+            }
+        },
+        updateAssistantMessage: async function (messageId: number, markdownText: string): Promise<void> {
+            console.log("update assistant message", messageId, markdownText);
+            try {
+                await invoke<void>("update_assistant_message", {
+                    messageId,
+                    markdownText,
+                });
+                
+                // Update local state
+                setMessages((prevMessages) => {
+                    const newMessages = [...prevMessages];
+                    const index = newMessages.findIndex((msg) => msg.id === messageId);
+                    if (index !== -1) {
+                        newMessages[index] = {
+                            ...newMessages[index],
+                            content: markdownText,
+                        };
+                        smartScroll();
+                    }
+                    return newMessages;
+                });
+            } catch (error) {
+                console.error("Failed to update assistant message:", error);
+                throw error;
+            }
+        },
     };
 
     return {
