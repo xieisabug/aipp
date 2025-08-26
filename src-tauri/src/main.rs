@@ -190,68 +190,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // 注册全局快捷键
                 #[cfg(desktop)]
                 {
-                    use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
-                    let ctrl_shift_i_shortcut =
-                        Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyI);
-                    let ctrl_shift_o_shortcut =
-                        Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyO);
-
-                    app.handle().plugin(
-                        tauri_plugin_global_shortcut::Builder::new()
-                            .with_shortcuts([ctrl_shift_i_shortcut, ctrl_shift_o_shortcut])?
-                            .with_handler(move |_app, shortcut, event| {
-                                println!("{:?}", shortcut);
-                                if shortcut == &ctrl_shift_i_shortcut {
-                                    match event.state() {
-                                        ShortcutState::Pressed => {
-                                            println!("CmdOrCtrl+Shift+I Pressed!");
-                                        }
-                                        ShortcutState::Released => {
-                                            println!(
-                                                "CmdOrCtrl+Shift+I pressed at time : {}",
-                                                &Local::now().to_string()
-                                            );
-                                            match get_selected_text() {
-                                                Ok(selected_text) => {
-                                                    println!(
-                                                        "Selected text: {}, at time: {}",
-                                                        selected_text.clone(),
-                                                        &Local::now().to_string()
-                                                    );
-                                                    let _ = _app.emit(
-                                                        "get_selected_text_event",
-                                                        selected_text.clone(),
-                                                    );
-                                                    let app_state = _app.try_state::<AppState>();
-                                                    *app_state
-                                                        .unwrap()
-                                                        .selected_text
-                                                        .blocking_lock() = selected_text;
-                                                }
-                                                Err(e) => {
-                                                    println!("Error getting selected text: {}", e);
-                                                }
-                                            }
-                                            handle_open_ask_window(_app);
-                                        }
-                                    }
-                                } else if shortcut == &ctrl_shift_o_shortcut {
-                                    match event.state() {
-                                        ShortcutState::Pressed => {
-                                            println!("CmdOrCtrl+Shift+O Pressed!");
-                                        }
-                                        ShortcutState::Released => {
-                                            println!(
-                                                "CmdOrCtrl+Shift+O pressed at time : {}",
-                                                &Local::now().to_string()
-                                            );
-                                            handle_open_ask_window(_app);
-                                        }
-                                    }
-                                }
-                            })
-                            .build(),
-                    )?;
+                    register_global_shortcuts(&app_handle);
                 }
             }
 
@@ -456,5 +395,186 @@ fn initialize_name_cache_state(app_handle: &tauri::AppHandle) -> NameCacheState 
     NameCacheState {
         assistant_names: Arc::new(TokioMutex::new(assistant_names)),
         model_names: Arc::new(TokioMutex::new(model_names)),
+    }
+}
+
+#[cfg(desktop)]
+fn register_global_shortcuts(app_handle: &tauri::AppHandle) {
+    use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
+    
+    println!("开始注册全局快捷键...");
+    
+    // 创建快捷键定义
+    let ctrl_shift_i_shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyI);
+    let ctrl_shift_o_shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyO);
+    
+    // 首先尝试注册所有快捷键
+    let all_shortcuts = [ctrl_shift_i_shortcut.clone(), ctrl_shift_o_shortcut.clone()];
+    
+    let builder_result = tauri_plugin_global_shortcut::Builder::new()
+        .with_shortcuts(all_shortcuts);
+        
+    match builder_result {
+        Ok(builder) => {
+            match app_handle.plugin(
+                builder.with_handler({
+                    let ctrl_shift_i = ctrl_shift_i_shortcut.clone();
+                    let ctrl_shift_o = ctrl_shift_o_shortcut.clone();
+                    move |_app, shortcut, event| {
+                        println!("{:?}", shortcut);
+                        if shortcut == &ctrl_shift_i {
+                            match event.state() {
+                                ShortcutState::Pressed => {
+                                    println!("CmdOrCtrl+Shift+I Pressed!");
+                                }
+                                ShortcutState::Released => {
+                                    println!(
+                                        "CmdOrCtrl+Shift+I pressed at time : {}",
+                                        &Local::now().to_string()
+                                    );
+                                    match get_selected_text() {
+                                        Ok(selected_text) => {
+                                            println!(
+                                                "Selected text: {}, at time: {}",
+                                                selected_text.clone(),
+                                                &Local::now().to_string()
+                                            );
+                                            let _ = _app.emit(
+                                                "get_selected_text_event",
+                                                selected_text.clone(),
+                                            );
+                                            let app_state = _app.try_state::<AppState>();
+                                            if let Some(state) = app_state {
+                                                *state.selected_text.blocking_lock() = selected_text;
+                                            }
+                                        }
+                                        Err(e) => {
+                                            println!("Error getting selected text: {}", e);
+                                        }
+                                    }
+                                    handle_open_ask_window(_app);
+                                }
+                            }
+                        } else if shortcut == &ctrl_shift_o {
+                            match event.state() {
+                                ShortcutState::Pressed => {
+                                    println!("CmdOrCtrl+Shift+O Pressed!");
+                                }
+                                ShortcutState::Released => {
+                                    println!(
+                                        "CmdOrCtrl+Shift+O pressed at time : {}",
+                                        &Local::now().to_string()
+                                    );
+                                    handle_open_ask_window(_app);
+                                }
+                            }
+                        }
+                    }
+                }).build(),
+            ) {
+                Ok(_) => {
+                    println!("✓ 成功注册所有全局快捷键: Ctrl+Shift+I, Ctrl+Shift+O");
+                }
+                Err(e) => {
+                    println!("⚠ 无法注册全局快捷键 (可能已被其他应用占用): {}", e);
+                    println!("尝试单独注册每个快捷键...");
+                    
+                    // 逐个尝试注册快捷键
+                    register_individual_shortcuts(app_handle, ctrl_shift_i_shortcut, ctrl_shift_o_shortcut);
+                }
+            }
+        }
+        Err(e) => {
+            println!("⚠ 创建快捷键构建器时出错: {}", e);
+            println!("尝试单独注册每个快捷键...");
+            register_individual_shortcuts(app_handle, ctrl_shift_i_shortcut, ctrl_shift_o_shortcut);
+        }
+    }
+}
+
+#[cfg(desktop)]
+fn register_individual_shortcuts(
+    app_handle: &tauri::AppHandle,
+    ctrl_shift_i_shortcut: tauri_plugin_global_shortcut::Shortcut,
+    ctrl_shift_o_shortcut: tauri_plugin_global_shortcut::Shortcut,
+) {
+    use tauri_plugin_global_shortcut::{ShortcutState};
+    
+    let mut registered_count = 0;
+    
+    // 尝试注册 Ctrl+Shift+I
+    let builder_result_i = tauri_plugin_global_shortcut::Builder::new()
+        .with_shortcuts([ctrl_shift_i_shortcut.clone()]);
+        
+    if let Ok(builder) = builder_result_i {
+        match app_handle.plugin(
+            builder.with_handler({
+                let ctrl_shift_i = ctrl_shift_i_shortcut.clone();
+                move |_app, shortcut, event| {
+                    if shortcut == &ctrl_shift_i && event.state() == ShortcutState::Released {
+                        println!("CmdOrCtrl+Shift+I pressed at time : {}", &Local::now().to_string());
+                        match get_selected_text() {
+                            Ok(selected_text) => {
+                                println!("Selected text: {}, at time: {}", selected_text.clone(), &Local::now().to_string());
+                                let _ = _app.emit("get_selected_text_event", selected_text.clone());
+                                let app_state = _app.try_state::<AppState>();
+                                if let Some(state) = app_state {
+                                    *state.selected_text.blocking_lock() = selected_text;
+                                }
+                            }
+                            Err(e) => {
+                                println!("Error getting selected text: {}", e);
+                            }
+                        }
+                        handle_open_ask_window(_app);
+                    }
+                }
+            }).build(),
+        ) {
+            Ok(_) => {
+                println!("✓ 成功注册快捷键: Ctrl+Shift+I");
+                registered_count += 1;
+            }
+            Err(e) => {
+                println!("⚠ 无法注册快捷键 Ctrl+Shift+I: {}", e);
+            }
+        }
+    } else {
+        println!("⚠ 创建 Ctrl+Shift+I 快捷键构建器时出错");
+    }
+    
+    // 尝试注册 Ctrl+Shift+O
+    let builder_result_o = tauri_plugin_global_shortcut::Builder::new()
+        .with_shortcuts([ctrl_shift_o_shortcut.clone()]);
+        
+    if let Ok(builder) = builder_result_o {
+        match app_handle.plugin(
+            builder.with_handler({
+                let ctrl_shift_o = ctrl_shift_o_shortcut.clone();
+                move |_app, shortcut, event| {
+                    if shortcut == &ctrl_shift_o && event.state() == ShortcutState::Released {
+                        println!("CmdOrCtrl+Shift+O pressed at time : {}", &Local::now().to_string());
+                        handle_open_ask_window(_app);
+                    }
+                }
+            }).build(),
+        ) {
+            Ok(_) => {
+                println!("✓ 成功注册快捷键: Ctrl+Shift+O");
+                registered_count += 1;
+            }
+            Err(e) => {
+                println!("⚠ 无法注册快捷键 Ctrl+Shift+O: {}", e);
+            }
+        }
+    } else {
+        println!("⚠ 创建 Ctrl+Shift+O 快捷键构建器时出错");
+    }
+    
+    if registered_count == 0 {
+        println!("⚠ 所有全局快捷键都无法注册，但应用程序将继续正常运行");
+        println!("  提示：快捷键冲突通常是由于其他应用程序已注册相同的快捷键组合");
+    } else {
+        println!("✓ 成功注册 {} 个全局快捷键", registered_count);
     }
 }
