@@ -32,8 +32,37 @@ export function useAssistantRuntime({
     // 助手运行时API接口，提供给插件在运行时使用
     const assistantRunApi: AssistantRunApi = {
         askAI: function (options: AskAiOptions): AskAiResponse {
-            const { question, modelId, prompt, conversationId } = options;
-            console.log("ask AI", question, modelId, prompt, conversationId);
+            const { 
+                question, 
+                modelId, 
+                conversationId, 
+                fileInfoList: _fileInfoListParam,
+                overrideModelConfig,
+                overrideSystemPrompt,
+                overrideMcpConfig,
+                onMcpToolDetected,
+                onMcpToolExecuting,
+                onMcpToolResult,
+                onCustomUserMessage: _onCustomUserMessage,
+                onCustomUserMessageComing: _onCustomUserMessageComing,
+                onStreamMessageListener: _onStreamMessageListener
+            } = options;
+            
+            console.log("ask AI", {
+                question, 
+                modelId, 
+                conversationId,
+                overrideModelConfig,
+                overrideSystemPrompt,
+                overrideMcpConfig,
+                hasMcpHandlers: !!(onMcpToolDetected || onMcpToolExecuting || onMcpToolResult),
+                hasFileInfo: !!_fileInfoListParam,
+                hasCallbacks: !!(_onCustomUserMessage || _onCustomUserMessageComing || _onStreamMessageListener)
+            });
+            
+            // TODO: 实现完整的askAI逻辑，包括MCP事件处理器的传递
+            // 这里需要调用后端API并传递MCP事件处理器
+            
             return {
                 answer: "",
             };
@@ -46,6 +75,10 @@ export function useAssistantRuntime({
                 fileInfoList: fileInfoListParam,
                 overrideModelConfig,
                 overrideSystemPrompt,
+                overrideMcpConfig,
+                onMcpToolDetected,
+                onMcpToolExecuting,
+                onMcpToolResult,
                 onCustomUserMessage,
                 onCustomUserMessageComing: _onCustomUserMessageComing,
                 onStreamMessageListener: _onStreamMessageListener
@@ -58,6 +91,9 @@ export function useAssistantRuntime({
                 conversationId,
                 overrideModelConfig,
                 overrideSystemPrompt,
+                overrideMcpConfig,
+                "hasMcpHandlers:",
+                !!(onMcpToolDetected || onMcpToolExecuting || onMcpToolResult)
             );
             let userMessage: any;
             if (onCustomUserMessage) {
@@ -91,6 +127,13 @@ export function useAssistantRuntime({
                 },
                 overrideModelConfig: overrideModelConfig,
                 overridePrompt: overrideSystemPrompt,
+                overrideMcpConfig: overrideMcpConfig,
+                // 传递MCP事件处理器到后端
+                mcpHandlers: {
+                    onMcpToolDetected,
+                    onMcpToolExecuting,
+                    onMcpToolResult
+                }
             })
                 .then((res) => {
                     console.log("ask assistant response", res);
@@ -261,6 +304,39 @@ export function useAssistantRuntime({
             } catch (error) {
                 console.error("Failed to update assistant message:", error);
                 throw error;
+            }
+        },
+        
+        // 保留MCP查询方法
+        getMcpToolCalls: async function (conversationId?: number): Promise<McpToolCall[]> {
+            const targetConversationId = conversationId || (conversation?.id ? +conversation.id : undefined);
+            if (!targetConversationId) {
+                console.warn("No conversation ID available for getMcpToolCalls");
+                return [];
+            }
+            
+            console.log("Getting MCP tool calls for conversation:", targetConversationId);
+            try {
+                const result = await invoke<McpToolCall[]>("get_mcp_tool_calls", {
+                    conversationId: targetConversationId,
+                });
+                return result;
+            } catch (error) {
+                console.error("Failed to get MCP tool calls:", error);
+                return [];
+            }
+        },
+        
+        getMcpToolCall: async function (callId: number): Promise<McpToolCall | null> {
+            console.log("Getting MCP tool call:", callId);
+            try {
+                const result = await invoke<McpToolCall | null>("get_mcp_tool_call", {
+                    callId,
+                });
+                return result;
+            } catch (error) {
+                console.error("Failed to get MCP tool call:", error);
+                return null;
             }
         },
     };

@@ -45,8 +45,27 @@ interface AddFieldOptions {
 interface AskAiOptions {
     question: string;
     modelId: string;
-    prompt?: string;
     conversationId?: string;
+    
+    // 增强配置能力（与AskAssistantOptions对等）
+    fileInfoList?: FileInfo[];
+    overrideModelConfig?: Map<string, any>;
+    overrideSystemPrompt?: string;
+    overrideMcpConfig?: McpOverrideConfig;
+    
+    // MCP生命周期事件处理器
+    onMcpToolDetected?: McpDetectedHandler;
+    onMcpToolExecuting?: McpExecutingHandler;
+    onMcpToolResult?: McpResultHandler;
+    
+    // 消息处理回调
+    onCustomUserMessage?: (question: string, modelId: string, conversationId?: string) => any;
+    onCustomUserMessageComing?: (aiResponse: AiResponse) => void;
+    onStreamMessageListener?: (
+        payload: string,
+        aiResponse: AiResponse,
+        responseIsResponsingFunction: (isFinish: boolean) => void
+    ) => void;
 }
 
 interface AskAssistantOptions {
@@ -56,6 +75,14 @@ interface AskAssistantOptions {
     fileInfoList?: FileInfo[];
     overrideModelConfig?: Map<string, any>;
     overrideSystemPrompt?: string;
+    overrideMcpConfig?: McpOverrideConfig;
+    
+    // MCP生命周期事件处理器
+    onMcpToolDetected?: McpDetectedHandler;
+    onMcpToolExecuting?: McpExecutingHandler;
+    onMcpToolResult?: McpResultHandler;
+    
+    // 消息处理回调
     onCustomUserMessage?: (question: string, assistantId: string, conversationId?: string) => any;
     onCustomUserMessageComing?: (aiResponse: AiResponse) => void;
     onStreamMessageListener?: (
@@ -108,6 +135,10 @@ interface AssistantRunApi {
     buildMcpPrompt(providerIds: string[]): Promise<string>;
     createMessage(markdownText: string, conversationId: number): Promise<Message>;
     updateAssistantMessage(messageId: number, markdownText: string): Promise<void>;
+    
+    // 保留MCP查询方法
+    getMcpToolCalls(conversationId?: number): Promise<McpToolCall[]>;
+    getMcpToolCall(callId: number): Promise<McpToolCall | null>;
 }
 
 interface AiResponse {
@@ -130,6 +161,104 @@ interface McpProviderInfo {
     transportType: string;
     isEnabled: boolean;
     tools: McpToolInfo[];
+}
+
+// MCP工具调用生命周期阶段
+enum McpLifecycleStage {
+    DETECTED = "detected",
+    EXECUTING = "executing", 
+    RESULT = "result"
+}
+
+// DETECTED阶段的操作
+enum McpDetectedAction {
+    DEFAULT = "default",   // 按照原有MCP默认逻辑处理
+    EXECUTE = "execute",   // 执行工具调用（可修改参数）
+    SKIP = "skip",        // 跳过此工具调用
+    ABORT = "abort"       // 中止整个流程
+}
+
+// EXECUTING阶段的操作
+enum McpExecutingAction {
+    DEFAULT = "default",  // 按照原有MCP默认逻辑处理
+    ABORT = "abort"       // 中止执行
+}
+
+// RESULT阶段的操作
+enum McpResultAction {
+    DEFAULT = "default",  // 按照原有MCP默认逻辑处理
+    CONTINUE = "continue", // 自动添加结果到对话并继续下一轮
+    SKIP = "skip",        // 跳过自动添加，插件自己处理结果
+    ABORT = "abort"       // 中止对话流程
+}
+
+// MCP生命周期控制接口
+interface McpDetectedControl {
+    action: McpDetectedAction;
+    modifiedParameters?: Record<string, any>;
+    reason?: string;
+}
+
+interface McpExecutingControl {
+    action: McpExecutingAction;
+    reason?: string;
+}
+
+interface McpResultControl {
+    action: McpResultAction;
+    customMessage?: string;
+    reason?: string;
+}
+
+// MCP生命周期事件处理器
+type McpDetectedHandler = (
+    serverId: string,
+    toolName: string,
+    parameters: Record<string, any>,
+    conversationId: number
+) => McpDetectedControl | Promise<McpDetectedControl>;
+
+type McpExecutingHandler = (
+    callId: number,
+    serverId: string,
+    toolName: string,
+    status: "running" | "pending"
+) => McpExecutingControl | Promise<McpExecutingControl>;
+
+type McpResultHandler = (
+    callId: number,
+    serverId: string,
+    toolName: string,
+    result: string,
+    error?: string
+) => McpResultControl | Promise<McpResultControl>;
+
+// MCP配置覆盖
+interface McpOverrideConfig {
+    // 覆盖特定工具的自动运行配置
+    toolAutoRun?: Record<string, boolean>;  // "serverId/toolName" -> autoRun
+    // 覆盖整个服务器的启用状态
+    serverEnabled?: Record<string, boolean>;  // "serverId" -> enabled
+    // 覆盖是否使用原生工具调用
+    useNativeToolcall?: boolean;
+    // 自定义MCP工具调用超时时间
+    toolCallTimeout?: number;
+}
+
+// 保留原有的McpToolCall接口用于查询
+interface McpToolCall {
+    id: number;
+    conversation_id: number;
+    message_id?: number;
+    server_name: string;
+    tool_name: string;
+    parameters: string;
+    status: "pending" | "running" | "success" | "failed";
+    result?: string;
+    error?: string;
+    created_time: Date;
+    started_time?: Date;
+    finished_time?: Date;
 }
 
 declare class AskAiResponse {
