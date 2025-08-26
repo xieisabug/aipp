@@ -260,6 +260,7 @@ const ConversationUI = forwardRef<ConversationUIRef, ConversationUIProps>(
             mcpToolCallStates,
             updateShiningMessages,
             updateFunctionMap,
+            clearStreamingMessages,
         } = useConversationEvents(conversationEventsOptions);
 
         // 当 functionMap 变化时更新事件处理器
@@ -370,6 +371,8 @@ const ConversationUI = forwardRef<ConversationUIRef, ConversationUIProps>(
                 // 无对话 ID时，清理状态并加载助手列表
                 setMessages([]);
                 setConversation(undefined);
+                // 清理流式消息和闪烁状态
+                clearStreamingMessages();
 
                 invoke<Array<AssistantListItem>>("get_assistants").then((assistantList) => {
                     setAssistants(assistantList);
@@ -385,7 +388,10 @@ const ConversationUI = forwardRef<ConversationUIRef, ConversationUIProps>(
 
             // 加载指定对话的消息和信息
             setIsLoadingShow(true);
+            
+            // 在切换对话时立即清理所有与前一个对话相关的状态
             setGroupMergeMap(new Map()); // 切换对话时清理组合并状态
+            clearStreamingMessages(); // 清理流式消息
 
             console.log(`conversationId change : ${conversationId}`);
 
@@ -419,7 +425,7 @@ const ConversationUI = forwardRef<ConversationUIRef, ConversationUIProps>(
             return () => {
                 currentLoadingRef.cancelled = true;
             };
-        }, [conversationId]);
+        }, [conversationId, clearStreamingMessages]);
 
         // 监听对话标题变化
         useEffect(() => {
