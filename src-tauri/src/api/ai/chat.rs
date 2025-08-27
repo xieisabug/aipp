@@ -16,6 +16,7 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
+use anyhow::Context as _;
 
 /// 发送消息完成通知
 async fn send_completion_notification(
@@ -58,6 +59,275 @@ async fn send_completion_notification(
             }
         }
     }
+}
+
+/// 输出消息类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OutputType {
+    None,
+    Reasoning,
+    Response,
+}
+
+impl Default for OutputType {
+    fn default() -> Self { OutputType::None }
+}
+
+/// 工具名分割助手
+fn split_tool_name(fn_name: &str) -> (String, String) {
+    if let Some((s, t)) = fn_name.split_once("__") {
+        (s.to_string(), t.to_string())
+    } else {
+        (String::from("default"), fn_name.to_string())
+    }
+}
+
+/// 创建并发出 message_add 事件，返回消息ID
+async fn ensure_stream_message(
+    conversation_db: &ConversationDatabase,
+    window: &tauri::Window,
+    conversation_id: i64,
+    message_type: &str,
+    initial_content: &str,
+    llm_model_id: i64,
+    llm_model_name: &str,
+    generation_group_id: &str,
+    parent_group_id_override: Option<String>,
+) -> anyhow::Result<i64> {
+    let now = chrono::Utc::now();
+
+    let new_message = conversation_db
+        .message_repo()
+        .context("failed to get message_repo")?
+        .create(&Message {
+            id: 0,
+            parent_id: None,
+            conversation_id,
+            message_type: message_type.to_string(),
+            content: initial_content.to_string(),
+            llm_model_id: Some(llm_model_id),
+            llm_model_name: Some(llm_model_name.to_string()),
+            created_time: now,
+            start_time: Some(now),
+            finish_time: None,
+            token_count: 0,
+            generation_group_id: Some(generation_group_id.to_string()),
+            parent_group_id: parent_group_id_override,
+            tool_calls_json: None,
+        })
+        .context("failed to create stream message")?;
+
+    let add_event = ConversationEvent {
+        r#type: "message_add".to_string(),
+        data: serde_json::to_value(MessageAddEvent {
+            message_id: new_message.id,
+            message_type: message_type.to_string(),
+        })
+        .unwrap(),
+    };
+    let _ = window.emit(
+        format!("conversation_event_{}", conversation_id).as_str(),
+        add_event,
+    );
+
+    Ok(new_message.id)
+}
+
+/// 更新消息内容并发出 message_update
+fn persist_and_emit_update(
+    conversation_db: &ConversationDatabase,
+    window: &tauri::Window,
+    conversation_id: i64,
+    msg_id: i64,
+    message_type: &str,
+    content: &str,
+    is_done: bool,
+) -> anyhow::Result<()> {
+    if let Ok(Some(mut message)) = conversation_db
+        .message_repo()
+        .context("failed to get message_repo for read")?
+        .read(msg_id)
+    {
+        message.content = content.to_string();
+        conversation_db
+            .message_repo()
+            .context("failed to get message_repo for update")?
+            .update(&message)
+            .ok();
+    }
+
+    let update_event = ConversationEvent {
+        r#type: "message_update".to_string(),
+        data: serde_json::to_value(MessageUpdateEvent {
+            message_id: msg_id,
+            message_type: message_type.to_string(),
+            content: content.to_string(),
+            is_done,
+        })
+        .unwrap(),
+    };
+    let _ = window.emit(
+        format!("conversation_event_{}", conversation_id).as_str(),
+        update_event,
+    );
+
+    Ok(())
+}
+
+/// 统一处理捕获到的工具调用：创建DB记录、插入UI注释、更新消息、可选自动执行、可选向UI发事件
+async fn handle_captured_tool_calls_common(
+    app_handle: &tauri::AppHandle,
+    conversation_db: &ConversationDatabase,
+    window: &tauri::Window,
+    conversation_id: i64,
+    response_message_id: i64,
+    captured_tool_calls: &[ToolCall],
+    response_content: &mut String,
+    emit_tool_call_events: bool,
+) -> anyhow::Result<()> {
+    // 先将完整的 tool_calls JSON 覆盖保存到消息，保证数据源一致
+    if let Ok(Some(mut msg)) = conversation_db
+        .message_repo()
+        .context("failed to get message_repo")?
+        .read(response_message_id)
+    {
+        msg.tool_calls_json = serde_json::to_string(&captured_tool_calls).ok();
+        let _ = conversation_db
+            .message_repo()
+            .context("failed to get message_repo for update")?
+            .update(&msg);
+    }
+
+    for tool_call in captured_tool_calls {
+        let (server_name, tool_name) = split_tool_name(&tool_call.fn_name);
+        let params_str = tool_call.fn_arguments.to_string();
+
+        // 创建工具调用记录
+        match crate::api::mcp_execution_api::create_mcp_tool_call_with_llm_id(
+            app_handle.clone(),
+            conversation_id,
+            Some(response_message_id),
+            server_name.clone(),
+            tool_name.clone(),
+            params_str.clone(),
+            Some(&tool_call.call_id),
+            Some(response_message_id),
+        )
+        .await
+        {
+            Ok(tool_call_record) => {
+                // 追加 UI hint
+                let ui_hint = format!(
+                    "\n\n<!-- MCP_TOOL_CALL:{} -->\n",
+                    serde_json::json!({
+                        "server_name": server_name,
+                        "tool_name": tool_name,
+                        "parameters": params_str,
+                        "call_id": tool_call_record.id,
+                        "llm_call_id": tool_call.call_id.clone(),
+                    })
+                );
+                response_content.push_str(&ui_hint);
+
+                // 持久化内容并发出更新
+                if let Ok(Some(mut msg)) = conversation_db
+                    .message_repo()
+                    .context("failed to get message_repo for read")?
+                    .read(response_message_id)
+                {
+                    msg.content = response_content.clone();
+                    // 覆盖保存 tool_calls JSON（再次确保一致）
+                    msg.tool_calls_json = serde_json::to_string(&captured_tool_calls).ok();
+                    let _ = conversation_db
+                        .message_repo()
+                        .context("failed to get message_repo for update")?
+                        .update(&msg);
+
+                    let update_event = ConversationEvent {
+                        r#type: "message_update".to_string(),
+                        data: serde_json::to_value(MessageUpdateEvent {
+                            message_id: response_message_id,
+                            message_type: "response".to_string(),
+                            content: response_content.clone(),
+                            is_done: false,
+                        })
+                        .unwrap(),
+                    };
+                    let _ = window.emit(
+                        format!("conversation_event_{}", conversation_id).as_str(),
+                        update_event,
+                    );
+                }
+
+                // 自动执行（若配置）
+                if let Ok(conv) = conversation_db
+                    .conversation_repo()
+                    .context("failed to get conversation_repo")?
+                    .read(conversation_id)
+                {
+                    if let Some(assistant_id) = conv.and_then(|c| c.assistant_id) {
+                        if let Ok(servers) = crate::api::assistant_api::get_assistant_mcp_servers_with_tools(
+                            app_handle.clone(),
+                            assistant_id,
+                        )
+                        .await
+                        {
+                            let mut should_auto_run = false;
+                            for s in servers.iter() {
+                                if s.name == server_name && s.is_enabled {
+                                    if let Some(t) = s.tools.iter().find(|t| t.name == tool_name && t.is_enabled) {
+                                        if t.is_auto_run { should_auto_run = true; }
+                                    }
+                                }
+                            }
+                            if should_auto_run {
+                                let state = app_handle.state::<crate::AppState>();
+                                let feature_config_state = app_handle.state::<crate::FeatureConfigState>();
+                                let message_token_manager = app_handle.state::<crate::state::message_token::MessageTokenManager>();
+                                if let Err(e) = crate::api::mcp_execution_api::execute_mcp_tool_call(
+                                    app_handle.clone(),
+                                    state,
+                                    feature_config_state,
+                                    message_token_manager,
+                                    window.clone(),
+                                    tool_call_record.id,
+                                )
+                                .await
+                                {
+                                    eprintln!(
+                                        "Auto-execute MCP tool failed (call_id={}): {}",
+                                        tool_call_record.id, e
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if emit_tool_call_events {
+                    let tool_call_event = serde_json::json!({
+                        "type": "tool_call",
+                        "data": {
+                            "conversation_id": conversation_id,
+                            "call_id": tool_call.call_id,
+                            "function_name": tool_call.fn_name,
+                            "arguments": tool_call.fn_arguments,
+                            "response_message_id": response_message_id
+                        }
+                    });
+                    let _ = window.emit(
+                        format!("conversation_event_{}", conversation_id).as_str(),
+                        tool_call_event,
+                    );
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to create MCP tool call record: {}", e);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// 助手提及信息
@@ -805,7 +1075,7 @@ async fn attempt_stream_chat(
     let is_regeneration = parent_group_id_override.is_some();
     let mut group_merge_event_emitted = false;
 
-    let mut current_output_type: Option<String> = None;
+    let mut current_output_type: OutputType = OutputType::None;
     let mut reasoning_start_time: Option<chrono::DateTime<chrono::Utc>> = None;
     let mut response_start_time: Option<chrono::DateTime<chrono::Utc>> = None;
 
@@ -817,7 +1087,7 @@ async fn attempt_stream_chat(
                         match stream_event {
                             ChatStreamEvent::Start => {}
                             ChatStreamEvent::Chunk(chunk) => {
-                                if current_output_type == Some("reasoning".to_string()) {
+                                if current_output_type == OutputType::Reasoning {
                                     if let (Some(msg_id), Some(start_time)) = (reasoning_message_id, reasoning_start_time) {
                                         if let Err(e) = super::conversation::handle_message_type_end(
                                             msg_id,
@@ -835,8 +1105,8 @@ async fn attempt_stream_chat(
                                     }
                                 }
 
-                                if current_output_type != Some("response".to_string()) {
-                                    current_output_type = Some("response".to_string());
+                                if current_output_type != OutputType::Response {
+                                    current_output_type = OutputType::Response;
                                 }
 
                                 response_content.push_str(&chunk.content);
@@ -845,93 +1115,56 @@ async fn attempt_stream_chat(
                                     let now = chrono::Utc::now();
                                     response_start_time = Some(now);
 
-                                    let new_message = conversation_db
-                                        .message_repo()
-                                        .unwrap()
-                                        .create(&Message {
-                                            id: 0,
-                                            parent_id: None,
-                                            conversation_id,
-                                            message_type: "response".to_string(),
-                                            content: response_content.clone(),
-                                            llm_model_id: Some(llm_model_id),
-                                            llm_model_name: Some(llm_model_name.clone()),
-                                            created_time: now,
-                                            start_time: Some(now),
-                                            finish_time: None,
-                                            token_count: 0,
-                                            generation_group_id: Some(generation_group_id.clone()),
-                                            parent_group_id: parent_group_id_override.clone(),
-                                            tool_calls_json: None,
-                                        })
-                                        .unwrap();
-                                    response_message_id = Some(new_message.id);
+                                    if let Ok(new_id) = ensure_stream_message(
+                                        &conversation_db,
+                                        &window,
+                                        conversation_id,
+                                        "response",
+                                        &response_content,
+                                        llm_model_id,
+                                        &llm_model_name,
+                                        &generation_group_id,
+                                        parent_group_id_override.clone(),
+                                    ).await {
+                                        response_message_id = Some(new_id);
 
-                                    let add_event = ConversationEvent {
-                                        r#type: "message_add".to_string(),
-                                        data: serde_json::to_value(MessageAddEvent {
-                                            message_id: new_message.id,
-                                            message_type: "response".to_string(),
-                                        }).unwrap(),
-                                    };
-                                    let _ = window.emit(
-                                        format!("conversation_event_{}", conversation_id).as_str(),
-                                        add_event
-                                    );
-
-                                    if is_regeneration && !group_merge_event_emitted {
-                                        if let Some(ref parent_group_id) = parent_group_id_override {
-                                            let group_merge_event = serde_json::json!({
-                                                "type": "group_merge",
-                                                "data": {
-                                                    "original_group_id": parent_group_id,
-                                                    "new_group_id": generation_group_id.clone(),
-                                                    "is_regeneration": true,
-                                                    "first_message_id": new_message.id,
-                                                    "conversation_id": conversation_id
-                                                }
-                                            });
-                                            let _ = window.emit(
-                                                format!("conversation_event_{}", conversation_id).as_str(),
-                                                group_merge_event
-                                            );
-                                            group_merge_event_emitted = true;
+                                        if is_regeneration && !group_merge_event_emitted {
+                                            if let Some(ref parent_group_id) = parent_group_id_override {
+                                                let group_merge_event = serde_json::json!({
+                                                    "type": "group_merge",
+                                                    "data": {
+                                                        "original_group_id": parent_group_id,
+                                                        "new_group_id": generation_group_id.clone(),
+                                                        "is_regeneration": true,
+                                                        "first_message_id": new_id,
+                                                        "conversation_id": conversation_id
+                                                    }
+                                                });
+                                                let _ = window.emit(
+                                                    format!("conversation_event_{}", conversation_id).as_str(),
+                                                    group_merge_event
+                                                );
+                                                group_merge_event_emitted = true;
+                                            }
                                         }
                                     }
                                 }
 
                                 if let Some(msg_id) = response_message_id {
-                                    let mut message = conversation_db
-                                        .message_repo()
-                                        .unwrap()
-                                        .read(msg_id)
-                                        .unwrap()
-                                        .unwrap();
-                                    message.content = response_content.clone();
-                                    conversation_db
-                                        .message_repo()
-                                        .unwrap()
-                                        .update(&message)
-                                        .unwrap();
-
-                                    let update_event = ConversationEvent {
-                                        r#type: "message_update".to_string(),
-                                        data: serde_json::to_value(MessageUpdateEvent {
-                                            message_id: msg_id,
-                                            message_type: "response".to_string(),
-                                            content: response_content.clone(),
-                                            is_done: false,
-                                        }).unwrap(),
-                                    };
-                                    let _ = window.emit(
-                                        format!("conversation_event_{}", conversation_id).as_str(),
-                                        update_event
+                                    let _ = persist_and_emit_update(
+                                        &conversation_db,
+                                        &window,
+                                        conversation_id,
+                                        msg_id,
+                                        "response",
+                                        &response_content,
+                                        false,
                                     );
                                 }
                             }
                             ChatStreamEvent::ReasoningChunk(reasoning_chunk) => {
-                                if current_output_type != Some("reasoning".to_string()) {
-                                    current_output_type = Some("reasoning".to_string());
+                                if current_output_type != OutputType::Reasoning {
+                                    current_output_type = OutputType::Reasoning;
                                 }
 
                                 reasoning_content.push_str(&reasoning_chunk.content);
@@ -940,67 +1173,30 @@ async fn attempt_stream_chat(
                                     let now = chrono::Utc::now();
                                     reasoning_start_time = Some(now);
 
-                                    let new_message = conversation_db
-                                        .message_repo()
-                                        .unwrap()
-                                        .create(&Message {
-                                            id: 0,
-                                            parent_id: None,
-                                            conversation_id,
-                                            message_type: "reasoning".to_string(),
-                                            content: reasoning_content.clone(),
-                                            llm_model_id: Some(llm_model_id),
-                                            llm_model_name: Some(llm_model_name.clone()),
-                                            created_time: now,
-                                            start_time: Some(now),
-                                            finish_time: None,
-                                            token_count: 0,
-                                            generation_group_id: Some(generation_group_id.clone()), // 添加generation_group_id
-                                            parent_group_id: parent_group_id_override.clone(), // 添加parent_group_id
-                                            tool_calls_json: None,
-                                        })
-                                        .unwrap();
-                                    reasoning_message_id = Some(new_message.id);
-
-                                    let add_event = ConversationEvent {
-                                        r#type: "message_add".to_string(),
-                                        data: serde_json::to_value(MessageAddEvent {
-                                            message_id: new_message.id,
-                                            message_type: "reasoning".to_string(),
-                                        }).unwrap(),
-                                    };
-                                    let _ = window.emit(
-                                        format!("conversation_event_{}", conversation_id).as_str(),
-                                        add_event
-                                    );
+                                    if let Ok(new_id) = ensure_stream_message(
+                                        &conversation_db,
+                                        &window,
+                                        conversation_id,
+                                        "reasoning",
+                                        &reasoning_content,
+                                        llm_model_id,
+                                        &llm_model_name,
+                                        &generation_group_id,
+                                        parent_group_id_override.clone(),
+                                    ).await {
+                                        reasoning_message_id = Some(new_id);
+                                    }
                                 }
 
                                 if let Some(msg_id) = reasoning_message_id {
-                                    let mut message = conversation_db
-                                        .message_repo()
-                                        .unwrap()
-                                        .read(msg_id)
-                                        .unwrap()
-                                        .unwrap();
-                                    message.content = reasoning_content.clone();
-                                    conversation_db
-                                        .message_repo()
-                                        .unwrap()
-                                        .update(&message)
-                                        .unwrap();
-
-                                    let update_event = ConversationEvent {
-                                        r#type: "message_update".to_string(),
-                                        data: serde_json::to_value(MessageUpdateEvent {
-                                            message_id: msg_id,
-                                            message_type: "reasoning".to_string(),
-                                            content: reasoning_content.clone(),
-                                            is_done: false,
-                                        }).unwrap(),
-                                    };
-                                    let _ = window.emit(
-                                        format!("conversation_event_{}", conversation_id).as_str(),
-                                        update_event
+                                    let _ = persist_and_emit_update(
+                                        &conversation_db,
+                                        &window,
+                                        conversation_id,
+                                        msg_id,
+                                        "reasoning",
+                                        &reasoning_content,
+                                        false,
                                     );
                                 }
                             }
@@ -1022,170 +1218,40 @@ async fn attempt_stream_chat(
                                         // Create a minimal response message to host MCP UI hints
                                         let now = chrono::Utc::now();
                                         response_start_time = Some(now);
-                                        let new_message = conversation_db
-                                            .message_repo()
-                                            .unwrap()
-                                            .create(&Message {
-                                                id: 0,
-                                                parent_id: None,
-                                                conversation_id,
-                                                message_type: "response".to_string(),
-                                                content: String::new(),
-                                                llm_model_id: Some(llm_model_id),
-                                                llm_model_name: Some(llm_model_name.clone()),
-                                                created_time: now,
-                                                start_time: Some(now),
-                                                finish_time: None,
-                                                token_count: 0,
-                                                generation_group_id: Some(generation_group_id.clone()),
-                                                parent_group_id: parent_group_id_override.clone(),
-                                                tool_calls_json: None,
-                                            })
-                                            .unwrap();
-                                        response_message_id = Some(new_message.id);
-
-                                        let add_event = ConversationEvent {
-                                            r#type: "message_add".to_string(),
-                                            data: serde_json::to_value(MessageAddEvent {
-                                                message_id: new_message.id,
-                                                message_type: "response".to_string(),
-                                            })
-                                            .unwrap(),
-                                        };
-                                        let _ = window.emit(
-                                            format!("conversation_event_{}", conversation_id).as_str(),
-                                            add_event,
-                                        );
-                                    }
-
-                                    // Create DB records for tool calls, then append UI hints with DB call_id
-                                    for tool_call in &captured_tool_calls {
-                                        // Our tool name format is "{server}__{tool}", split it safely
-                                        let (server_name, tool_name) = if let Some((s, t)) = tool_call
-                                            .fn_name
-                                            .split_once("__")
-                                        {
-                                            (s.to_string(), t.to_string())
-                                        } else {
-                                            // Fallback: no server prefix
-                                            (String::from("default"), tool_call.fn_name.clone())
-                                        };
-
-                                        // Create MCP tool call record for later manual execution or auto-run
-                                        let params_str = tool_call.fn_arguments.to_string();
-                                        let created_call = crate::api::mcp_execution_api::create_mcp_tool_call_with_llm_id(
-                                            app_handle.clone(),
+                                        match ensure_stream_message(
+                                            &conversation_db,
+                                            &window,
                                             conversation_id,
-                                            response_message_id, // bind to this response message
-                                            server_name.clone(),
-                                            tool_name.clone(),
-                                            params_str.clone(),
-                                            Some(&tool_call.call_id),
-                                            response_message_id, // assistant_message_id
-                                        )
-                                        .await;
-
-                                        if let Ok(tool_call_record) = created_call {
-                                            // Append UI hint comment for frontend renderer, now with DB call_id
-                                            let ui_hint = format!(
-                                                "\n\n<!-- MCP_TOOL_CALL:{} -->\n",
-                                                serde_json::json!({
-                                                    "server_name": server_name,
-                                                    "tool_name": tool_name,
-                                                    "parameters": params_str,
-                                                    "call_id": tool_call_record.id,           // 数据库ID
-                                                    "llm_call_id": tool_call.call_id.clone(), // LLM原生ID
-                                                })
-                                            );
-                                            response_content.push_str(&ui_hint);
-
-                                            // Persist updated content to DB and emit update (not done yet)
-                                            if let Some(msg_id) = response_message_id {
-                                                if let Ok(Some(mut msg)) = conversation_db
-                                                    .message_repo()
-                                                    .unwrap()
-                                                    .read(msg_id)
-                                                {
-                                                    msg.content = response_content.clone();
-                                                    // 同时保存 tool_calls JSON
-                                                    if msg.tool_calls_json.is_none() {
-                                                        msg.tool_calls_json = serde_json::to_string(&captured_tool_calls).ok();
-                                                    }
-                                                    let _ = conversation_db
-                                                        .message_repo()
-                                                        .unwrap()
-                                                        .update(&msg);
-
-                                                    let update_event = ConversationEvent {
-                                                        r#type: "message_update".to_string(),
-                                                        data: serde_json::to_value(MessageUpdateEvent {
-                                                            message_id: msg_id,
-                                                            message_type: "response".to_string(),
-                                                            content: response_content.clone(),
-                                                            is_done: false,
-                                                        })
-                                                        .unwrap(),
-                                                    };
-                                                    let _ = window.emit(
-                                                        format!("conversation_event_{}", conversation_id).as_str(),
-                                                        update_event,
-                                                    );
-                                                }
+                                            "response",
+                                            "",
+                                            llm_model_id,
+                                            &llm_model_name,
+                                            &generation_group_id,
+                                            parent_group_id_override.clone(),
+                                        ).await {
+                                            Ok(new_id) => response_message_id = Some(new_id),
+                                            Err(e) => {
+                                                eprintln!("Failed to create response message for MCP hints: {}", e);
                                             }
-
-                                            // Auto-run if configured on assistant's MCP tool
-                                            if let Ok(conv) = conversation_db
-                                                .conversation_repo()
-                                                .unwrap()
-                                                .read(conversation_id)
-                                            {
-                                                if let Some(assistant_id) = conv.and_then(|c| c.assistant_id) {
-                                                    if let Ok(servers) = crate::api::assistant_api::get_assistant_mcp_servers_with_tools(
-                                                        app_handle.clone(),
-                                                        assistant_id,
-                                                    )
-                                                    .await
-                                                    {
-                                                        let mut should_auto_run = false;
-                                                        for s in servers.iter() {
-                                                            if s.name == server_name && s.is_enabled {
-                                                                if let Some(t) = s.tools.iter().find(|t| t.name == tool_name && t.is_enabled) {
-                                                                    if t.is_auto_run { should_auto_run = true; }
-                                                                }
-                                                            }
-                                                        }
-                                                        if should_auto_run {
-                                                            let state = app_handle.state::<crate::AppState>();
-                                                            let feature_config_state = app_handle.state::<crate::FeatureConfigState>();
-                                                            let message_token_manager = app_handle.state::<crate::state::message_token::MessageTokenManager>();
-                                                            if let Err(e) = crate::api::mcp_execution_api::execute_mcp_tool_call(
-                                                                app_handle.clone(),
-                                                                state,
-                                                                feature_config_state,
-                                                                message_token_manager,
-                                                                window.clone(),
-                                                                tool_call_record.id,
-                                                            )
-                                                            .await
-                                                            {
-                                                                eprintln!(
-                                                                    "Auto-execute MCP tool failed (call_id={}): {}",
-                                                                    tool_call_record.id, e
-                                                                );
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        } else if let Err(e) = created_call {
-                                            eprintln!("Failed to create MCP tool call record: {}", e);
                                         }
+                                    }
+                                    if let Some(msg_id) = response_message_id {
+                                        let _ = handle_captured_tool_calls_common(
+                                            &app_handle,
+                                            &conversation_db,
+                                            &window,
+                                            conversation_id,
+                                            msg_id,
+                                            &captured_tool_calls,
+                                            &mut response_content,
+                                            true,
+                                        ).await;
                                     }
                                 }
 
                                 // 按当前输出类型收尾，确保 response 触发 MCP 检测与事件
-                                match current_output_type.as_deref() {
-                                    Some("reasoning") => {
+                                match current_output_type {
+                                    OutputType::Reasoning => {
                                         if let (Some(msg_id), Some(start_time)) = (reasoning_message_id, reasoning_start_time) {
                                             if let Err(e) = super::conversation::handle_message_type_end(
                                                 msg_id,
@@ -1202,7 +1268,7 @@ async fn attempt_stream_chat(
                                             }
                                         }
                                     }
-                                    Some("response") => {
+                                    OutputType::Response => {
                                         if let (Some(msg_id), Some(start_time)) = (response_message_id, response_start_time) {
                                             if let Err(e) = super::conversation::handle_message_type_end(
                                                 msg_id,
@@ -1230,7 +1296,7 @@ async fn attempt_stream_chat(
                                             )?;
                                         }
                                     }
-                                    _ => {
+                                    OutputType::None => {
                                         // 无活跃类型时，走统一收尾
                                         super::conversation::finish_stream_messages(
                                             &conversation_db,
@@ -1244,35 +1310,7 @@ async fn attempt_stream_chat(
                                     }
                                 }
 
-                                // Handle captured tool calls for MCP integration
-                                if !captured_tool_calls.is_empty() {
-                                    println!("[[processing_tool_calls_count]]: {}", captured_tool_calls.len());
-
-                                    // Send tool call information to frontend for potential MCP execution
-                                    for tool_call in &captured_tool_calls {
-                                        println!("[[tool_call_to_process]]: {} with args: {}", tool_call.fn_name, tool_call.fn_arguments);
-
-                                        // Emit tool call event for MCP handling
-                                        let tool_call_event = serde_json::json!({
-                                            "type": "tool_call",
-                                            "data": {
-                                                "conversation_id": conversation_id,
-                                                "call_id": tool_call.call_id,
-                                                "function_name": tool_call.fn_name,
-                                                "arguments": tool_call.fn_arguments,
-                                                "response_message_id": response_message_id
-                                            }
-                                        });
-
-                                        let _ = window.emit(
-                                            format!("conversation_event_{}", conversation_id).as_str(),
-                                            tool_call_event
-                                        );
-                                    }
-
-                                    // Note: In stream mode, we emit the tool calls and let the frontend handle MCP execution
-                                    // The conversation continues after tool results are provided via tool_result_continue_ask_ai
-                                }
+                                // 工具调用事件已在 handle_captured_tool_calls_common 中按需发出
 
                                 if need_generate_title && !response_content.is_empty() {
                                     let app_handle_clone = app_handle.clone();
@@ -1566,138 +1604,17 @@ pub async fn handle_non_stream_chat(
             if !tool_calls.is_empty() {
                 println!("[[non_stream_captured_tool_calls_count]]: {}", tool_calls.len());
 
-                // 保存原始 tool_calls JSON 到 assistant 消息
-                let tool_calls_json = serde_json::to_string(&tool_calls).ok();
-
-                // 更新消息以包含 tool_calls_json
-                if let Ok(Some(mut msg)) =
-                    conversation_db.message_repo().unwrap().read(response_message_id)
-                {
-                    msg.tool_calls_json = tool_calls_json;
-                    let _ = conversation_db.message_repo().unwrap().update(&msg);
-                }
-
-                // 先发送 tool_call 事件给前端，让前端可以显示工具调用状态
-                for tool_call in &tool_calls {
-                    println!(
-                        "[[tool_call_to_process]]: {} with args: {}",
-                        tool_call.fn_name, tool_call.fn_arguments
-                    );
-
-                    // Emit tool call event for MCP handling (与流式模式保持一致)
-                    let tool_call_event = serde_json::json!({
-                        "type": "tool_call",
-                        "data": {
-                            "conversation_id": conversation_id,
-                            "call_id": tool_call.call_id,
-                            "function_name": tool_call.fn_name,
-                            "arguments": tool_call.fn_arguments,
-                            "response_message_id": response_message_id
-                        }
-                    });
-
-                    let _ = window.emit(
-                        format!("conversation_event_{}", conversation_id).as_str(),
-                        tool_call_event,
-                    );
-                }
-
-                for tool_call in tool_calls.iter() {
-                    let (server_name, tool_name) =
-                        if let Some((s, t)) = tool_call.fn_name.split_once("__") {
-                            (s.to_string(), t.to_string())
-                        } else {
-                            (String::from("default"), tool_call.fn_name.clone())
-                        };
-
-                    let params_str = tool_call.fn_arguments.to_string();
-                    match crate::api::mcp_execution_api::create_mcp_tool_call_with_llm_id(
-                        app_handle.clone(),
-                        conversation_id,
-                        Some(response_message_id),
-                        server_name.clone(),
-                        tool_name.clone(),
-                        params_str.clone(),
-                        Some(&tool_call.call_id),
-                        Some(response_message_id), // assistant_message_id
-                    )
-                    .await
-                    {
-                        Ok(tool_call_record) => {
-                            let ui_hint = format!(
-                                "\n\n<!-- MCP_TOOL_CALL:{} -->\n",
-                                serde_json::json!({
-                                    "server_name": server_name,
-                                    "tool_name": tool_name,
-                                    "parameters": params_str,
-                                    "call_id": tool_call_record.id,           // 数据库ID
-                                    "llm_call_id": tool_call.call_id.clone(), // LLM原生ID
-                                })
-                            );
-                            content.push_str(&ui_hint);
-
-                            // 立即更新消息内容并发送事件，让用户看到工具调用界面
-                            if let Ok(Some(mut msg)) =
-                                conversation_db.message_repo().unwrap().read(response_message_id)
-                            {
-                                msg.content = content.clone();
-                                let _ = conversation_db.message_repo().unwrap().update(&msg);
-
-                                // 发送工具调用界面更新事件
-                                let update_event = ConversationEvent {
-                                    r#type: "message_update".to_string(),
-                                    data: serde_json::to_value(MessageUpdateEvent {
-                                        message_id: response_message_id,
-                                        message_type: "response".to_string(),
-                                        content: content.clone(),
-                                        is_done: false, // 还未完成，因为可能有自动执行
-                                    })
-                                    .unwrap(),
-                                };
-                                let _ = window.emit(
-                                    format!("conversation_event_{}", conversation_id).as_str(),
-                                    update_event,
-                                );
-                            }
-
-                            // 自动执行（若配置）
-                            if let Ok(conv) =
-                                conversation_db.conversation_repo().unwrap().read(conversation_id)
-                            {
-                                if let Some(assistant_id) = conv.and_then(|c| c.assistant_id) {
-                                    if let Ok(servers) = crate::api::assistant_api::get_assistant_mcp_servers_with_tools(app_handle.clone(), assistant_id).await {
-                                        let mut should_auto_run = false;
-                                        for s in servers.iter() {
-                                            if s.name == server_name && s.is_enabled {
-                                                if let Some(t) = s.tools.iter().find(|t| t.name == tool_name && t.is_enabled) {
-                                                    if t.is_auto_run { should_auto_run = true; }
-                                                }
-                                            }
-                                        }
-                                        if should_auto_run {
-                                            let state = app_handle.state::<crate::AppState>();
-                                            let feature_config_state = app_handle.state::<crate::FeatureConfigState>();
-                                            let message_token_manager = app_handle.state::<crate::state::message_token::MessageTokenManager>();
-                                            if let Err(e) = crate::api::mcp_execution_api::execute_mcp_tool_call(
-                                                app_handle.clone(),
-                                                state,
-                                                feature_config_state,
-                                                message_token_manager,
-                                                window.clone(),
-                                                tool_call_record.id,
-                                            ).await {
-                                                eprintln!("Auto-execute MCP tool failed (call_id={}): {}", tool_call_record.id, e);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to create MCP tool call record (non-stream): {}", e)
-                        }
-                    }
-                }
+                // 统一处理（会覆盖 tool_calls_json，插入 UI 注释，并 emit 事件）
+                let _ = handle_captured_tool_calls_common(
+                    app_handle,
+                    conversation_db,
+                    window,
+                    conversation_id,
+                    response_message_id,
+                    &tool_calls,
+                    &mut content,
+                    true,
+                ).await;
             }
 
             let mut message =
