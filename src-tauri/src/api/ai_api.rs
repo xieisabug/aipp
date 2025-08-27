@@ -10,7 +10,7 @@ use crate::api::ai::conversation::{build_chat_messages, init_conversation};
 use crate::api::ai::events::{ConversationEvent, MessageAddEvent, MessageUpdateEvent};
 use crate::api::ai::mcp::{collect_mcp_info_for_assistant, format_mcp_prompt};
 use crate::api::ai::title::generate_title;
-use crate::api::ai::types::{AiRequest, AiResponse, McpOverrideConfig, McpHandlerConfig};
+use crate::api::ai::types::{AiRequest, AiResponse, McpOverrideConfig};
 use crate::api::assistant_api::{get_assistant, get_assistants};
 use crate::api::genai_client;
 use crate::db::conversation_db::{AttachmentType, Repository};
@@ -40,12 +40,11 @@ pub async fn ask_ai(
     override_model_config: Option<HashMap<String, serde_json::Value>>,
     override_prompt: Option<String>,
     override_mcp_config: Option<McpOverrideConfig>,
-    mcp_handlers: Option<McpHandlerConfig>,
 ) -> Result<AiResponse, AppError> {
     println!("================================ Ask AI Start ===============================================");
     println!(
-        "ask_ai - [[request]]: {:#?}\n[[override_model_config]]: {:#?}\n[[override_prompt]]: {:#?}\n[[override_mcp_config]]: {:#?}\n[[mcp_handlers]]: {:#?}\n",
-        request, override_model_config, override_prompt, override_mcp_config, mcp_handlers
+        "ask_ai - [[request]]: {:#?}\n[[override_model_config]]: {:#?}\n[[override_prompt]]: {:#?}\n[[override_mcp_config]]: {:#?}\n",
+        request, override_model_config, override_prompt, override_mcp_config
     );
 
     let assistants = get_assistants(app_handle.clone())
@@ -82,7 +81,7 @@ pub async fn ask_ai(
 
     // 收集 MCP 信息
     let mcp_info =
-        collect_mcp_info_for_assistant(&app_handle, processed_request.assistant_id).await?;
+        collect_mcp_info_for_assistant(&app_handle, processed_request.assistant_id, override_mcp_config.as_ref()).await?;
     println!(
         "[[MCP enabled_servers]]: {} [[native_toolcall]]: {}\n",
         mcp_info.enabled_servers.len(),
@@ -307,6 +306,7 @@ pub async fn ask_ai(
                 None,               // 普通ask_ai不需要parent_group_id
                 model_id,           // 传递模型ID
                 model_code.clone(), // 传递模型名称
+                override_mcp_config, // MCP override配置
             )
             .await?;
         } else {
@@ -329,6 +329,7 @@ pub async fn ask_ai(
                 None,               // 普通ask_ai不需要parent_group_id
                 model_id,           // 传递模型ID
                 model_code.clone(), // 传递模型名称
+                override_mcp_config, // MCP override配置
             )
             .await?;
         }
@@ -447,7 +448,7 @@ pub async fn tool_result_continue_ask_ai(
     let init_message_list = sort_messages_by_group_and_id(init_message_list, &all_messages);
 
     // 收集 MCP 信息
-    let mcp_info = collect_mcp_info_for_assistant(&app_handle, assistant_id).await?;
+    let mcp_info = collect_mcp_info_for_assistant(&app_handle, assistant_id, None).await?;
     let is_native_toolcall = mcp_info.use_native_toolcall;
 
     let cancel_token = CancellationToken::new();
@@ -674,6 +675,7 @@ pub async fn tool_result_continue_ask_ai(
             None,           // no parent_group_id
             model_id,
             model_code.clone(),
+            None,           // no MCP override config
         ))
         .await?;
     } else {
@@ -695,6 +697,7 @@ pub async fn tool_result_continue_ask_ai(
             None,           // no parent_group_id
             model_id,
             model_code.clone(),
+            None,           // no MCP override config
         ))
         .await?;
     }
@@ -793,7 +796,7 @@ pub async fn regenerate_ai(
 
     // 兼容 MCP：根据助手配置判断是否使用提供商原生 toolcall
     let mcp_info =
-        crate::api::ai::mcp::collect_mcp_info_for_assistant(&app_handle, assistant_id).await?;
+        crate::api::ai::mcp::collect_mcp_info_for_assistant(&app_handle, assistant_id, None).await?;
     let is_native_toolcall = mcp_info.use_native_toolcall;
 
     // 确定要使用的generation_group_id和parent_group_id
@@ -961,7 +964,7 @@ pub async fn regenerate_ai(
             // 重新拉取一次助手的 MCP 工具，确保一致
             let mut tools: Vec<Tool> = Vec::new();
             if let Ok(mcp_info) =
-                crate::api::ai::mcp::collect_mcp_info_for_assistant(&app_handle_clone, assistant_id)
+                crate::api::ai::mcp::collect_mcp_info_for_assistant(&app_handle_clone, assistant_id, None)
                     .await
             {
                 for server in &mcp_info.enabled_servers {
@@ -1007,6 +1010,7 @@ pub async fn regenerate_ai(
                 regenerate_parent_group_id.clone(),     // 传递parent_group_id设置版本关系
                 regenerate_model_id,                    // 传递模型ID
                 regenerate_model_code.clone(),          // 传递模型名称
+                None,                                   // regenerate 不使用 MCP override
             )
             .await?;
         } else {
@@ -1029,6 +1033,7 @@ pub async fn regenerate_ai(
                 regenerate_parent_group_id.clone(),     // 传递parent_group_id设置版本关系
                 regenerate_model_id,                    // 传递模型ID
                 regenerate_model_code.clone(),          // 传递模型名称
+                None,                                   // regenerate 不使用 MCP override
             )
             .await?;
         }

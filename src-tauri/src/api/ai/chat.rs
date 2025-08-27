@@ -1,5 +1,6 @@
 use crate::api::ai::config::{calculate_retry_delay, get_retry_attempts_from_config};
 use crate::api::ai::events::{ConversationEvent, MessageAddEvent, MessageUpdateEvent};
+use crate::api::ai::types::{McpOverrideConfig};
 use crate::db::assistant_db::Assistant;
 use crate::db::conversation_db::{ConversationDatabase, Message, Repository};
 use crate::db::system_db::FeatureConfig;
@@ -184,6 +185,7 @@ async fn handle_captured_tool_calls_common(
     captured_tool_calls: &[ToolCall],
     response_content: &mut String,
     emit_tool_call_events: bool,
+    mcp_override_config: Option<&McpOverrideConfig>,
 ) -> anyhow::Result<()> {
     // 先将完整的 tool_calls JSON 覆盖保存到消息，保证数据源一致
     if let Ok(Some(mut msg)) = conversation_db
@@ -276,7 +278,16 @@ async fn handle_captured_tool_calls_common(
                             for s in servers.iter() {
                                 if s.name == server_name && s.is_enabled {
                                     if let Some(t) = s.tools.iter().find(|t| t.name == tool_name && t.is_enabled) {
-                                        if t.is_auto_run { should_auto_run = true; }
+                                        // Check for override auto-run setting
+                                        let tool_key = format!("{}/{}", server_name, tool_name);
+                                        let auto_run = mcp_override_config
+                                            .and_then(|config| config.tool_auto_run.as_ref())
+                                            .and_then(|auto_run_map| auto_run_map.get(&tool_key))
+                                            .unwrap_or(&t.is_auto_run);
+                                        
+                                        if *auto_run { 
+                                            should_auto_run = true; 
+                                        }
                                     }
                                 }
                             }
@@ -912,6 +923,7 @@ pub async fn handle_stream_chat(
     parent_group_id_override: Option<String>,
     llm_model_id: i64,
     llm_model_name: String,
+    mcp_override_config: Option<McpOverrideConfig>,
 ) -> Result<(), anyhow::Error> {
     let mut main_attempts = 0;
     let app_handle_clone = app_handle.clone();
@@ -942,6 +954,7 @@ pub async fn handle_stream_chat(
             parent_group_id_override.clone(),
             llm_model_id,
             llm_model_name.clone(),
+            mcp_override_config.clone(),
         )
         .await;
 
@@ -1010,6 +1023,7 @@ async fn attempt_stream_chat(
     parent_group_id_override: Option<String>,
     llm_model_id: i64,
     llm_model_name: String,
+    mcp_override_config: Option<McpOverrideConfig>,
 ) -> Result<(), anyhow::Error> {
     // 尝试建立流式连接
     println!("[[establishing_stream_connection_model]]: {}", model_name);
@@ -1245,6 +1259,7 @@ async fn attempt_stream_chat(
                                             &captured_tool_calls,
                                             &mut response_content,
                                             true,
+                                            mcp_override_config.as_ref(),
                                         ).await;
                                     }
                                 }
@@ -1457,6 +1472,7 @@ pub async fn handle_non_stream_chat(
     parent_group_id_override: Option<String>,
     llm_model_id: i64,
     llm_model_name: String,
+    mcp_override_config: Option<McpOverrideConfig>,
 ) -> Result<(), anyhow::Error> {
     let generation_group_id =
         generation_group_id_override.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
@@ -1614,6 +1630,7 @@ pub async fn handle_non_stream_chat(
                     &tool_calls,
                     &mut content,
                     true,
+                    mcp_override_config.as_ref(),
                 ).await;
             }
 

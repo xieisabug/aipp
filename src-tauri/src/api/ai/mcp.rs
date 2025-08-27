@@ -15,6 +15,7 @@ pub struct MCPInfoForAssistant {
 pub async fn collect_mcp_info_for_assistant(
     app_handle: &tauri::AppHandle,
     assistant_id: i64,
+    mcp_override_config: Option<&crate::api::ai::types::McpOverrideConfig>,
 ) -> Result<MCPInfoForAssistant, AppError> {
     let use_native_toolcall = match super::super::assistant_api::get_assistant_field_value(
         app_handle.clone(),
@@ -28,6 +29,11 @@ pub async fn collect_mcp_info_for_assistant(
         }
     };
 
+    // Apply override configuration for use_native_toolcall if provided
+    let final_use_native_toolcall = mcp_override_config
+        .and_then(|config| config.use_native_toolcall)
+        .unwrap_or(use_native_toolcall);
+
     let all_servers = get_assistant_mcp_servers_with_tools(app_handle.clone(), assistant_id)
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to get MCP servers: {}", e)))?;
@@ -36,7 +42,7 @@ pub async fn collect_mcp_info_for_assistant(
     let enabled_servers: Vec<MCPServerWithTools> =
         all_servers.into_iter().filter(|server| server.is_enabled).collect();
 
-    Ok(MCPInfoForAssistant { enabled_servers, use_native_toolcall })
+    Ok(MCPInfoForAssistant { enabled_servers, use_native_toolcall: final_use_native_toolcall })
 }
 
 pub async fn format_mcp_prompt(
