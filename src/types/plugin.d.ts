@@ -42,32 +42,6 @@ interface AddFieldOptions {
     fieldConfig?: FieldConfig;
 }
 
-interface AskAiOptions {
-    question: string;
-    modelId: string;
-    conversationId?: string;
-    
-    // 增强配置能力（与AskAssistantOptions对等）
-    fileInfoList?: FileInfo[];
-    overrideModelConfig?: Map<string, any>;
-    overrideSystemPrompt?: string;
-    overrideMcpConfig?: McpOverrideConfig;
-    
-    // MCP生命周期事件处理器
-    onMcpToolDetected?: McpDetectedHandler;
-    onMcpToolExecuting?: McpExecutingHandler;
-    onMcpToolResult?: McpResultHandler;
-    
-    // 消息处理回调
-    onCustomUserMessage?: (question: string, modelId: string, conversationId?: string) => any;
-    onCustomUserMessageComing?: (aiResponse: AiResponse) => void;
-    onStreamMessageListener?: (
-        payload: string,
-        aiResponse: AiResponse,
-        responseIsResponsingFunction: (isFinish: boolean) => void
-    ) => void;
-}
-
 interface AskAssistantOptions {
     question: string;
     assistantId: string;
@@ -75,6 +49,7 @@ interface AskAssistantOptions {
     fileInfoList?: FileInfo[];
     overrideModelConfig?: Map<string, any>;
     overrideSystemPrompt?: string;
+    overrideModelId?: string;
     overrideMcpConfig?: McpOverrideConfig;
     
     // MCP生命周期事件处理器
@@ -122,7 +97,6 @@ interface FieldConfig {
 }
 
 interface AssistantRunApi {
-    askAI(options: AskAiOptions): AskAiResponse;
     askAssistant(options: AskAssistantOptions): Promise<AiResponse>;
     getUserInput(): string;
     getModelId(): string;
@@ -259,10 +233,6 @@ interface McpToolCall {
     created_time: Date;
     started_time?: Date;
     finished_time?: Date;
-}
-
-declare class AskAiResponse {
-    answer: string;
 }
 
 declare class Config {

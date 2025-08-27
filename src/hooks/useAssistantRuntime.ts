@@ -31,42 +31,6 @@ export function useAssistantRuntime({
     
     // 助手运行时API接口，提供给插件在运行时使用
     const assistantRunApi: AssistantRunApi = {
-        askAI: function (options: AskAiOptions): AskAiResponse {
-            const { 
-                question, 
-                modelId, 
-                conversationId, 
-                fileInfoList: _fileInfoListParam,
-                overrideModelConfig,
-                overrideSystemPrompt,
-                overrideMcpConfig,
-                onMcpToolDetected,
-                onMcpToolExecuting,
-                onMcpToolResult,
-                onCustomUserMessage: _onCustomUserMessage,
-                onCustomUserMessageComing: _onCustomUserMessageComing,
-                onStreamMessageListener: _onStreamMessageListener
-            } = options;
-            
-            console.log("ask AI", {
-                question, 
-                modelId, 
-                conversationId,
-                overrideModelConfig,
-                overrideSystemPrompt,
-                overrideMcpConfig,
-                hasMcpHandlers: !!(onMcpToolDetected || onMcpToolExecuting || onMcpToolResult),
-                hasFileInfo: !!_fileInfoListParam,
-                hasCallbacks: !!(_onCustomUserMessage || _onCustomUserMessageComing || _onStreamMessageListener)
-            });
-            
-            // TODO: 实现完整的askAI逻辑，包括MCP事件处理器的传递
-            // 这里需要调用后端API并传递MCP事件处理器
-            
-            return {
-                answer: "",
-            };
-        },
         askAssistant: function (options: AskAssistantOptions): Promise<AiResponse> {
             const {
                 question,
@@ -75,6 +39,7 @@ export function useAssistantRuntime({
                 fileInfoList: fileInfoListParam,
                 overrideModelConfig,
                 overrideSystemPrompt,
+                overrideModelId,
                 overrideMcpConfig,
                 onMcpToolDetected,
                 onMcpToolExecuting,
@@ -91,6 +56,7 @@ export function useAssistantRuntime({
                 conversationId,
                 overrideModelConfig,
                 overrideSystemPrompt,
+                overrideModelId,
                 overrideMcpConfig,
                 "hasMcpHandlers:",
                 !!(onMcpToolDetected || onMcpToolExecuting || onMcpToolResult)
@@ -123,6 +89,7 @@ export function useAssistantRuntime({
                     prompt: question,
                     conversation_id: conversationId,
                     assistant_id: +assistantId,
+                    override_model_id: overrideModelId,
                     attachment_list: fileInfoListParam?.map((i) => i.id),
                 },
                 overrideModelConfig: overrideModelConfig,

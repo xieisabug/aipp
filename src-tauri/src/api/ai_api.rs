@@ -10,7 +10,7 @@ use crate::api::ai::conversation::{build_chat_messages, init_conversation};
 use crate::api::ai::events::{ConversationEvent, MessageAddEvent, MessageUpdateEvent};
 use crate::api::ai::mcp::{collect_mcp_info_for_assistant, format_mcp_prompt};
 use crate::api::ai::title::generate_title;
-use crate::api::ai::types::{AiRequest, AiResponse};
+use crate::api::ai::types::{AiRequest, AiResponse, McpOverrideConfig, McpHandlerConfig};
 use crate::api::assistant_api::{get_assistant, get_assistants};
 use crate::api::genai_client;
 use crate::db::conversation_db::{AttachmentType, Repository};
@@ -39,11 +39,13 @@ pub async fn ask_ai(
     request: AiRequest,
     override_model_config: Option<HashMap<String, serde_json::Value>>,
     override_prompt: Option<String>,
+    override_mcp_config: Option<McpOverrideConfig>,
+    mcp_handlers: Option<McpHandlerConfig>,
 ) -> Result<AiResponse, AppError> {
     println!("================================ Ask AI Start ===============================================");
     println!(
-        "ask_ai - [[request]]: {:#?}\n[[override_model_config]]: {:#?}\n[[override_prompt]]: {:#?}\n",
-        request, override_model_config, override_prompt
+        "ask_ai - [[request]]: {:#?}\n[[override_model_config]]: {:#?}\n[[override_prompt]]: {:#?}\n[[override_mcp_config]]: {:#?}\n[[mcp_handlers]]: {:#?}\n",
+        request, override_model_config, override_prompt, override_mcp_config, mcp_handlers
     );
 
     let assistants = get_assistants(app_handle.clone())
@@ -144,11 +146,28 @@ pub async fn ask_ai(
 
     // 在异步任务外获取模型详情（避免线程安全问题）
     let llm_db = LLMDatabase::new(&app_handle).map_err(AppError::from)?;
-    let provider_id = &assistant_detail.model[0].provider_id;
-    let model_code = &assistant_detail.model[0].model_code;
-    let model_detail = llm_db
-        .get_llm_model_detail(provider_id, model_code)
-        .context("Failed to get LLM model detail")?;
+    
+    // 检查是否需要覆盖模型
+    let model_detail = if let Some(override_model_id) = &processed_request.override_model_id {
+        println!("Using override model ID: {}", override_model_id);
+        let parts: Vec<&str> = override_model_id.split("%%").collect();
+        if parts.len() != 2 {
+            return Err(AppError::UnknownError("Invalid override model ID format".to_string()));
+        }
+        let (model_code, provider_id) = (parts[0], parts[1]);
+        let provider_id_i64 = &provider_id.parse::<i64>().map_err(|e| AppError::UnknownError(format!("Invalid provider_id: {}", e)))?;
+        let model_code_string = model_code.to_string();
+        llm_db
+            .get_llm_model_detail(provider_id_i64, &model_code_string)
+            .context("Failed to get LLM model detail")?
+    } else {
+        // 使用助手的默认模型
+        let provider_id = &assistant_detail.model[0].provider_id;
+        let model_code = &assistant_detail.model[0].model_code;
+        llm_db
+            .get_llm_model_detail(provider_id, model_code)
+            .context("Failed to get LLM model detail")?
+    };
 
     let tokens = message_token_manager.get_tokens();
     let window_clone = window.clone(); // 在移动之前克隆
@@ -706,7 +725,6 @@ pub async fn regenerate_ai(
     message_id: i64,
 ) -> Result<AiResponse, AppError> {
     println!("================================ Regenerate AI Start ===============================================");
-    // TODO 没有兼容mcp
     let db = ConversationDatabase::new(&app_handle).map_err(AppError::from)?;
     let message = db
         .message_repo()

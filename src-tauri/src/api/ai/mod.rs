@@ -3,5 +3,6 @@ pub mod config;
 pub mod conversation;
 pub mod events;
 pub mod mcp;
+pub mod mcp_events;
 pub mod title;
 pub mod types;
