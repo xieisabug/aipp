@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 
 // 用于存储AskAssistantApi中对应的处理函数
 interface AskAssistantApiFunctions {
@@ -28,23 +28,26 @@ export function usePluginManagement(pluginList: any[]): UsePluginManagementRetur
     // 插件函数映射表，用于存储每个消息对应的处理函数
     const [functionMap, setFunctionMap] = useState<Map<number, AskAssistantApiFunctions>>(new Map());
 
-    // 助手类型API接口，提供给插件使用
-    const assistantTypeApi: AssistantTypeApi = {
-        typeRegist: (_: number, code: number, __: string, pluginInstance: AippAssistantTypePlugin & AippPlugin) => {
-            setAssistantTypePluginMap((prev) => {
-                const newMap = new Map(prev);
-                newMap.set(code, pluginInstance);
-                return newMap;
-            });
-        },
-        markdownRemarkRegist: (_: any) => {},
-        changeFieldLabel: (_: string, __: string) => {},
-        addField: (_: AddFieldOptions) => {},
-        addFieldTips: (_: string, __: string) => {},
-        hideField: (_: string) => {},
-        runLogic: (_: (assistantRunApi: AssistantRunApi) => void) => {},
-        forceFieldValue: (_: string, __: string) => {},
-    };
+    // 助手类型API接口，提供给插件使用 - 使用 useMemo 避免重复创建
+    const assistantTypeApi: AssistantTypeApi = useMemo(
+        () => ({
+            typeRegist: (pluginType: number, code: number, label: string, pluginInstance: AippAssistantTypePlugin) => {
+                setAssistantTypePluginMap((prev) => {
+                    const newMap = new Map(prev);
+                    newMap.set(code, pluginInstance);
+                    return newMap;
+                });
+            },
+            markdownRemarkRegist: (_: any) => {},
+            changeFieldLabel: (_: string, __: string) => {},
+            addField: (_: AddFieldOptions) => {},
+            addFieldTips: (_: string, __: string) => {},
+            hideField: (_: string) => {},
+            runLogic: (_: (assistantRunApi: AssistantRunApi) => void) => {},
+            forceFieldValue: (_: string, __: string) => {},
+        }),
+        []
+    );
 
     // 为指定消息设置函数映射
     const setFunctionMapForMessage = useCallback((messageId: number) => {
@@ -72,9 +75,11 @@ export function usePluginManagement(pluginList: any[]): UsePluginManagementRetur
         pluginList
             .filter((plugin: any) => plugin.pluginType.includes("assistantType"))
             .forEach((plugin: any) => {
-                plugin.instance?.onAssistantTypeInit(assistantTypeApi);
+                if (plugin.instance) {
+                    plugin.instance?.onAssistantTypeInit(assistantTypeApi);
+                }
             });
-    }, [pluginList]);
+    }, [pluginList, assistantTypeApi]);
 
     return {
         assistantTypePluginMap,

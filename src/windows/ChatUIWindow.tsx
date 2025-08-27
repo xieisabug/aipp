@@ -55,12 +55,18 @@ function ChatUIWindow() {
                 pluginType: ["assistantType"],
                 instance: null,
             },
+            {
+                name: "DeepResearch",
+                code: "deepresearch",
+                pluginType: ["assistantType"],
+                instance: null,
+            },
         ];
 
         const initPlugin = async () => {
             const dirPath = await appDataDir();
             const loadPromises = pluginLoadList.map(async (plugin) => {
-                const convertFilePath = dirPath + "plugin/" + plugin.code + "/dist/main.js";
+                const convertFilePath = dirPath + "/plugin/" + plugin.code + "/dist/main.js";
 
                 return new Promise<void>((resolve) => {
                     const script = document.createElement("script");
@@ -69,8 +75,11 @@ function ChatUIWindow() {
                         const SamplePlugin = (window as any).SamplePlugin;
                         if (SamplePlugin) {
                             plugin.instance = new SamplePlugin();
-                            console.log("plugin loaded", plugin.instance);
                         }
+                        resolve();
+                    };
+                    script.onerror = (error) => {
+                        console.error("Failed to load plugin script", plugin.name, error);
                         resolve();
                     };
                     document.body.appendChild(script);
@@ -82,7 +91,6 @@ function ChatUIWindow() {
 
             // 所有插件实例都准备好后再更新状态
             setPluginList([...pluginLoadList]);
-            console.log("setPluginList");
         };
 
         initPlugin();
