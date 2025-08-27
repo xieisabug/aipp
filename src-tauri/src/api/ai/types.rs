@@ -4,6 +4,8 @@ use std::collections::HashMap;
 // MCP配置覆盖
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct McpOverrideConfig {
+    // 覆盖所有工具的自动运行配置（优先级高于tool_auto_run）
+    pub all_tool_auto_run: Option<bool>,
     // 覆盖特定工具的自动运行配置
     pub tool_auto_run: Option<HashMap<String, bool>>,  // "serverId/toolName" -> autoRun
     // 覆盖是否使用原生工具调用

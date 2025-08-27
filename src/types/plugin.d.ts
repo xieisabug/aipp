@@ -133,6 +133,8 @@ interface McpProviderInfo {
 
 // MCP配置覆盖
 interface McpOverrideConfig {
+    // 覆盖所有工具的自动运行配置（优先级高于toolAutoRun）
+    allToolAutoRun?: boolean;
     // 覆盖特定工具的自动运行配置
     toolAutoRun?: Record<string, boolean>;  // "serverId/toolName" -> autoRun
     // 覆盖是否使用原生工具调用
