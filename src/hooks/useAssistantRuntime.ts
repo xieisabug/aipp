@@ -41,9 +41,6 @@ export function useAssistantRuntime({
                 overrideSystemPrompt,
                 overrideModelId,
                 overrideMcpConfig,
-                onMcpToolDetected,
-                onMcpToolExecuting,
-                onMcpToolResult,
                 onCustomUserMessage,
                 onCustomUserMessageComing: _onCustomUserMessageComing,
                 onStreamMessageListener: _onStreamMessageListener
@@ -57,9 +54,7 @@ export function useAssistantRuntime({
                 overrideModelConfig,
                 overrideSystemPrompt,
                 overrideModelId,
-                overrideMcpConfig,
-                "hasMcpHandlers:",
-                !!(onMcpToolDetected || onMcpToolExecuting || onMcpToolResult)
+                overrideMcpConfig
             );
             let userMessage: any;
             if (onCustomUserMessage) {
@@ -95,12 +90,6 @@ export function useAssistantRuntime({
                 overrideModelConfig: overrideModelConfig,
                 overridePrompt: overrideSystemPrompt,
                 overrideMcpConfig: overrideMcpConfig,
-                // 传递MCP事件处理器到后端
-                mcpHandlers: {
-                    onMcpToolDetected,
-                    onMcpToolExecuting,
-                    onMcpToolResult
-                }
             })
                 .then((res) => {
                     console.log("ask assistant response", res);

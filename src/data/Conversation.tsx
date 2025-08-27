@@ -83,63 +83,6 @@ export interface MCPToolCallUpdateEvent {
     finished_time?: Date;
 }
 
-// MCP Event Handler Types (for frontend-backend communication)
-export interface McpDetectedEventRequest {
-    server_id: string;
-    tool_name: string;
-    parameters: Record<string, any>;
-    conversation_id: number;
-}
-
-export interface McpExecutingEventRequest {
-    call_id: number;
-    server_id: string;
-    tool_name: string;
-    status: 'running' | 'pending';
-}
-
-export interface McpResultEventRequest {
-    call_id: number;
-    server_id: string;
-    tool_name: string;
-    result: string;
-    error?: string;
-}
-
-// MCP Control Response Types
-export interface McpDetectedControl {
-    action: 'Default' | 'Execute' | 'Skip' | 'Abort';
-    modified_parameters?: Record<string, any>;
-    reason?: string;
-}
-
-export interface McpExecutingControl {
-    action: 'Default' | 'Abort';
-    reason?: string;
-}
-
-export interface McpResultControl {
-    action: 'Default' | 'Continue' | 'Skip' | 'Abort';
-    custom_message?: string;
-    reason?: string;
-}
-
-// MCP Event Data Types (wrapper for events with response IDs)
-export interface McpDetectedEventData {
-    request: McpDetectedEventRequest;
-    response_id: string;
-}
-
-export interface McpExecutingEventData {
-    request: McpExecutingEventRequest;
-    response_id: string;
-}
-
-export interface McpResultEventData {
-    request: McpResultEventRequest;
-    response_id: string;
-}
-
 // 消息类型枚举
 export type MessageType = 'system' | 'user' | 'assistant' | 'reasoning' | 'response' | 'error';
 
