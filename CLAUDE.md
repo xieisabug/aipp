@@ -1,7 +1,3 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Project Overview
 
 AIPP (AI 助手平台) is a cross-platform desktop application built with Tauri 2.0 that serves as a comprehensive AI assistant platform. The application enables users to interact with multiple large language models, execute scripts, preview components, manage conversations, and extend functionality through MCP (Model Context Protocol).

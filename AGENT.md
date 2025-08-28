@@ -1,0 +1,1 @@
+E:/workspace/rust/ai-assistant/CLAUDE.md
