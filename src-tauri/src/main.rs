@@ -1,6 +1,7 @@
 #![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]
 
 mod api;
+mod mcp;
 mod artifacts;
 mod db;
 mod errors;
@@ -41,16 +42,16 @@ use crate::api::llm_api::{
     get_models_for_select, import_llm_provider, preview_model_list, update_llm_provider,
     update_llm_provider_config, update_selected_models,
 };
-use crate::api::mcp_api::{
+use crate::mcp::registry_api::{
     add_mcp_server, build_mcp_prompt, delete_mcp_server, get_mcp_provider,
     get_mcp_server, get_mcp_server_prompts, get_mcp_server_resources, get_mcp_server_tools,
     get_mcp_servers, refresh_mcp_server_capabilities, test_mcp_connection, toggle_mcp_server,
     update_mcp_server, update_mcp_server_prompt, update_mcp_server_tool,
 };
-use crate::api::builtin_mcp_api::{
+use crate::mcp::builtin_api::{
     list_aipp_builtin_templates, add_or_update_aipp_builtin_server, execute_aipp_builtin_tool,
 };
-use crate::api::mcp_execution_api::{
+use crate::mcp::execution_api::{
     create_mcp_tool_call, execute_mcp_tool_call, get_mcp_tool_call,
     get_mcp_tool_calls_by_conversation,
 };

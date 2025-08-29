@@ -175,7 +175,7 @@ pub async fn test_mcp_connection(
     let test_result = match server.transport_type.as_str() {
         "stdio" => {
             if let Some(cmd) = &server.command {
-                if crate::api::builtin_mcp_api::is_builtin_mcp_call(cmd) {
+                if crate::mcp::builtin_api::is_builtin_mcp_call(cmd) {
                     // 内置 aipp:* 不需要实际连接
                     Ok(())
                 } else {
@@ -365,9 +365,9 @@ pub async fn refresh_mcp_server_capabilities(
         "stdio" => {
             // If aipp builtin server, register tools directly
             if let Some(cmd) = &server.command {
-                if crate::api::builtin_mcp_api::is_builtin_mcp_call(cmd) {
+                if crate::mcp::builtin_api::is_builtin_mcp_call(cmd) {
                     let db = MCPDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-                    for tool in crate::api::builtin_mcp_api::get_builtin_tools_for_command(cmd) {
+                    for tool in crate::mcp::builtin_api::get_builtin_tools_for_command(cmd) {
                         let params_json = tool.input_schema.to_string();
                         let _ = db.upsert_mcp_server_tool(server_id, &tool.name, Some(&tool.description), Some(&params_json));
                     }
@@ -838,7 +838,7 @@ pub async fn build_mcp_prompt(
     app_handle: tauri::AppHandle,
     provider_ids: Vec<String>,
 ) -> Result<String, String> {
-    use crate::api::ai::mcp::format_mcp_prompt;
+    use crate::mcp::format_mcp_prompt;
     use crate::api::assistant_api::{MCPServerWithTools, MCPToolInfo};
     
     let db = MCPDatabase::new(&app_handle).map_err(|e: rusqlite::Error| e.to_string())?;
@@ -901,7 +901,7 @@ pub async fn build_mcp_prompt(
     }
     
     // Build MCPInfoForAssistant structure
-    let mcp_info = crate::api::ai::mcp::MCPInfoForAssistant {
+    let mcp_info = crate::mcp::MCPInfoForAssistant {
         enabled_servers,
         use_native_toolcall: false, // For prompt generation, we use prompt-based mode
     };

@@ -205,7 +205,7 @@ async fn handle_captured_tool_calls_common(
         let params_str = tool_call.fn_arguments.to_string();
 
         // 创建工具调用记录
-        match crate::api::mcp_execution_api::create_mcp_tool_call_with_llm_id(
+    match crate::mcp::execution_api::create_mcp_tool_call_with_llm_id(
             app_handle.clone(),
             conversation_id,
             Some(response_message_id),
@@ -303,7 +303,7 @@ async fn handle_captured_tool_calls_common(
                                 let state = app_handle.state::<crate::AppState>();
                                 let feature_config_state = app_handle.state::<crate::FeatureConfigState>();
                                 let message_token_manager = app_handle.state::<crate::state::message_token::MessageTokenManager>();
-                                if let Err(e) = crate::api::mcp_execution_api::execute_mcp_tool_call(
+                                if let Err(e) = crate::mcp::execution_api::execute_mcp_tool_call(
                                     app_handle.clone(),
                                     state,
                                     feature_config_state,

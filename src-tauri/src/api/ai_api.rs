@@ -8,7 +8,7 @@ use crate::api::ai::config::{
 };
 use crate::api::ai::conversation::{build_chat_messages, init_conversation};
 use crate::api::ai::events::{ConversationEvent, MessageAddEvent, MessageUpdateEvent};
-use crate::api::ai::mcp::{collect_mcp_info_for_assistant, format_mcp_prompt};
+use crate::mcp::{collect_mcp_info_for_assistant, format_mcp_prompt};
 use crate::api::ai::title::generate_title;
 use crate::api::ai::types::{AiRequest, AiResponse, McpOverrideConfig};
 use crate::api::assistant_api::{get_assistant, get_assistants};
@@ -796,7 +796,7 @@ pub async fn regenerate_ai(
 
     // 兼容 MCP：根据助手配置判断是否使用提供商原生 toolcall
     let mcp_info =
-        crate::api::ai::mcp::collect_mcp_info_for_assistant(&app_handle, assistant_id, None).await?;
+        crate::mcp::collect_mcp_info_for_assistant(&app_handle, assistant_id, None).await?;
     let is_native_toolcall = mcp_info.use_native_toolcall;
 
     // 确定要使用的generation_group_id和parent_group_id
@@ -964,7 +964,7 @@ pub async fn regenerate_ai(
             // 重新拉取一次助手的 MCP 工具，确保一致
             let mut tools: Vec<Tool> = Vec::new();
             if let Ok(mcp_info) =
-                crate::api::ai::mcp::collect_mcp_info_for_assistant(&app_handle_clone, assistant_id, None)
+                crate::mcp::collect_mcp_info_for_assistant(&app_handle_clone, assistant_id, None)
                     .await
             {
                 for server in &mcp_info.enabled_servers {

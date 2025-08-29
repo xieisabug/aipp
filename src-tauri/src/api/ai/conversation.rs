@@ -307,7 +307,7 @@ pub async fn handle_message_type_end(
     conversation_db.message_repo()?.update_finish_time(message_id)?;
 
     if message_type == "response" && !skip_mcp_detection {
-        if let Err(e) = crate::api::ai::mcp::detect_and_process_mcp_calls(
+    if let Err(e) = crate::mcp::detect_and_process_mcp_calls(
             app_handle,
             window,
             conversation_id,

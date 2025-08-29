@@ -435,7 +435,7 @@ async fn trigger_conversation_continuation(
         assistant_id,
         tool_call_id,
         result.to_string(),
-    )
+)   
     .await
     .map_err(|e| format!("触发对话继续失败: {:?}", e))?;
 
@@ -453,7 +453,7 @@ async fn execute_tool_by_transport(
         // If stdio but command is aipp:*, route to builtin executor
         "stdio" => {
             if let Some(cmd) = &server.command {
-                if crate::api::builtin_mcp_api::is_builtin_mcp_call(cmd) {
+                if crate::mcp::builtin_api::is_builtin_mcp_call(cmd) {
                     execute_builtin_tool(app_handle, server, tool_name, parameters).await
                 } else {
                     execute_stdio_tool(app_handle, server, tool_name, parameters).await
@@ -480,7 +480,7 @@ async fn execute_stdio_tool(
 ) -> Result<String, String> {
     // If command is aipp:*, delegate to builtin executor
     if let Some(cmd) = &server.command {
-        if crate::api::builtin_mcp_api::is_builtin_mcp_call(cmd) {
+        if crate::mcp::builtin_api::is_builtin_mcp_call(cmd) {
             return execute_builtin_tool(app_handle, server, tool_name, parameters).await;
         }
     }
@@ -642,7 +642,7 @@ async fn execute_builtin_tool(
     tool_name: &str,
     parameters: &str,
 ) -> Result<String, String> {
-    use crate::api::builtin_mcp_api::{execute_aipp_builtin_tool, is_builtin_mcp_call};
+    use crate::mcp::builtin_api::{execute_aipp_builtin_tool, is_builtin_mcp_call};
 
     // 验证是否为内置工具调用
     let command = server.command.clone().unwrap_or_default();
@@ -743,4 +743,3 @@ async fn execute_http_tool(
         Err(_) => Err("Timeout while executing tool".to_string()),
     }
 }
-
