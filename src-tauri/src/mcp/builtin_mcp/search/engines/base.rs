@@ -53,8 +53,8 @@ impl SearchEngineBase {
         let main_patterns = [
             r"(?is)<main[^>]*>(.*?)</main>",
             r"(?is)<article[^>]*>(.*?)</article>",
-            r#"(?is)<div[^>]*id="?content"?[^>]*>(.*?)</div>"#,
-            r#"(?is)<div[^>]*class="[^"]*content[^"]*"[^>]*>(.*?)</div>"#,
+            r#"(?is)<div[^>]*id=\"?content\"?[^>]*>(.*?)</div>"#,
+            r#"(?is)<div[^>]*class=\"[^"]*content[^"]*\"[^>]*>(.*?)</div>"#,
         ];
         
         for pattern in &main_patterns {
@@ -89,7 +89,7 @@ impl SearchEngineBase {
         markdown = p_pattern.replace_all(&markdown, "$1\n\n").to_string();
         
         // 链接转换
-        let link_pattern = regex::Regex::new(r#"(?is)<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>"#).unwrap();
+        let link_pattern = regex::Regex::new(r#"(?is)<a[^>]*href=\"([^\"]*)\"[^>]*>(.*?)</a>"#).unwrap();
         markdown = link_pattern.replace_all(&markdown, "[$2]($1)").to_string();
         
         // 粗体和斜体

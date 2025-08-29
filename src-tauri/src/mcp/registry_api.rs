@@ -1,4 +1,4 @@
-use crate::db::mcp_db::{
+use crate::mcp::mcp_db::{
     MCPDatabase, MCPServer, MCPServerPrompt, MCPServerResource, MCPServerTool,
 };
 use anyhow::Result;

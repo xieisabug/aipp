@@ -1,7 +1,7 @@
 use crate::api::ai::events::{ConversationEvent, MCPToolCallUpdateEvent};
 use crate::api::ai_api::tool_result_continue_ask_ai;
 use crate::db::conversation_db::{ConversationDatabase, Repository};
-use crate::db::mcp_db::{MCPDatabase, MCPServer, MCPToolCall};
+use crate::mcp::mcp_db::{MCPDatabase, MCPServer, MCPToolCall};
 use anyhow::Result;
 use tauri::Emitter;
 

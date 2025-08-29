@@ -1,23 +1,24 @@
-use crate::api::builtin_mcp::search::types::{SearchItem, SearchResults};
+use crate::mcp::builtin_mcp::search::types::{SearchItem, SearchResults};
 use scraper::{Html, Selector};
 
-/// Kagi搜索引擎实现
-pub struct KagiEngine;
+/// DuckDuckGo搜索引擎实现
+pub struct DuckDuckGoEngine;
 
-impl KagiEngine {
+impl DuckDuckGoEngine {
     pub fn display_name() -> &'static str {
-        "Kagi"
+        "DuckDuckGo"
     }
     
     pub fn homepage_url() -> &'static str {
-        "https://kagi.com"
+        "https://duckduckgo.com"
     }
     
     pub fn search_input_selectors() -> Vec<&'static str> {
         vec![
+            "#search_form_input",
             "input[name='q']",
-            "#searchInput",
-            ".search-input",
+            "#searchbox_input", 
+            ".js-search-input",
             "input[placeholder*='搜索']",
             "input[placeholder*='Search']",
         ]
@@ -25,32 +26,31 @@ impl KagiEngine {
     
     pub fn search_button_selectors() -> Vec<&'static str> {
         vec![
-            "button[type='submit']",
-            ".search-button",
             "input[type='submit']",
+            "#search_button_homepage",
+            ".search-wrap__button",
         ]
     }
     
     pub fn default_wait_selectors() -> Vec<String> {
         vec![
-            "#search-content".to_string(),
-            ".search-result".to_string(),
-            "#main".to_string(),
-            ".search-container".to_string(),
+            "#links".to_string(),
+            ".results".to_string(),
+            ".result".to_string(),
+            "#web_content".to_string(),
         ]
     }
     
     
-    /// 解析Kagi搜索结果HTML，提取结构化信息（HTML解析器版）
+    /// 解析DuckDuckGo搜索结果HTML，提取结构化信息（HTML解析器版）
     pub fn parse_search_results(html: &str, query: &str) -> SearchResults {
         let mut items = Vec::new();
         let document = Html::parse_document(html);
 
-        // 结果卡片选择器（Kagi通常使用标准的搜索结果结构）
+        // 结果卡片选择器（DuckDuckGo通常使用 .result 类）
         let selectors = [
             Selector::parse("div.result").ok(),
-            Selector::parse("article.search-result").ok(),
-            Selector::parse("div.search-item").ok(),
+            Selector::parse("article.result").ok(),
         ];
 
         let mut rank = 1usize;
@@ -68,28 +68,25 @@ impl KagiEngine {
         SearchResults {
             query: query.to_string(),
             search_engine: Self::display_name().to_string(),
-            engine_id: "kagi".to_string(),
+            engine_id: "duckduckgo".to_string(),
             homepage_url: Self::homepage_url().to_string(),
             items,
-            total_results: None, // Kagi可能不显示总数
+            total_results: None, // DuckDuckGo通常不显示结果总数
             search_time_ms: None,
         }
     }
     
     /// 从结果卡片元素中抽取一个条目
     fn parse_card_element(card: scraper::ElementRef<'_>, rank: usize) -> Option<SearchItem> {
-        // 标题：Kagi 通常使用标准的 h2/h3 标签结构或 .title 类
-        let title = Self::first_text_in(card, &["h2 a", "h3 a", "a.title", "div.title", "h2", "h3"])
-            .unwrap_or_else(|| format!("Kagi Result {}", rank));
+        // 标题：DuckDuckGo 通常使用 h2 a 或 .result__title 类
+        let title = Self::first_text_in(card, &["h2 a", "h3 a", "a.result__title", "h2", "h3"])
+            .unwrap_or_else(|| format!("DuckDuckGo Result {}", rank));
 
-        // URL：查找标题链接
-        let url = Self::first_href_in(card, &["h2 a", "h3 a", "a.title", "a[href]"]).unwrap_or_default();
+        // URL：寻找标题链接
+        let url = Self::first_href_in(card, &["h2 a", "h3 a", "a.result__title", "a[href]"]).unwrap_or_default();
 
-        // 摘要：Kagi 使用 .snippet, .description 类或其他描述元素
-        let snippet = Self::first_text_in(card, &["p.snippet", "div.description", "div.snippet", "span.snippet", "p", "div"]).unwrap_or_default();
-
-        // 显示 URL
-        let display_url = Self::first_text_in(card, &["cite", "span.url", "div.url"]);
+        // 摘要：DuckDuckGo 使用 .result__snippet 类或其他描述元素
+        let snippet = Self::first_text_in(card, &["span.result__snippet", "div.result__snippet", "p", "div"]).unwrap_or_default();
 
         if !title.trim().is_empty() && !url.trim().is_empty() {
             Some(SearchItem {
@@ -97,7 +94,7 @@ impl KagiEngine {
                 url,
                 snippet: snippet.trim().to_string(),
                 rank,
-                display_url: display_url.map(|s| s.trim().to_string()),
+                display_url: None,
             })
         } else {
             None

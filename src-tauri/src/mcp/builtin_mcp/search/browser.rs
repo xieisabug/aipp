@@ -75,8 +75,8 @@ impl BrowserManager {
         #[cfg(target_os = "windows")]
         {
             let candidates = [
-                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-                r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                r"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+                r"C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
                 "chrome.exe", // 从PATH中查找
             ];
             self.try_candidates(&candidates)
@@ -115,8 +115,8 @@ impl BrowserManager {
         #[cfg(target_os = "windows")]
         {
             let candidates = [
-                r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-                r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+                r"C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+                r"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
                 "msedge.exe", // 从PATH中查找
             ];
             self.try_candidates(&candidates)

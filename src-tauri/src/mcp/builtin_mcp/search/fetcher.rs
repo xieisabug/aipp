@@ -744,7 +744,7 @@ impl ContentFetcher {
                 "() => {{
                     const el = document.querySelector('{}');
                     if (el) {{
-                        el.dispatchEvent(new MouseEvent('mouseover', {{bubbles: true}}));
+                        el.dispatchEvent(new MouseEvent('mouseover', {{{{bubbles: true}}}}));
                         return true;
                     }}
                     return false;
@@ -789,8 +789,8 @@ impl ContentFetcher {
                         const el = document.querySelector('{}');
                         if (el) {{
                             el.value += '{}';
-                            el.dispatchEvent(new Event('input', {{bubbles: true}}));
-                            el.dispatchEvent(new Event('keyup', {{bubbles: true}}));
+                            el.dispatchEvent(new Event('input', {{{{bubbles: true}}}}));
+                            el.dispatchEvent(new Event('keyup', {{{{bubbles: true}}}}));
                         }}
                     }}",
                     selector.replace("'", "\\'"),
@@ -851,12 +851,12 @@ impl ContentFetcher {
                 "() => {{
                     const el = document.querySelector('{}');
                     if (el) {{
-                        el.dispatchEvent(new KeyboardEvent('keydown', {{
+                        el.dispatchEvent(new KeyboardEvent('keydown', {{{{
                             key: 'Enter',
                             code: 'Enter',
                             keyCode: 13,
                             bubbles: true
-                        }}));
+                        }}}}));
                         return true;
                     }}
                     return false;

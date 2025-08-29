@@ -51,7 +51,7 @@ pub async fn detect_and_process_mcp_calls(
 
             // 避免重复：若已存在相同 message_id/server/tool/parameters 的 pending/failed/success 记录，则复用
             let existing_call_opt = {
-                let db = crate::db::mcp_db::MCPDatabase::new(app_handle).ok();
+                let db = crate::mcp::mcp_db::MCPDatabase::new(app_handle).ok();
                 db.and_then(|db| db.get_mcp_tool_calls_by_conversation(conversation_id).ok())
                     .and_then(|calls| {
                         calls.into_iter().find(|c| {

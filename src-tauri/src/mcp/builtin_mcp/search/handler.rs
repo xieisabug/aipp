@@ -169,7 +169,7 @@ impl SearchHandler {
 
     /// 从数据库加载搜索配置
     fn load_search_config(&self) -> Result<HashMap<String, String>, String> {
-        use crate::db::mcp_db::MCPDatabase;
+    use crate::mcp::mcp_db::MCPDatabase;
         
         let db = MCPDatabase::new(&self.app_handle).map_err(|e| e.to_string())?;
         

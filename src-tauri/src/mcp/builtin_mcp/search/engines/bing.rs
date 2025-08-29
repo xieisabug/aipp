@@ -1,4 +1,4 @@
-use crate::api::builtin_mcp::search::types::{SearchItem, SearchResults};
+use crate::mcp::builtin_mcp::search::types::{SearchItem, SearchResults};
 use scraper::{Html, Selector};
 
 /// Bing搜索引擎实现
@@ -67,7 +67,7 @@ impl BingEngine {
             if !items.is_empty() { break; }
         }
 
-        // 提取总结果数量
+        // 提取总结结果数量
         let total_results = Self::extract_total_results(html);
 
         SearchResults {
@@ -90,7 +90,7 @@ impl BingEngine {
         let title = Self::first_text_in(card, &["h2 a", "a.b_title", "h2"])
             .unwrap_or_else(|| format!("Bing Result {}", rank));
 
-        // URL：查找标题链接
+        // URL：寻找标题链接
         let url = Self::first_href_in(card, &["h2 a", "a.b_title", "a[href]"]).unwrap_or_default();
 
         // 摘要：Bing 使用 .b_caption 类或其他描述元素

@@ -1,4 +1,4 @@
-use crate::api::builtin_mcp::search::types::{SearchItem, SearchResults};
+use crate::mcp::builtin_mcp::search::types::{SearchItem, SearchResults};
 use scraper::{Html, Selector};
 
 /// Google搜索引擎实现
@@ -89,7 +89,7 @@ impl GoogleEngine {
         let mut items = Vec::new();
         let document = Html::parse_document(html);
 
-        // 结果卡片选择器（优先新版，再到通用）
+        // 结果卡片选择器（优先新版本，再到通用）
         let selectors = [
             Selector::parse("div.tF2Cxc").ok(),
             Selector::parse("div.g").ok(),
@@ -107,7 +107,7 @@ impl GoogleEngine {
             if !items.is_empty() { break; }
         }
 
-        // 提取总结果数量（如果可获取）
+        // 提取搜索结果总数（如果可获取）
         let total_results = Self::extract_total_results(html);
 
         SearchResults {
@@ -149,7 +149,7 @@ impl GoogleEngine {
         }
     }
 
-    /// 在元素内按给定选择器列表找到首个文本
+    /// 在元素内按选择器列表找到首个文本
     fn first_text_in(root: scraper::ElementRef<'_>, selectors: &[&str]) -> Option<String> {
         for sel in selectors {
             if let Ok(selector) = Selector::parse(sel) {
@@ -218,4 +218,3 @@ impl GoogleEngine {
         None
     }
 }
-

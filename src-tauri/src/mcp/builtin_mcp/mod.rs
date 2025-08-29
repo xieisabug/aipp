@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
-use search::types::{SearchRequest, SearchResultType};
 
 pub mod search;
 pub mod templates;
@@ -37,6 +36,8 @@ pub async fn execute_aipp_builtin_tool(
     tool_name: String,
     parameters: String,
 ) -> Result<String, String> {
+    use search::types::{SearchRequest, SearchResultType, SearchResponse};
+
     let args: serde_json::Value = serde_json::from_str(&parameters)
         .map_err(|e| format!("Invalid parameters: {}", e))?;
 
@@ -68,25 +69,25 @@ pub async fn execute_aipp_builtin_tool(
                         Ok(response) => {
                             // 根据result_type返回不同格式的内容
                             match response {
-                                search::types::SearchResponse::Html { html_content, .. } => {
+                                SearchResponse::Html { html_content, .. } => {
                                     serde_json::json!({
                                         "content": [{"type": "text", "text": html_content}],
                                         "isError": false
                                     })
                                 }
-                                search::types::SearchResponse::Markdown { markdown_content, .. } => {
+                                SearchResponse::Markdown { markdown_content, .. } => {
                                     serde_json::json!({
                                         "content": [{"type": "text", "text": markdown_content}],
                                         "isError": false
                                     })
                                 }
-                                search::types::SearchResponse::Items(search_results) => {
+                                SearchResponse::Items(search_results) => {
                                     serde_json::json!({
                                         "content": [{"type": "json", "json": search_results}],
                                         "isError": false
                                     })
                                 }
-                                search::types::SearchResponse::ItemsOnly(items) => {
+                                SearchResponse::ItemsOnly(items) => {
                                     serde_json::json!({
                                         "content": [{"type": "json", "json": items}],
                                         "isError": false

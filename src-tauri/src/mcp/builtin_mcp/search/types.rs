@@ -29,6 +29,16 @@ impl SearchResultType {
     }
 }
 
+/// 搜索请求参数
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchRequest {
+    /// 搜索关键词
+    pub query: String,
+    /// 期望的结果类型（默认 Html）
+    #[serde(default)]
+    pub result_type: SearchResultType,
+}
+
 /// 单个搜索结果项
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchItem {
@@ -61,16 +71,6 @@ pub struct SearchResults {
     pub total_results: Option<u64>,
     /// 搜索耗时（毫秒）
     pub search_time_ms: Option<u64>,
-}
-
-/// 搜索请求结构
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchRequest {
-    /// 搜索查询关键词
-    pub query: String,
-    /// 结果类型
-    #[serde(default)]
-    pub result_type: SearchResultType,
 }
 
 /// 搜索响应统一格式

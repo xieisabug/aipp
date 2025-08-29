@@ -70,7 +70,7 @@ use crate::artifacts::{
 use crate::artifacts::artifacts_db::ArtifactsDatabase;
 use crate::db::assistant_db::AssistantDatabase;
 use crate::db::llm_db::LLMDatabase;
-use crate::db::mcp_db::MCPDatabase;
+use crate::mcp::mcp_db::MCPDatabase;
 use crate::db::system_db::SystemDatabase;
 use crate::window::{
     awaken_aipp, create_ask_window, handle_open_ask_window,
