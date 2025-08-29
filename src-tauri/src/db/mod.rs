@@ -8,7 +8,6 @@ use semver::Version;
 use system_db::SystemDatabase;
 use tauri::Manager;
 
-pub mod artifacts_db;
 pub mod assistant_db;
 pub mod conversation_db;
 pub mod llm_db;
@@ -21,7 +20,7 @@ mod tests;
 
 const CURRENT_VERSION: &str = "0.0.4";
 
-fn get_db_path(app_handle: &tauri::AppHandle, db_name: &str) -> Result<PathBuf, String> {
+pub(crate) fn get_db_path(app_handle: &tauri::AppHandle, db_name: &str) -> Result<PathBuf, String> {
     let app_dir = app_handle.path().app_data_dir().unwrap();
     let db_path = app_dir.join("db");
     std::fs::create_dir_all(&db_path).map_err(|e| e.to_string())?;

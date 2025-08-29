@@ -1,19 +1,20 @@
-use crate::{
-    api::ai::config::{get_network_proxy_from_config, get_request_timeout_from_config},
-    api::artifacts_api::{
-        extract_component_name, extract_vue_component_name, is_react_component, is_vue_component,
-    },
-    api::genai_client,
-    artifacts::{react_runner::run_react_artifact, vue_runner::run_vue_artifact},
-    db::artifacts_db::{
-        ArtifactCollection, ArtifactsDatabase, NewArtifactCollection, UpdateArtifactCollection,
-    },
-    db::llm_db::LLMDatabase,
-    utils::bun_utils::BunUtils,
-    FeatureConfigState,
-};
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager, State};
+
+use crate::api::ai::config::{get_network_proxy_from_config, get_request_timeout_from_config};
+use crate::api::genai_client;
+use crate::artifacts::code_utils::{
+    extract_component_name, extract_vue_component_name, is_react_component, is_vue_component,
+};
+use crate::artifacts::react_runner::run_react_artifact;
+use crate::artifacts::vue_runner::run_vue_artifact;
+use crate::db::llm_db::LLMDatabase;
+use crate::FeatureConfigState;
+
+use super::artifacts_db::{
+    ArtifactCollection, ArtifactsDatabase, NewArtifactCollection, UpdateArtifactCollection,
+};
+use crate::utils::bun_utils::BunUtils;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ArtifactCollectionItem {
@@ -61,7 +62,6 @@ pub struct ArtifactMetadata {
     pub emoji_category: String,
 }
 
-/// Save a new artifact to collection
 #[tauri::command]
 pub fn save_artifact_to_collection(
     app_handle: tauri::AppHandle,
@@ -82,7 +82,6 @@ pub fn save_artifact_to_collection(
     let artifact_id =
         db.save_artifact(new_artifact).map_err(|e| format!("Failed to save artifact: {}", e))?;
 
-    // Emit events to update UI across all windows
     let windows_to_notify = ["artifact_collections", "ask", "chat_ui"];
     for window_name in windows_to_notify.iter() {
         if let Some(window) = app_handle.get_webview_window(window_name) {
@@ -93,7 +92,6 @@ pub fn save_artifact_to_collection(
     Ok(artifact_id)
 }
 
-/// Get all artifacts with optional type filter
 #[tauri::command]
 pub fn get_artifacts_collection(
     app_handle: tauri::AppHandle,
@@ -124,7 +122,6 @@ pub fn get_artifacts_collection(
     Ok(items)
 }
 
-/// Get artifact by ID with full code content
 #[tauri::command]
 pub fn get_artifact_by_id(
     app_handle: tauri::AppHandle,
@@ -139,7 +136,6 @@ pub fn get_artifact_by_id(
     Ok(artifact)
 }
 
-/// Search artifacts by name, description, or tags
 #[tauri::command]
 pub fn search_artifacts_collection(
     app_handle: tauri::AppHandle,
@@ -169,7 +165,6 @@ pub fn search_artifacts_collection(
     Ok(items)
 }
 
-/// Update artifact metadata (name, icon, description, tags)
 #[tauri::command]
 pub fn update_artifact_collection(
     app_handle: tauri::AppHandle,
@@ -188,7 +183,6 @@ pub fn update_artifact_collection(
 
     db.update_artifact(update).map_err(|e| format!("Failed to update artifact: {}", e))?;
 
-    // Emit events to update UI across all windows
     let windows_to_notify = ["artifact_collections", "ask", "chat_ui"];
     for window_name in windows_to_notify.iter() {
         if let Some(window) = app_handle.get_webview_window(window_name) {
@@ -199,7 +193,6 @@ pub fn update_artifact_collection(
     Ok(())
 }
 
-/// Delete artifact by ID
 #[tauri::command]
 pub fn delete_artifact_collection(app_handle: tauri::AppHandle, id: i64) -> Result<bool, String> {
     let db = ArtifactsDatabase::new(&app_handle)
@@ -209,7 +202,6 @@ pub fn delete_artifact_collection(app_handle: tauri::AppHandle, id: i64) -> Resu
         db.delete_artifact(id).map_err(|e| format!("Failed to delete artifact: {}", e))?;
 
     if deleted {
-        // Emit events to update UI across all windows
         let windows_to_notify = ["artifact_collections", "ask", "chat_ui"];
         for window_name in windows_to_notify.iter() {
             if let Some(window) = app_handle.get_webview_window(window_name) {
@@ -221,7 +213,6 @@ pub fn delete_artifact_collection(app_handle: tauri::AppHandle, id: i64) -> Resu
     Ok(deleted)
 }
 
-/// Open artifact in dedicated window
 #[tauri::command]
 pub async fn open_artifact_window(
     app_handle: tauri::AppHandle,
@@ -230,37 +221,22 @@ pub async fn open_artifact_window(
     let db = ArtifactsDatabase::new(&app_handle)
         .map_err(|e| format!("Database connection failed: {}", e))?;
 
-    // Get artifact details
     let artifact = db
         .get_artifact_by_id(artifact_id)
         .map_err(|e| format!("Failed to get artifact: {}", e))?
         .ok_or_else(|| "Artifact not found".to_string())?;
 
-    // Increment use count
     db.increment_use_count(artifact_id)
         .map_err(|e| format!("Failed to increment use count: {}", e))?;
 
-    // Open artifact window
     crate::window::open_artifact_window(app_handle.clone(), artifact.clone()).await?;
-
-    // 等待窗口加载（延长到 1 秒，避免日志在窗口完成加载前发送导致丢失）
     tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 
     match artifact.artifact_type.as_str() {
         "react" | "jsx" => {
-            println!("🎯 [Artifacts] 处理 React/JSX 代码");
-
-            // 检查是否是完整的组件代码
             if is_react_component(artifact.code.as_str()) {
-                println!("🎯 [Artifacts] 检测到完整的 React 组件，使用新预览");
-
-                // 使用新的 React Component Preview
                 let component_name =
-                    extract_component_name(artifact.code.as_str()).unwrap_or_else(|| {
-                        println!("🎯 [Artifacts] 无法提取组件名称，使用默认名称");
-                        "UserComponent".to_string()
-                    });
-                println!("🎯 [Artifacts] 组件名称: {}", component_name);
+                    extract_component_name(artifact.code.as_str()).unwrap_or_else(|| "UserComponent".to_string());
                 if let Some(window) = app_handle.get_webview_window("artifact") {
                     let _ = window.emit(
                         "artifact-data",
@@ -278,8 +254,7 @@ pub async fn open_artifact_window(
                         }),
                     );
                 }
-
-                let preview_url = run_react_artifact(
+                let _url = run_react_artifact(
                     app_handle.clone(),
                     artifact_id,
                     artifact.code.as_str().to_string(),
@@ -287,33 +262,17 @@ pub async fn open_artifact_window(
                 )
                 .await
                 .map_err(|e| {
-                    println!("❌ [Artifacts] React 组件运行失败: {}", e);
                     let error_msg = format!("React 组件运行失败: {}", e);
-                    if let Some(window) = app_handle.get_webview_window("artifact") {
-                        let _ = window.emit("artifact-error", &error_msg);
-                    }
+                    if let Some(window) = app_handle.get_webview_window("artifact") { let _ = window.emit("artifact-error", &error_msg); }
                     error_msg
                 })?;
-
-                println!("✅ React 组件已启动，访问地址: {}", preview_url);
-            } else {
-                if let Some(window) = app_handle.get_webview_window("artifact") {
-                    let _ = window.emit(
-                        "artifact-error",
-                        "React 代码片段预览暂不支持，请提供完整的 React 组件代码。",
-                    );
-                }
+            } else if let Some(window) = app_handle.get_webview_window("artifact") {
+                let _ = window.emit("artifact-error", "React 代码片段预览暂不支持，请提供完整的 React 组件代码。");
             }
         }
         "vue" => {
-            println!("🎯 [Artifacts] 处理 Vue 代码");
-
-            // 检查是否需要 bun 环境
             let bun_version = BunUtils::get_bun_version(&app_handle);
-            if bun_version.is_err()
-                || bun_version.as_ref().unwrap_or(&String::new()).contains("Not Installed")
-            {
-                println!("🎯 [Artifacts] 检测到需要 bun 环境但未安装");
+            if bun_version.is_err() || bun_version.as_ref().unwrap_or(&String::new()).contains("Not Installed") {
                 if let Some(window) = app_handle.get_webview_window("artifact") {
                     let _ = window.emit("environment-check", serde_json::json!({
                         "tool": "bun",
@@ -324,18 +283,8 @@ pub async fn open_artifact_window(
                 }
                 return Ok(());
             }
-
-            // 检查是否是完整的组件代码
             if is_vue_component(artifact.code.as_str()) {
-                println!("🎯 [Artifacts] 检测到完整的 Vue 组件，使用新预览");
-
-                // 使用新的 Vue Component Preview
-                let component_name = extract_vue_component_name(artifact.code.as_str())
-                    .unwrap_or_else(|| {
-                        println!("🎯 [Artifacts] 无法提取组件名称，使用默认名称");
-                        "UserComponent".to_string()
-                    });
-                println!("🎯 [Artifacts] 组件名称: {}", component_name);
+                let component_name = extract_vue_component_name(artifact.code.as_str()).unwrap_or_else(|| "UserComponent".to_string());
                 if let Some(window) = app_handle.get_webview_window("artifact") {
                     let _ = window.emit(
                         "artifact-data",
@@ -353,7 +302,7 @@ pub async fn open_artifact_window(
                         }),
                     );
                 }
-                let preview_url = run_vue_artifact(
+                let _url = run_vue_artifact(
                     app_handle.clone(),
                     artifact_id,
                     artifact.code.as_str().to_string(),
@@ -361,22 +310,12 @@ pub async fn open_artifact_window(
                 )
                 .await
                 .map_err(|e| {
-                    println!("❌ [Artifacts] Vue 组件运行失败: {}", e);
                     let error_msg = format!("Vue 组件运行失败: {}", e);
-                    if let Some(window) = app_handle.get_webview_window("artifact") {
-                        let _ = window.emit("artifact-error", &error_msg);
-                    }
+                    if let Some(window) = app_handle.get_webview_window("artifact") { let _ = window.emit("artifact-error", &error_msg); }
                     error_msg
                 })?;
-
-                println!("✅ Vue 组件已启动，访问地址: {}", preview_url);
-            } else {
-                if let Some(window) = app_handle.get_webview_window("artifact") {
-                    let _ = window.emit(
-                        "artifact-error",
-                        "Vue 代码片段预览暂不支持，请提供完整的 Vue 组件代码。",
-                    );
-                }
+            } else if let Some(window) = app_handle.get_webview_window("artifact") {
+                let _ = window.emit("artifact-error", "Vue 代码片段预览暂不支持，请提供完整的 Vue 组件代码。");
             }
         }
         "html" => {
@@ -397,20 +336,15 @@ pub async fn open_artifact_window(
                         "use_count": artifact.use_count,
                     }),
                 );
-                let _ = window
-                    .emit("artifact-log", format!("html content: {}", artifact.code.as_str()));
+                let _ = window.emit("artifact-log", format!("html content: {}", artifact.code.as_str()));
                 let _ = window.emit("artifact-success", format!("{} 预览已准备完成", "HTML"));
             }
         }
-        _ => {
-            // Handle other artifact types if needed, or do nothing
-        }
+        _ => {}
     }
-
     Ok(())
 }
 
-/// Get artifacts statistics
 #[tauri::command]
 pub fn get_artifacts_statistics(
     app_handle: tauri::AppHandle,
@@ -424,16 +358,13 @@ pub fn get_artifacts_statistics(
     Ok(ArtifactStatistics { total_count, total_uses })
 }
 
-/// Get artifacts for completion suggestions (used by InputArea # trigger)
 #[tauri::command]
 pub fn get_artifacts_for_completion(
     app_handle: tauri::AppHandle,
 ) -> Result<Vec<ArtifactCollectionItem>, String> {
-    // Return artifacts sorted by use frequency for completion
     get_artifacts_collection(app_handle, None)
 }
 
-/// AI生成artifact元数据
 #[tauri::command]
 pub async fn generate_artifact_metadata(
     app_handle: tauri::AppHandle,
@@ -441,16 +372,11 @@ pub async fn generate_artifact_metadata(
     artifact_type: String,
     code: String,
 ) -> Result<ArtifactMetadata, String> {
-    println!("================================ Generate Artifact Metadata Start ===============================================");
-
-    // 获取特性配置
     let config_feature_map = feature_config_state.config_feature_map.lock().await;
     let feature_config = config_feature_map.get("conversation_summary");
 
     if let Some(config) = feature_config {
-        // 检查是否配置了 form_autofill_model
-        let (provider_id, model_code) = if let Some(form_model) = config.get("form_autofill_model")
-        {
+        let (provider_id, model_code) = if let Some(form_model) = config.get("form_autofill_model") {
             let form_model_value = &form_model.value;
             if form_model_value.contains("%%") && !form_model_value.starts_with("%%") {
                 let parts: Vec<&str> = form_model_value.split("%%").collect();
@@ -459,24 +385,12 @@ pub async fn generate_artifact_metadata(
                         .parse::<i64>()
                         .map_err(|e| format!("表单填写模型provider_id解析失败: {}", e))?;
                     (provider_id, parts[1].to_string())
-                } else {
-                    return Err("表单填写模型配置格式错误".to_string());
-                }
-            } else {
-                return Err(
-                    "表单填写模型未配置，请在设置 -> 功能助手配置 -> AI总结 中配置表单填写模型"
-                        .to_string(),
-                );
-            }
+                } else { return Err("表单填写模型配置格式错误".to_string()); }
+            } else { return Err("表单填写模型未配置，请在设置 -> 功能助手配置 -> AI总结 中配置表单填写模型".to_string()); }
         } else {
-            // 如果没有配置 form_autofill_model，直接提示用户配置
-            return Err(
-                "表单填写模型未配置，请在设置 -> 功能助手配置 -> AI总结 中配置表单填写模型"
-                    .to_string(),
-            );
+            return Err("表单填写模型未配置，请在设置 -> 功能助手配置 -> AI总结 中配置表单填写模型".to_string());
         };
 
-        // 构建AI提示词
         let system_prompt = r#"你是一个专业的代码分析助手。提供的代码是某个工具的核心组件，请根据代码对该工具生成适当的元数据。
 你需要返回一个JSON格式的响应，包含以下字段：
 {
@@ -492,21 +406,16 @@ pub async fn generate_artifact_metadata(
 - 标签要相关且有用，帮助分类和搜索
 - emoji_category要根据代码内容选择最合适的类别"#;
 
-        let user_prompt = format!(
-            "代码类型：{}\n\n代码内容：\n{}\n\n请分析上述代码并生成相应的元数据。",
-            artifact_type, code
-        );
+        let user_prompt = format!("代码类型：{}\n\n代码内容：\n{}\n\n请分析上述代码并生成相应的元数据。", artifact_type, code);
 
         let llm_db = LLMDatabase::new(&app_handle).map_err(|e| format!("数据库连接失败: {}", e))?;
         let model_detail = llm_db
             .get_llm_model_detail(&provider_id, &model_code)
             .map_err(|e| format!("模型详情获取失败: {}", e))?;
 
-        // 获取网络配置
         let network_proxy = get_network_proxy_from_config(&config_feature_map);
         let request_timeout = get_request_timeout_from_config(&config_feature_map);
-
-        let proxy_enabled = false; // 元数据生成通常不需要代理
+        let proxy_enabled = false;
 
         let client = genai_client::create_client_with_config(
             &model_detail.configs,
@@ -525,59 +434,30 @@ pub async fn generate_artifact_metadata(
         let chat_request = genai::chat::ChatRequest::new(chat_messages);
         let model_name = &model_detail.model.code;
 
-        println!("[[AI Request]] 请求");
-        // 调用AI生成元数据
         let response = client
             .exec_chat(model_name, chat_request.clone(), None)
             .await
             .map_err(|e| format!("AI请求失败: {}", e))?;
 
         let response_text = response.first_text().unwrap_or("").to_string();
-        println!("[[AI Response]]: {}", response_text);
 
-        // 解析JSON响应
         match serde_json::from_str::<ArtifactMetadata>(&response_text) {
-            Ok(metadata) => {
-                println!("[[Parsed Metadata]]: {:#?}", metadata);
-                Ok(metadata)
-            }
-            Err(e) => {
-                println!("[[JSON Parse Error]]: {}", e);
-                // 如果JSON解析失败，尝试从响应中提取JSON部分
+            Ok(metadata) => Ok(metadata),
+            Err(_) => {
                 if let Some(json_start) = response_text.find('{') {
                     if let Some(json_end) = response_text.rfind('}') {
                         let json_part = &response_text[json_start..=json_end];
                         match serde_json::from_str::<ArtifactMetadata>(json_part) {
-                            Ok(metadata) => {
-                                println!(
-                                    "[[Parsed Metadata from extracted JSON]]: {:#?}",
-                                    metadata
-                                );
-                                Ok(metadata)
-                            }
-                            Err(e2) => {
-                                println!("[[Extracted JSON Parse Error]]: {}", e2);
-                                // 返回默认的元数据作为fallback
-                                Ok(ArtifactMetadata {
-                                    name: format!("{} 代码", artifact_type),
-                                    description: format!(
-                                        "一个 {} 类型的代码片段，包含丰富的功能实现。",
-                                        artifact_type
-                                    ),
-                                    tags: format!(
-                                        "{},代码,开发,工具",
-                                        artifact_type.to_lowercase()
-                                    ),
-                                    emoji_category: "物品".to_string(),
-                                })
-                            }
+                            Ok(metadata) => Ok(metadata),
+                            Err(_) => Ok(ArtifactMetadata {
+                                name: format!("{} 代码", artifact_type),
+                                description: format!("一个 {} 类型的代码片段，包含丰富的功能实现。", artifact_type),
+                                tags: format!("{},代码,开发,工具", artifact_type.to_lowercase()),
+                                emoji_category: "物品".to_string(),
+                            }),
                         }
-                    } else {
-                        Err("无法从AI响应中提取有效的JSON格式".to_string())
-                    }
-                } else {
-                    Err("AI响应不包含JSON格式的内容".to_string())
-                }
+                    } else { Err("无法从AI响应中提取有效的JSON格式".to_string()) }
+                } else { Err("AI响应不包含JSON格式的内容".to_string()) }
             }
         }
     } else {

@@ -14,11 +14,9 @@ mod window;
 use crate::api::ai_api::{
     ask_ai, cancel_ai, regenerate_ai, regenerate_conversation_title, tool_result_continue_ask_ai,
 };
-use crate::api::artifacts_api::{
-    check_bun_version, check_uv_version, confirm_environment_install, install_bun, install_uv,
-    preview_react_component, retry_preview_after_install, run_artifacts,
-};
-use crate::api::artifacts_collection_api::{
+use crate::artifacts::env_installer::{check_bun_version, check_uv_version, install_bun, install_uv};
+use crate::artifacts::preview_router::{confirm_environment_install, preview_react_component, retry_preview_after_install, run_artifacts};
+use crate::artifacts::collection_api::{
     delete_artifact_collection, generate_artifact_metadata, get_artifact_by_id,
     get_artifacts_collection, get_artifacts_for_completion, get_artifacts_statistics,
     open_artifact_window, save_artifact_to_collection, search_artifacts_collection,
@@ -69,7 +67,7 @@ use crate::artifacts::{
     react_runner::{close_react_artifact, run_react_artifact},
     vue_runner::{close_vue_artifact, run_vue_artifact},
 };
-use crate::db::artifacts_db::ArtifactsDatabase;
+use crate::artifacts::artifacts_db::ArtifactsDatabase;
 use crate::db::assistant_db::AssistantDatabase;
 use crate::db::llm_db::LLMDatabase;
 use crate::db::mcp_db::MCPDatabase;

@@ -1,4 +1,4 @@
-use super::get_db_path;
+use crate::db::get_db_path;
 use rusqlite::{params, Connection, Result};
 use serde::{Deserialize, Serialize};
 

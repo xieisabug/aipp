@@ -1,4 +1,4 @@
-use crate::db::artifacts_db::ArtifactCollection;
+use crate::artifacts::artifacts_db::ArtifactCollection;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri::{LogicalPosition, LogicalSize};
