@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
+import { useState, useEffect } from "react";
 import { Conversation, Message, FileInfo } from "../data/Conversation";
+import { AssistantDetail } from "../data/Assistant";
 
 export interface UseAssistantRuntimeProps {
     conversation?: Conversation;
@@ -28,6 +30,37 @@ export function useAssistantRuntime({
     updateShiningMessages,
     setAiIsResponsing,
 }: UseAssistantRuntimeProps): UseAssistantRuntimeReturn {
+    
+    // Cache for the current assistant's model ID
+    const [cachedModelId, setCachedModelId] = useState<string>("");
+    
+    // Load assistant model ID when assistant changes
+    useEffect(() => {
+        const loadAssistantModelId = async () => {
+            try {
+                const assistantId = conversation?.assistant_id || selectedAssistant;
+                if (!assistantId) {
+                    setCachedModelId("");
+                    return;
+                }
+                
+                const assistantDetail = await invoke<AssistantDetail>("get_assistant", { 
+                    assistantId: +assistantId 
+                });
+                
+                if (assistantDetail.model.length > 0) {
+                    setCachedModelId(assistantDetail.model[0].model_code);
+                } else {
+                    setCachedModelId("");
+                }
+            } catch (error) {
+                console.error("Failed to load assistant model ID:", error);
+                setCachedModelId("");
+            }
+        };
+
+        loadAssistantModelId();
+    }, [conversation?.assistant_id, selectedAssistant]);
     
     // 助手运行时API接口，提供给插件在运行时使用
     const assistantRunApi: AssistantRunApi = {
@@ -112,12 +145,11 @@ export function useAssistantRuntime({
                 });
         },
         getUserInput: function (): string {
-            console.log("get user input");
             return inputText;
         },
         getModelId: function (): string {
-            console.log("get model id");
-            return "";
+            console.log("get model id:", cachedModelId);
+            return cachedModelId;
         },
         getField: async function (
             assistantId: string,

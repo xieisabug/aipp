@@ -150,7 +150,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
         const mcpOptions = useMemo(() => {
             if (field.type === "mcp-select" && mcpServers) {
                 return mcpServers.map((server) => ({
-                    value: server.name,
+                    value: server.id,
                     label: server.name,
                 }));
             }
@@ -213,7 +213,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
                             </SelectTrigger>
                             <SelectContent>
                                 {mcpOptions.map((option) => (
-                                    <SelectItem key={option.value} value={option.value}>
+                                    <SelectItem key={option.value} value={option.value? option.value.toString() : ""}>
                                         {option.label}
                                     </SelectItem>
                                 ))}
