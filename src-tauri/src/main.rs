@@ -46,7 +46,7 @@ use crate::mcp::registry_api::{
     get_mcp_servers, refresh_mcp_server_capabilities, test_mcp_connection, toggle_mcp_server,
     update_mcp_server, update_mcp_server_prompt, update_mcp_server_tool,
 };
-use crate::mcp::builtin_api::{
+use crate::mcp::builtin_mcp::{
     list_aipp_builtin_templates, add_or_update_aipp_builtin_server, execute_aipp_builtin_tool,
 };
 use crate::mcp::execution_api::{

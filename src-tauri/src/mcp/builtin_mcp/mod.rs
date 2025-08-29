@@ -23,6 +23,11 @@ pub fn builtin_command_id(command: &str) -> Option<String> {
     }
 }
 
+// Legacy function alias for backward compatibility
+pub fn is_builtin_mcp_call(command: &str) -> bool {
+    is_builtin_command(command)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuiltinExecutionResult {
     pub content: Vec<serde_json::Value>,

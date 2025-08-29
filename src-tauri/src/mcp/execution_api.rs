@@ -453,7 +453,7 @@ async fn execute_tool_by_transport(
         // If stdio but command is aipp:*, route to builtin executor
         "stdio" => {
             if let Some(cmd) = &server.command {
-                if crate::mcp::builtin_api::is_builtin_mcp_call(cmd) {
+                if crate::mcp::builtin_mcp::is_builtin_mcp_call(cmd) {
                     execute_builtin_tool(app_handle, server, tool_name, parameters).await
                 } else {
                     execute_stdio_tool(app_handle, server, tool_name, parameters).await
@@ -480,7 +480,7 @@ async fn execute_stdio_tool(
 ) -> Result<String, String> {
     // If command is aipp:*, delegate to builtin executor
     if let Some(cmd) = &server.command {
-        if crate::mcp::builtin_api::is_builtin_mcp_call(cmd) {
+        if crate::mcp::builtin_mcp::is_builtin_mcp_call(cmd) {
             return execute_builtin_tool(app_handle, server, tool_name, parameters).await;
         }
     }
@@ -642,7 +642,7 @@ async fn execute_builtin_tool(
     tool_name: &str,
     parameters: &str,
 ) -> Result<String, String> {
-    use crate::mcp::builtin_api::{execute_aipp_builtin_tool, is_builtin_mcp_call};
+    use crate::mcp::builtin_mcp::{execute_aipp_builtin_tool, is_builtin_mcp_call};
 
     // 验证是否为内置工具调用
     let command = server.command.clone().unwrap_or_default();
