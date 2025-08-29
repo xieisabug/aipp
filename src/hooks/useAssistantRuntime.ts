@@ -79,16 +79,6 @@ export function useAssistantRuntime({
                 onStreamMessageListener: _onStreamMessageListener
             } = options;
             
-            console.log(
-                "ask assistant",
-                question,
-                assistantId,
-                conversationId,
-                overrideModelConfig,
-                overrideSystemPrompt,
-                overrideModelId,
-                overrideMcpConfig
-            );
             let userMessage: any;
             if (onCustomUserMessage) {
                 userMessage = onCustomUserMessage(
@@ -148,14 +138,12 @@ export function useAssistantRuntime({
             return inputText;
         },
         getModelId: function (): string {
-            console.log("get model id:", cachedModelId);
             return cachedModelId;
         },
         getField: async function (
             assistantId: string,
             fieldName: string,
         ): Promise<string> {
-            console.log("get field", fieldName);
             return await invoke<string>("get_assistant_field_value", {
                 assistantId: +assistantId,
                 fieldName,
