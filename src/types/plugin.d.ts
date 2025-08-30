@@ -107,11 +107,19 @@ interface AssistantRunApi {
     
     getMcpToolCalls(conversationId?: number): Promise<McpToolCall[]>;
     getMcpToolCall(callId: number): Promise<McpToolCall | null>;
+    
+    createConversation(systemPrompt: string, userPrompt: string): Promise<CreateConversationResponse>;
 }
 
 interface AiResponse {
     conversation_id: number;
     request_prompt_result_with_context: string;
+}
+
+interface CreateConversationResponse {
+    conversationId: number;
+    userMessageId: number | null;
+    systemMessageId: number | null;
 }
 
 interface McpToolInfo {

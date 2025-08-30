@@ -113,6 +113,104 @@ pub struct ConversationWithMessages {
     pub messages: Vec<MessageDetail>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CreateConversationResponse {
+    pub conversation_id: i64,
+    pub user_message_id: Option<i64>,
+    pub system_message_id: Option<i64>,
+}
+
+#[tauri::command]
+pub async fn create_conversation_with_messages(
+    app_handle: tauri::AppHandle,
+    name_cache_state: tauri::State<'_, NameCacheState>,
+    assistant_id: i64,
+    system_prompt: Option<String>,
+    user_message: Option<String>,
+    conversation_name: Option<String>,
+) -> Result<CreateConversationResponse, AppError> {
+    // 验证 assistant 是否存在
+    let assistant_db = crate::db::assistant_db::AssistantDatabase::new(&app_handle).map_err(AppError::from)?;
+    let assistant = assistant_db
+        .get_assistant(assistant_id)
+        .map_err(|e| AppError::DatabaseError(format!("Failed to get assistant: {}", e)))?;
+
+    // 从助手配置中获取模型信息
+    let assistant_models = assistant_db
+        .get_assistant_model(assistant_id)
+        .map_err(|e| AppError::DatabaseError(format!("Failed to get assistant models: {}", e)))?;
+    
+    // 使用第一个模型，如果没有模型则使用默认值
+    let (model_id, model_code) = if let Some(first_model) = assistant_models.first() {
+        (first_model.provider_id, first_model.model_code.clone())
+    } else {
+        (1i64, "default".to_string()) // 默认值
+    };
+
+    // 构建消息列表
+    let mut messages = Vec::new();
+    let mut system_message_id = None;
+    let mut user_message_id = None;
+
+    // 添加系统消息（如果提供）
+    if let Some(system_prompt) = system_prompt {
+        if !system_prompt.trim().is_empty() {
+            messages.push(("system".to_string(), system_prompt, Vec::new()));
+        }
+    }
+
+    // 添加用户消息（如果提供）
+    if let Some(user_message) = user_message {
+        if !user_message.trim().is_empty() {
+            messages.push(("user".to_string(), user_message, Vec::new()));
+        }
+    }
+
+    // 使用现有的 init_conversation 逻辑
+    let (mut conversation, created_messages) = crate::api::ai::conversation::init_conversation(
+        &app_handle,
+        assistant_id,
+        model_id,
+        model_code,
+        &messages,
+    )?;
+
+    // 更新对话名称（如果提供）
+    if let Some(name) = conversation_name {
+        if !name.trim().is_empty() {
+            conversation.name = name;
+            let db = ConversationDatabase::new(&app_handle).map_err(AppError::from)?;
+            db.conversation_repo()
+                .unwrap()
+                .update(&conversation)
+                .map_err(AppError::from)?;
+        }
+    }
+
+    // 获取消息ID
+    if created_messages.len() >= 1 && messages.get(0).map(|(t, _, _)| t) == Some(&"system".to_string()) {
+        system_message_id = Some(created_messages[0].id);
+        if created_messages.len() >= 2 {
+            user_message_id = Some(created_messages[1].id);
+        }
+    } else if created_messages.len() >= 1 {
+        user_message_id = Some(created_messages[0].id);
+    }
+
+    // 发送事件通知前端更新
+    let _ = app_handle.emit("conversation_created", conversation.id);
+    
+    // 更新助手名称缓存（确保UI显示正确）
+    let mut assistant_name_cache = name_cache_state.assistant_names.lock().await;
+    assistant_name_cache.insert(assistant_id, assistant.name.clone());
+
+    Ok(CreateConversationResponse {
+        conversation_id: conversation.id,
+        user_message_id,
+        system_message_id,
+    })
+}
+
 #[tauri::command]
 pub async fn list_conversations(
     app_handle: tauri::AppHandle,

@@ -315,6 +315,29 @@ export function useAssistantRuntime({
                 return null;
             }
         },
+        
+        createConversation: async function (systemPrompt: string, userPrompt: string): Promise<CreateConversationResponse> {
+            console.log("Creating conversation with system and user prompts");
+            try {
+                const assistantId = conversation?.assistant_id || selectedAssistant;
+                if (!assistantId) {
+                    throw new Error("No assistant selected");
+                }
+                
+                const result = await invoke<CreateConversationResponse>("create_conversation_with_messages", {
+                    assistantId: +assistantId,
+                    systemPrompt: systemPrompt.trim() || undefined,
+                    userMessage: userPrompt.trim() || undefined,
+                    conversationName: undefined, // 使用默认名称
+                });
+                
+                console.log("Conversation created:", result);
+                return result;
+            } catch (error) {
+                console.error("Failed to create conversation:", error);
+                throw error;
+            }
+        },
     };
 
     return {

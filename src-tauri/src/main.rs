@@ -31,7 +31,7 @@ use crate::api::assistant_api::{
 };
 use crate::api::attachment_api::{add_attachment, open_attachment_with_default_app};
 use crate::api::conversation_api::{
-    create_message, delete_conversation, fork_conversation, get_conversation_with_messages, list_conversations,
+    create_conversation_with_messages, create_message, delete_conversation, fork_conversation, get_conversation_with_messages, list_conversations,
     update_assistant_message, update_conversation, update_message_content,
 };
 use crate::api::llm_api::{
@@ -276,6 +276,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             import_assistant,
             list_conversations,
             get_conversation_with_messages,
+            create_conversation_with_messages,
             delete_conversation,
             fork_conversation,
             update_conversation,
