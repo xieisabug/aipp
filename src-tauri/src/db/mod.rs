@@ -5,6 +5,7 @@ use conversation_db::ConversationDatabase;
 use llm_db::LLMDatabase;
 use rusqlite::params;
 use semver::Version;
+use sub_task_db::SubTaskDatabase;
 use system_db::SystemDatabase;
 use tauri::Manager;
 
@@ -12,12 +13,13 @@ pub mod assistant_db;
 pub mod conversation_db;
 pub mod llm_db;
 pub mod plugin_db;
+pub mod sub_task_db;
 pub mod system_db;
 
 #[cfg(test)]
 mod tests;
 
-const CURRENT_VERSION: &str = "0.0.4";
+const CURRENT_VERSION: &str = "0.0.5";
 
 pub(crate) fn get_db_path(app_handle: &tauri::AppHandle, db_name: &str) -> Result<PathBuf, String> {
     let app_dir = app_handle.path().app_data_dir().unwrap();
@@ -70,6 +72,7 @@ pub fn database_upgrade(
                     ("0.0.2", special_logic_0_0_2),
                     ("0.0.3", special_logic_0_0_3),
                     ("0.0.4", special_logic_0_0_4),
+                    ("0.0.5", special_logic_0_0_5),
                 ];
 
                 for (version_str, logic) in special_versions.iter() {
@@ -422,5 +425,27 @@ fn special_logic_0_0_3(
     conn.execute("COMMIT;", []).map_err(|e| format!("事务提交失败: {}", e.to_string()))?;
 
     println!("special_logic_0_0_3 done: generation_group_id 字段添加完成，现有数据已更新");
+    Ok(())
+}
+
+fn special_logic_0_0_5(
+    _system_db: &SystemDatabase,
+    _llm_db: &LLMDatabase,
+    _assistant_db: &AssistantDatabase,
+    _conversation_db: &ConversationDatabase,
+    app_handle: &tauri::AppHandle,
+) -> Result<(), String> {
+    println!("special_logic_0_0_5: 创建 sub task 相关表");
+
+    // 创建 SubTaskDatabase 实例
+    let sub_task_db = SubTaskDatabase::new(app_handle)
+        .map_err(|e| format!("创建 SubTaskDatabase 失败: {}", e.to_string()))?;
+
+    // 创建 sub task 相关表
+    sub_task_db
+        .create_tables()
+        .map_err(|e| format!("创建 sub task 表失败: {}", e.to_string()))?;
+
+    println!("special_logic_0_0_5 done: sub task 表创建完成");
     Ok(())
 }

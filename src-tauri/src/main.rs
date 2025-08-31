@@ -57,6 +57,11 @@ use crate::api::system_api::{
     get_all_feature_config, get_bang_list, get_selected_text_api, open_data_folder,
     save_feature_config,
 };
+use crate::api::sub_task_api::{
+    cancel_sub_task_execution, create_sub_task_execution, delete_sub_task_definition,
+    get_sub_task_definition, get_sub_task_execution_detail, list_sub_task_definitions,
+    list_sub_task_executions, register_sub_task_definition, update_sub_task_definition,
+};
 use crate::artifacts::react_preview::{
     close_react_preview, create_react_preview, create_react_preview_for_artifact,
 };
@@ -70,6 +75,7 @@ use crate::artifacts::{
 use crate::artifacts::artifacts_db::ArtifactsDatabase;
 use crate::db::assistant_db::AssistantDatabase;
 use crate::db::llm_db::LLMDatabase;
+use crate::db::sub_task_db::SubTaskDatabase;
 use crate::mcp::mcp_db::MCPDatabase;
 use crate::db::system_db::SystemDatabase;
 use crate::window::{
@@ -205,6 +211,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let conversation_db = ConversationDatabase::new(&app_handle)?;
             let plugin_db = PluginDatabase::new(&app_handle)?;
             let mcp_db = MCPDatabase::new(&app_handle)?;
+            let sub_task_db = SubTaskDatabase::new(&app_handle)?;
             let artifacts_db = ArtifactsDatabase::new(&app_handle)?;
 
             system_db.create_tables()?;
@@ -213,6 +220,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             conversation_db.create_tables()?;
             plugin_db.create_tables()?;
             mcp_db.create_tables()?;
+            sub_task_db.create_tables()?;
             artifacts_db.create_tables()?;
 
             let _ = database_upgrade(&app_handle, system_db, llm_db, assistant_db, conversation_db);
@@ -340,6 +348,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             list_aipp_builtin_templates,
             add_or_update_aipp_builtin_server,
             execute_aipp_builtin_tool,
+            register_sub_task_definition,
+            list_sub_task_definitions,
+            get_sub_task_definition,
+            update_sub_task_definition,
+            delete_sub_task_definition,
+            create_sub_task_execution,
+            list_sub_task_executions,
+            get_sub_task_execution_detail,
+            cancel_sub_task_execution,
             ensure_hidden_search_window
         ])
         .build(tauri::generate_context!())
