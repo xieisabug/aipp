@@ -1,8 +1,10 @@
-import React from "react";
+import React, { useState } from "react";
 import MessageList from "./MessageList";
 import NewChatComponent from "../NewChatComponent";
 import { Message, StreamEvent } from "../../data/Conversation";
 import { AssistantListItem } from "../../data/Assistant";
+import { SubTaskList, SubTaskDetailDialog } from "../sub-task";
+import { SubTaskExecutionSummary } from "../../data/SubTask";
 
 export interface ConversationContentProps {
     conversationId: string;
@@ -51,24 +53,62 @@ const ConversationContent: React.FC<ConversationContentProps> = ({
     assistants,
     setSelectedAssistant,
 }) => {
+    // State for sub-task detail dialog
+    const [selectedSubTask, setSelectedSubTask] = useState<SubTaskExecutionSummary | null>(null);
+    const [isDetailDialogOpen, setIsDetailDialogOpen] = useState(false);
+
+    // Handle sub-task detail view
+    const handleSubTaskDetailView = (execution: SubTaskExecutionSummary) => {
+        setSelectedSubTask(execution);
+        setIsDetailDialogOpen(true);
+    };
+
+    const handleCloseDetailDialog = () => {
+        setIsDetailDialogOpen(false);
+        setSelectedSubTask(null);
+    };
+
+    const conversationIdNum = parseInt(conversationId);
+    const isValidConversationId = !isNaN(conversationIdNum);
+
     if (conversationId) {
         return (
-            <MessageList
-                allDisplayMessages={allDisplayMessages}
-                streamingMessages={streamingMessages}
-                shiningMessageIds={shiningMessageIds}
-                reasoningExpandStates={reasoningExpandStates}
-                mcpToolCallStates={mcpToolCallStates}
-                generationGroups={generationGroups}
-                selectedVersions={selectedVersions}
-                getGenerationGroupControl={getGenerationGroupControl}
-                handleGenerationVersionChange={handleGenerationVersionChange}
-                onCodeRun={onCodeRun}
-                onMessageRegenerate={onMessageRegenerate}
-                onMessageEdit={onMessageEdit}
-                onMessageFork={onMessageFork}
-                onToggleReasoningExpand={onToggleReasoningExpand}
-            />
+            <>
+                {/* Conversation-level sub-tasks - shown between header and messages */}
+                {isValidConversationId && (
+                    <SubTaskList
+                        conversation_id={conversationIdNum}
+                        onTaskDetailView={handleSubTaskDetailView}
+                    />
+                )}
+
+                <MessageList
+                    allDisplayMessages={allDisplayMessages}
+                    streamingMessages={streamingMessages}
+                    shiningMessageIds={shiningMessageIds}
+                    reasoningExpandStates={reasoningExpandStates}
+                    mcpToolCallStates={mcpToolCallStates}
+                    generationGroups={generationGroups}
+                    selectedVersions={selectedVersions}
+                    getGenerationGroupControl={getGenerationGroupControl}
+                    handleGenerationVersionChange={handleGenerationVersionChange}
+                    onCodeRun={onCodeRun}
+                    onMessageRegenerate={onMessageRegenerate}
+                    onMessageEdit={onMessageEdit}
+                    onMessageFork={onMessageFork}
+                    onToggleReasoningExpand={onToggleReasoningExpand}
+                />
+
+                {/* Sub-task detail dialog */}
+                {selectedSubTask && (
+                    <SubTaskDetailDialog
+                        isOpen={isDetailDialogOpen}
+                        onClose={handleCloseDetailDialog}
+                        execution={selectedSubTask}
+                        // 不再需要传递source_id，使用UI专用的详情接口
+                    />
+                )}
+            </>
         );
     }
 

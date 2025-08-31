@@ -58,9 +58,10 @@ use crate::api::system_api::{
     save_feature_config,
 };
 use crate::api::sub_task_api::{
-    cancel_sub_task_execution, create_sub_task_execution, delete_sub_task_definition,
-    get_sub_task_definition, get_sub_task_execution_detail, list_sub_task_definitions,
-    list_sub_task_executions, register_sub_task_definition, update_sub_task_definition,
+    cancel_sub_task_execution, cancel_sub_task_execution_for_ui, create_sub_task_execution, delete_sub_task_definition,
+    get_sub_task_definition, get_sub_task_execution_detail, get_sub_task_execution_detail_for_ui,
+    list_sub_task_definitions, list_sub_task_executions, register_sub_task_definition, 
+    update_sub_task_definition,
 };
 use crate::artifacts::react_preview::{
     close_react_preview, create_react_preview, create_react_preview_for_artifact,
@@ -356,7 +357,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             create_sub_task_execution,
             list_sub_task_executions,
             get_sub_task_execution_detail,
+            get_sub_task_execution_detail_for_ui,
             cancel_sub_task_execution,
+            cancel_sub_task_execution_for_ui,
             ensure_hidden_search_window
         ])
         .build(tauri::generate_context!())

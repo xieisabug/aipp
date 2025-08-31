@@ -31,7 +31,7 @@ export function usePluginManagement(pluginList: any[]): UsePluginManagementRetur
     // 助手类型API接口，提供给插件使用 - 使用 useMemo 避免重复创建
     const assistantTypeApi: AssistantTypeApi = useMemo(
         () => ({
-            typeRegist: (pluginType: number, code: number, label: string, pluginInstance: AippAssistantTypePlugin) => {
+            typeRegist: (_pluginType: number, code: number, _label: string, pluginInstance: AippAssistantTypePlugin) => {
                 setAssistantTypePluginMap((prev) => {
                     const newMap = new Map(prev);
                     newMap.set(code, pluginInstance);

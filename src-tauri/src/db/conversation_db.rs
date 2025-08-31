@@ -5,6 +5,7 @@ use rusqlite::{Connection, OptionalExtension, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::errors::AppError;
+use crate::utils::db_utils::{get_datetime_from_row, get_required_datetime_from_row};
 
 use super::get_db_path;
 
@@ -126,7 +127,7 @@ impl ConversationRepository {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 assistant_id: row.get(2)?,
-                created_time: row.get(3)?,
+                created_time: get_required_datetime_from_row(row, 3, "created_time")?,
             })
         })?;
         rows.collect()
@@ -178,7 +179,7 @@ impl Repository<Conversation> for ConversationRepository {
                         id: row.get(0)?,
                         name: row.get(1)?,
                         assistant_id: row.get(2)?,
-                        created_time: row.get(3)?,
+                        created_time: get_required_datetime_from_row(row, 3, "created_time")?,
                     })
                 },
             )
@@ -227,9 +228,9 @@ impl MessageRepository {
                 content: row.get(4)?,
                 llm_model_id: row.get(5)?,
                 llm_model_name: row.get(6)?,
-                created_time: row.get(7)?,
-                start_time: row.get(8)?,
-                finish_time: row.get(9)?,
+                created_time: get_required_datetime_from_row(row, 7, "created_time")?,
+                start_time: get_datetime_from_row(row, 8)?,
+                finish_time: get_datetime_from_row(row, 9)?,
                 token_count: row.get(10)?,
                 generation_group_id: row.get(11)?,
                 parent_group_id: row.get(12)?,
@@ -317,9 +318,9 @@ impl Repository<Message> for MessageRepository {
                     content: row.get(4)?,
                     llm_model_id: row.get(5)?,
                     llm_model_name: row.get(6)?,
-                    created_time: row.get(7)?,
-                    start_time: row.get(8)?,
-                    finish_time: row.get(9)?,
+                    created_time: get_required_datetime_from_row(row, 7, "created_time")?,
+                    start_time: get_datetime_from_row(row, 8)?,
+                    finish_time: get_datetime_from_row(row, 9)?,
                     token_count: row.get(10)?,
                     generation_group_id: row.get(11)?,
                     parent_group_id: row.get(12)?,

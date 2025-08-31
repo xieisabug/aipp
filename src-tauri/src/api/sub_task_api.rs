@@ -437,7 +437,6 @@ pub async fn list_sub_task_executions(
     parent_conversation_id: i64,
     parent_message_id: Option<i64>,
     status: Option<String>,     // 过滤条件
-    source_id: Option<i64>,     // 过滤条件，同时用于鉴权
     page: Option<u32>,
     page_size: Option<u32>,
 ) -> Result<Vec<SubTaskExecutionSummary>, String> {
@@ -447,22 +446,15 @@ pub async fn list_sub_task_executions(
     let page = page.unwrap_or(1);
     let page_size = page_size.unwrap_or(20);
 
-    let executions = if let Some(sid) = source_id {
-        // 使用源过滤
-        repo.list_by_source_filter(parent_conversation_id, Some(sid))
-            .map_err(|e| e.to_string())?
-    } else {
-        // 使用基本过滤
-        repo.list_by_conversation(
+    let executions = repo.list_by_conversation(
             parent_conversation_id,
             parent_message_id,
             status.as_deref(),
             page,
             page_size,
         )
-        .map_err(|e| e.to_string())?
-    };
-
+        .map_err(|e| e.to_string())?;
+    
     Ok(executions)
 }
 
@@ -556,6 +548,51 @@ pub async fn cancel_sub_task_execution(
         } else {
             Err("关联的任务定义不存在".to_string())
         }
+    } else {
+        Err("任务执行记录不存在".to_string())
+    }
+}
+
+/// 获取子任务执行详情（UI展示用，不需要鉴权）
+#[tauri::command]
+pub async fn get_sub_task_execution_detail_for_ui(
+    app_handle: tauri::AppHandle,
+    execution_id: i64,
+) -> Result<Option<SubTaskExecution>, String> {
+    let db = SubTaskDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+    let exec_repo = db.execution_repo().map_err(|e| e.to_string())?;
+
+    // 直接获取执行详情，不进行鉴权检查（用于UI展示）
+    let execution = exec_repo.read(execution_id).map_err(|e| e.to_string())?;
+    Ok(execution)
+}
+
+/// 取消子任务执行（UI专用，不需要鉴权）
+#[tauri::command]
+pub async fn cancel_sub_task_execution_for_ui(
+    app_handle: tauri::AppHandle,
+    execution_id: i64,
+) -> Result<(), String> {
+    let db = SubTaskDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+    let exec_repo = db.execution_repo().map_err(|e| e.to_string())?;
+
+    if let Some(execution) = exec_repo.read(execution_id).map_err(|e| e.to_string())? {
+        // 只有 pending 或 running 状态的任务可以取消
+        if execution.status != "pending" && execution.status != "running" {
+            return Err(format!("任务状态为 '{}' 时无法取消", execution.status));
+        }
+
+        // 更新状态为 cancelled
+        exec_repo
+            .update_status(execution_id, "cancelled", None)
+            .map_err(|e| e.to_string())?;
+
+        // 发送状态更新事件
+        if let Ok(Some(updated_execution)) = exec_repo.read(execution_id) {
+            emit_sub_task_status_update(&app_handle, &updated_execution).await;
+        }
+
+        Ok(())
     } else {
         Err("任务执行记录不存在".to_string())
     }

@@ -100,7 +100,7 @@ export interface ListSubTaskExecutionsParams {
 export interface UseSubTaskManagerOptions {
     conversation_id: number;
     message_id?: number;
-    source_id?: number;
+    // source_id 在UI层面不需要，只在MCP/plugin开发时需要
 }
 
 export interface UseSubTaskEventsOptions {

@@ -38,10 +38,12 @@ export function useSubTaskManager(options: UseSubTaskManagerOptions) {
                 const fullParams: ListSubTaskExecutionsParams = {
                     parent_conversation_id: options.conversation_id,
                     parent_message_id: options.message_id,
-                    source_id: options.source_id,
+                    // 不传递 source_id，让后端查询所有相关的子任务
                     ...params,
                 };
+                console.log("Load sub-task execution params:", fullParams);
                 const result = await subTaskService.listExecutions(fullParams);
+                console.log("Load sub-task execution results:", result);
                 setExecutions(result);
                 setError(null);
             } catch (err) {
@@ -50,19 +52,19 @@ export function useSubTaskManager(options: UseSubTaskManagerOptions) {
                 setLoading(false);
             }
         },
-        [options.conversation_id, options.message_id, options.source_id]
+        [options.conversation_id, options.message_id]
     );
 
-    // 创建子任务
+    // 在UI层面，我们通常不需要创建子任务（由MCP/plugin负责）
+    // 这个方法保留用于特殊情况，但需要明确传入source_id
     const createSubTask = useCallback(
-        async (request: Omit<CreateSubTaskRequest, "parent_conversation_id" | "parent_message_id" | "source_id">) => {
+        async (request: Omit<CreateSubTaskRequest, "parent_conversation_id" | "parent_message_id">) => {
             try {
                 setLoading(true);
                 const fullRequest: CreateSubTaskRequest = {
                     ...request,
                     parent_conversation_id: options.conversation_id,
                     parent_message_id: options.message_id,
-                    source_id: options.source_id || 0,
                 };
                 const execution_id = await subTaskService.createExecution(fullRequest);
 
@@ -78,19 +80,15 @@ export function useSubTaskManager(options: UseSubTaskManagerOptions) {
                 setLoading(false);
             }
         },
-        [options.conversation_id, options.message_id, options.source_id, loadExecutions]
+        [options.conversation_id, options.message_id, loadExecutions]
     );
 
-    // 取消任务
+    // 取消任务 - UI专用方法，不需要source_id
     const cancelSubTask = useCallback(
         async (execution_id: number) => {
-            if (!options.source_id) {
-                throw new Error("缺少 source_id");
-            }
-
             try {
                 setLoading(true);
-                await subTaskService.cancelExecution(execution_id, options.source_id);
+                await subTaskService.cancelExecutionForUI(execution_id);
 
                 // 刷新执行记录
                 await loadExecutions();
@@ -103,18 +101,35 @@ export function useSubTaskManager(options: UseSubTaskManagerOptions) {
                 setLoading(false);
             }
         },
-        [options.source_id, loadExecutions]
+        [loadExecutions]
     );
 
-    // 获取任务详情
-    const getExecutionDetail = useCallback(
-        async (execution_id: number): Promise<SubTaskExecutionDetail | null> => {
-            if (!options.source_id) {
-                throw new Error("缺少 source_id");
-            }
-
+    // 取消任务 - 需要传入source_id进行鉴权（用于MCP/plugin开发）
+    const cancelSubTaskWithAuth = useCallback(
+        async (execution_id: number, source_id: number) => {
             try {
-                const result = await subTaskService.getExecutionDetail(execution_id, options.source_id);
+                setLoading(true);
+                await subTaskService.cancelExecution(execution_id, source_id);
+
+                // 刷新执行记录
+                await loadExecutions();
+                setError(null);
+            } catch (err) {
+                const errorMessage = err instanceof Error ? err.message : "取消任务失败";
+                setError(errorMessage);
+                throw new Error(errorMessage);
+            } finally {
+                setLoading(false);
+            }
+        },
+        [loadExecutions]
+    );
+
+    // 获取任务详情 - 需要传入source_id进行鉴权
+    const getExecutionDetail = useCallback(
+        async (execution_id: number, source_id: number): Promise<SubTaskExecutionDetail | null> => {
+            try {
+                const result = await subTaskService.getExecutionDetail(execution_id, source_id);
                 return result;
             } catch (err) {
                 const errorMessage = err instanceof Error ? err.message : "获取任务详情失败";
@@ -122,13 +137,13 @@ export function useSubTaskManager(options: UseSubTaskManagerOptions) {
                 throw new Error(errorMessage);
             }
         },
-        [options.source_id]
+        []
     );
 
     // 刷新数据
     const refresh = useCallback(async () => {
-        await Promise.all([loadDefinitions({ source_id: options.source_id }), loadExecutions()]);
-    }, [loadDefinitions, loadExecutions, options.source_id]);
+        await Promise.all([loadDefinitions(), loadExecutions()]);
+    }, [loadDefinitions, loadExecutions]);
 
     // 初始化加载
     useEffect(() => {
@@ -146,7 +161,8 @@ export function useSubTaskManager(options: UseSubTaskManagerOptions) {
         loadDefinitions,
         loadExecutions,
         createSubTask,
-        cancelSubTask,
+        cancelSubTask, // UI专用，不需要source_id
+        cancelSubTaskWithAuth, // 需要鉴权，用于MCP/plugin开发
         getExecutionDetail,
         refresh,
 

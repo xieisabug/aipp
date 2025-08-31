@@ -10,6 +10,15 @@ import {
     ListSubTaskExecutionsParams,
     SubTaskService,
 } from "../data/SubTask";
+import { 
+    Clock, 
+    Zap, 
+    CheckCircle, 
+    XCircle, 
+    Square, 
+    HelpCircle 
+} from "lucide-react";
+import React from "react";
 
 class SubTaskServiceImpl implements SubTaskService {
     // 任务定义管理
@@ -110,6 +119,29 @@ class SubTaskServiceImpl implements SubTaskService {
         };
     }
 
+    // UI展示用的获取详情方法（不需要鉴权）
+    async getExecutionDetailForUI(execution_id: number): Promise<SubTaskExecutionDetail | null> {
+        const execution = await invoke<SubTaskExecutionDetail | null>("get_sub_task_execution_detail_for_ui", {
+            executionId: execution_id,
+        });
+
+        if (!execution) return null;
+
+        return {
+            ...execution,
+            created_time: new Date(execution.created_time),
+            started_time: execution.started_time ? new Date(execution.started_time) : undefined,
+            finished_time: execution.finished_time ? new Date(execution.finished_time) : undefined,
+        };
+    }
+
+    // UI专用的取消任务方法（不需要鉴权）
+    async cancelExecutionForUI(execution_id: number): Promise<void> {
+        await invoke<void>("cancel_sub_task_execution_for_ui", {
+            executionId: execution_id,
+        });
+    }
+
     async cancelExecution(execution_id: number, source_id: number): Promise<void> {
         await invoke<void>("cancel_sub_task_execution", {
             executionId: execution_id,
@@ -139,20 +171,22 @@ export const getStatusColor = (status: string): string => {
     }
 };
 
-export const getStatusIcon = (status: string): string => {
+export const getStatusIcon = (status: string): React.ReactElement => {
+    const iconProps = { className: "w-3 h-3" };
+    
     switch (status) {
         case "pending":
-            return "⏳";
+            return React.createElement(Clock, iconProps);
         case "running":
-            return "⚡";
+            return React.createElement(Zap, iconProps);
         case "success":
-            return "✅";
+            return React.createElement(CheckCircle, iconProps);
         case "failed":
-            return "❌";
+            return React.createElement(XCircle, iconProps);
         case "cancelled":
-            return "⏹️";
+            return React.createElement(Square, iconProps);
         default:
-            return "❓";
+            return React.createElement(HelpCircle, iconProps);
     }
 };
 

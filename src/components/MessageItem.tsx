@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import ReasoningMessage from "./ReasoningMessage";
 import ErrorMessage from "./message-item/ErrorMessage";
@@ -14,6 +14,8 @@ import { useCustomTagParser } from "../hooks/useCustomTagParser";
 import { useMarkdownConfig } from "../hooks/useMarkdownConfig";
 import { useMcpToolCallProcessor } from "../hooks/useMcpToolCallProcessor";
 import { useDisplayConfig } from "../hooks/useDisplayConfig";
+import { SubTaskList, SubTaskDetailDialog } from "./sub-task";
+import { SubTaskExecutionSummary } from "../data/SubTask";
 
 interface MessageItemProps {
     message: Message;
@@ -43,6 +45,20 @@ const MessageItem = React.memo<MessageItemProps>(
         conversationId,
         mcpToolCallStates,
     }) => {
+        // Sub-task detail dialog state
+        const [selectedSubTask, setSelectedSubTask] = useState<SubTaskExecutionSummary | null>(null);
+        const [isDetailDialogOpen, setIsDetailDialogOpen] = useState(false);
+
+        // Handle sub-task detail view
+        const handleSubTaskDetailView = (execution: SubTaskExecutionSummary) => {
+            setSelectedSubTask(execution);
+            setIsDetailDialogOpen(true);
+        };
+
+        const handleCloseDetailDialog = () => {
+            setIsDetailDialogOpen(false);
+            setSelectedSubTask(null);
+        };
         // 性能监控
         usePerformanceMonitor(
             "MessageItem",
@@ -122,35 +138,57 @@ const MessageItem = React.memo<MessageItemProps>(
 
         // 常规消息渲染
         return (
-            <div
-                className={`group relative py-4 px-5 rounded-2xl inline-block max-w-[65%] transition-all duration-200 bg-background text-foreground border border-border ${
-                    isUserMessage ? "self-end" : "self-start"
-                }`}
-            >
-                {shouldShowShineBorder && (
-                    <ShineBorder
-                        shineColor={DEFAULT_SHINE_BORDER_CONFIG.shineColor}
-                        borderWidth={DEFAULT_SHINE_BORDER_CONFIG.borderWidth}
-                        duration={DEFAULT_SHINE_BORDER_CONFIG.duration}
+            <div className="flex flex-col">
+                {/* Message-level sub-tasks - shown at the top of each message */}
+                {conversationId && (
+                    <SubTaskList
+                        conversation_id={conversationId}
+                        message_id={message.id}
+                        onTaskDetailView={handleSubTaskDetailView}
+                        className="mb-2"
                     />
                 )}
 
-                <div className="prose prose-sm max-w-none text-foreground">
-                    {/* RawTextRenderer 已包含 prose 样式，条件渲染避免重复包装 */}
-                    {isUserMessage && !isUserMessageMarkdownEnabled ? contentElement : <div>{contentElement}</div>}
+                <div
+                    className={`group relative py-4 px-5 rounded-2xl inline-block max-w-[65%] transition-all duration-200 bg-background text-foreground border border-border ${
+                        isUserMessage ? "self-end" : "self-start"
+                    }`}
+                >
+                    {shouldShowShineBorder && (
+                        <ShineBorder
+                            shineColor={DEFAULT_SHINE_BORDER_CONFIG.shineColor}
+                            borderWidth={DEFAULT_SHINE_BORDER_CONFIG.borderWidth}
+                            duration={DEFAULT_SHINE_BORDER_CONFIG.duration}
+                        />
+                    )}
+
+                    <div className="prose prose-sm max-w-none text-foreground">
+                        {/* RawTextRenderer 已包含 prose 样式，条件渲染避免重复包装 */}
+                        {isUserMessage && !isUserMessageMarkdownEnabled ? contentElement : <div>{contentElement}</div>}
+                    </div>
+
+                    <ImageAttachments attachments={message.attachment_list} />
+
+                    <MessageActionButtons
+                        messageType={message.message_type}
+                        isUserMessage={isUserMessage}
+                        copyIconState={copyIconState}
+                        onCopy={handleCopy}
+                        onEdit={onMessageEdit}
+                        onRegenerate={onMessageRegenerate}
+                        onFork={onMessageFork}
+                    />
                 </div>
 
-                <ImageAttachments attachments={message.attachment_list} />
-
-                <MessageActionButtons
-                    messageType={message.message_type}
-                    isUserMessage={isUserMessage}
-                    copyIconState={copyIconState}
-                    onCopy={handleCopy}
-                    onEdit={onMessageEdit}
-                    onRegenerate={onMessageRegenerate}
-                    onFork={onMessageFork}
-                />
+                {/* Sub-task detail dialog */}
+                {selectedSubTask && (
+                    <SubTaskDetailDialog
+                        isOpen={isDetailDialogOpen}
+                        onClose={handleCloseDetailDialog}
+                        execution={selectedSubTask}
+                        // 不再需要传递source_id，使用UI专用的详情接口
+                    />
+                )}
             </div>
         );
     }
@@ -179,6 +217,9 @@ const areEqual = (prevProps: MessageItemProps, nextProps: MessageItemProps) => {
 
     // ShineBorder 动画状态比较
     if (prevProps.shouldShowShineBorder !== nextProps.shouldShowShineBorder) return false;
+
+    // Sub-task related props comparison
+    if (prevProps.conversationId !== nextProps.conversationId) return false;
 
     // 回调函数比较（通常应该是稳定的）
     if (prevProps.onCodeRun !== nextProps.onCodeRun) return false;

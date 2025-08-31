@@ -5,6 +5,7 @@ use rusqlite::{Connection, OptionalExtension, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::errors::AppError;
+use crate::utils::db_utils::{get_datetime_from_row, get_required_datetime_from_row};
 
 use super::get_db_path;
 
@@ -230,9 +231,17 @@ impl SubTaskExecutionRepository {
         );
         let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(parent_conversation_id)];
 
-        if let Some(msg_id) = parent_message_id {
-            query.push_str(" AND parent_message_id = ?");
-            params.push(Box::new(msg_id));
+        // 修复：明确处理 parent_message_id 的查询条件
+        match parent_message_id {
+            Some(msg_id) => {
+                query.push_str(" AND parent_message_id = ?");
+                params.push(Box::new(msg_id));
+            }
+            None => {
+                // 如果要查询所有消息（包括 parent_message_id 为 NULL 的），保持原逻辑
+                // 如果只要查询 parent_message_id 为 NULL 的，使用下面这行：
+                // query.push_str(" AND parent_message_id IS NULL");
+            }
         }
 
         if let Some(st) = status {
@@ -241,8 +250,8 @@ impl SubTaskExecutionRepository {
         }
 
         query.push_str(" ORDER BY created_time DESC LIMIT ? OFFSET ?");
-        params.push(Box::new(page_size));
-        params.push(Box::new(offset));
+        params.push(Box::new(page_size as i64));  // 修复：确保类型一致
+        params.push(Box::new(offset as i64));     // 修复：确保类型一致
 
         let mut stmt = self.conn.prepare(&query)?;
         let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
@@ -253,11 +262,13 @@ impl SubTaskExecutionRepository {
                 task_name: row.get(2)?,
                 task_prompt: row.get(3)?,
                 status: row.get(4)?,
-                created_time: row.get(5)?,
+                created_time: get_required_datetime_from_row(row, 5, "created_time")?,
                 token_count: row.get(6)?,
             })
         })?;
-        rows.collect()
+        
+        let result: Result<Vec<SubTaskExecutionSummary>> = rows.collect();
+        result
     }
 
     pub fn update_status(&self, id: i64, status: &str, started_time: Option<DateTime<Utc>>) -> Result<()> {
@@ -313,7 +324,7 @@ impl SubTaskExecutionRepository {
                 task_name: row.get(2)?,
                 task_prompt: row.get(3)?,
                 status: row.get(4)?,
-                created_time: row.get(5)?,
+                created_time: get_required_datetime_from_row(row, 5, "created_time")?,
                 token_count: row.get(6)?,
             })
         })?;
@@ -392,9 +403,9 @@ impl Repository<SubTaskExecution> for SubTaskExecutionRepository {
                         token_count: row.get(12)?,
                         input_token_count: row.get(13)?,
                         output_token_count: row.get(14)?,
-                        started_time: row.get(15)?,
-                        finished_time: row.get(16)?,
-                        created_time: row.get(17)?,
+                        started_time: get_datetime_from_row(row, 15)?,
+                        finished_time: get_datetime_from_row(row, 16)?,
+                        created_time: get_required_datetime_from_row(row, 17, "created_time")?,
                     })
                 },
             )
@@ -421,7 +432,7 @@ pub struct SubTaskDatabase {
 
 impl SubTaskDatabase {
     pub fn new(app_handle: &tauri::AppHandle) -> rusqlite::Result<Self> {
-        let db_path = get_db_path(app_handle, "sub_task.db");
+        let db_path = get_db_path(app_handle, "conversation.db");
 
         Ok(SubTaskDatabase { db_path: db_path.unwrap() })
     }
@@ -451,7 +462,7 @@ impl SubTaskDatabase {
                 code TEXT NOT NULL UNIQUE,
                 description TEXT NOT NULL,
                 system_prompt TEXT NOT NULL,
-                plugin_source TEXT NOT NULL CHECK(plugin_source IN ('mcp', 'plugin')),
+                plugin_source TEXT NOT NULL,
                 source_id INTEGER NOT NULL,
                 is_enabled BOOLEAN NOT NULL DEFAULT 1,
                 created_time DATETIME DEFAULT CURRENT_TIMESTAMP,
