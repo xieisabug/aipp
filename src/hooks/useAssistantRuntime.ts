@@ -338,6 +338,35 @@ export function useAssistantRuntime({
                 throw error;
             }
         },
+        
+        runSubTask: async function (code: string, taskPrompt: string): Promise<SubTaskRunResult> {
+            console.log("Running sub task:", code, "with prompt:", taskPrompt);
+            try {
+                const assistantId = conversation?.assistant_id || selectedAssistant;
+                const conversationIdNumber = conversation?.id ? +conversation.id : 0;
+                
+                if (!assistantId) {
+                    throw new Error("No assistant selected for running sub task");
+                }
+                
+                if (!conversationIdNumber) {
+                    throw new Error("No conversation context available for running sub task");
+                }
+                
+                const result = await invoke<SubTaskRunResult>("run_sub_task_sync", {
+                    code,
+                    taskPrompt,
+                    conversationId: conversationIdNumber,
+                    assistantId: +assistantId,
+                });
+                
+                console.log("Sub task completed:", result);
+                return result;
+            } catch (error) {
+                console.error("Failed to run sub task:", error);
+                throw error;
+            }
+        },
     };
 
     return {

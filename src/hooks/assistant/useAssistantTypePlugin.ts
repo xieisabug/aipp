@@ -56,20 +56,9 @@ export const useAssistantTypePlugin = (pluginList: any[]) => {
                     return newMap;
                 });
             },
-            subTaskRegist: async (options: SubTaskRegistOptions) => {
-                try {
-                    await invoke("sub_task_regist", {
-                        code: options.code,
-                        name: options.name,
-                        description: options.description,
-                        systemPrompt: options.systemPrompt,
-                        pluginSource: options.pluginSource,
-                        sourceId: options.sourceId,
-                    });
-                    console.log(`Sub task '${options.code}' registered successfully`);
-                } catch (error) {
-                    console.error(`Failed to register sub task '${options.code}':`, error);
-                }
+            subTaskRegist: async (_options: SubTaskRegistOptions) => {
+                // 这个实现会被插件特定的实现覆盖
+                console.warn("subTaskRegist called without plugin context");
             },
             markdownRemarkRegist: (_: any) => {},
             changeFieldLabel: (fieldName: string, label: string) => {
@@ -132,7 +121,26 @@ export const useAssistantTypePlugin = (pluginList: any[]) => {
         pluginList
             .filter((plugin: any) => plugin.pluginType.includes("assistantType"))
             .forEach((plugin: any) => {
-                plugin?.instance?.onAssistantTypeInit(assistantTypeApi);
+                // 为每个插件创建一个包含插件ID的assistantTypeApi
+                const pluginAwareApi = {
+                    ...assistantTypeApi,
+                    subTaskRegist: async (options: SubTaskRegistOptions) => {
+                        try {
+                            await invoke("sub_task_regist", {
+                                code: options.code,
+                                name: options.name,
+                                description: options.description,
+                                systemPrompt: options.systemPrompt,
+                                pluginSource: "plugin",
+                                sourceId: plugin.id || 0, // 使用插件的ID，如果没有则使用0
+                            });
+                            console.log(`Sub task '${options.code}' registered successfully`);
+                        } catch (error) {
+                            console.error(`Failed to register sub task '${options.code}':`, error);
+                        }
+                    }
+                };
+                plugin?.instance?.onAssistantTypeInit(pluginAwareApi);
             });
     }, [pluginList, assistantTypeApi]);
 

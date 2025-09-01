@@ -26,9 +26,9 @@ const SubTaskList: React.FC<SubTaskListProps> = ({
     // Use sub-task management hooks
     const {
         executions,
-        error,
+        error: _error,
         refresh,
-        hasRunningTasks,
+        hasRunningTasks: _hasRunningTasks,
     } = useSubTaskManager({
         conversation_id,
         message_id,

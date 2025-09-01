@@ -154,10 +154,10 @@ pub async fn ask_ai(
             return Err(AppError::UnknownError("Invalid override model ID format".to_string()));
         }
         let (model_code, provider_id) = (parts[0], parts[1]);
-        let provider_id_i64 = &provider_id.parse::<i64>().map_err(|e| AppError::UnknownError(format!("Invalid provider_id: {}", e)))?;
+        let provider_id_i64 = provider_id.parse::<i64>().map_err(|e| AppError::UnknownError(format!("Invalid provider_id: {}", e)))?;
         let model_code_string = model_code.to_string();
         llm_db
-            .get_llm_model_detail(provider_id_i64, &model_code_string)
+            .get_llm_model_detail(&provider_id_i64, &model_code_string)
             .context("Failed to get LLM model detail")?
     } else {
         // 使用助手的默认模型

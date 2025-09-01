@@ -62,13 +62,18 @@ interface AskAssistantOptions {
     ) => void;
 }
 
+interface SubTaskRunResult {
+    success: boolean;
+    content?: string;
+    error?: string;
+    executionId: number;
+}
+
 interface SubTaskRegistOptions {
     code: string;
     name: string;
     description: string;
     systemPrompt: string;
-    pluginSource: "plugin";
-    sourceId: number;
 }
 
 interface AssistantTypeApi {
@@ -119,6 +124,7 @@ interface AssistantRunApi {
     getMcpToolCall(callId: number): Promise<McpToolCall | null>;
     
     createConversation(systemPrompt: string, userPrompt: string): Promise<CreateConversationResponse>;
+    runSubTask(code: string, taskPrompt: string): Promise<SubTaskRunResult>;
 }
 
 interface AiResponse {

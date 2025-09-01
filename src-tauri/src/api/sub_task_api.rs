@@ -3,14 +3,26 @@ use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 
 use crate::{
+    api::{
+        ai::{
+            config::{get_network_proxy_from_config, get_request_timeout_from_config},
+            conversation::build_chat_messages,
+        },
+        assistant_api::get_assistant,
+        genai_client::create_client_with_config,
+    },
     db::{
         conversation_db::{ConversationDatabase, Repository as ConversationRepository},
+        llm_db::LLMDatabase,
         sub_task_db::{
             Repository, SubTaskDatabase, SubTaskDefinition, SubTaskExecution,
             SubTaskExecutionSummary,
         },
     },
+    FeatureConfigState,
 };
+use genai::chat::{ChatRequest, ChatOptions};
+use tauri::State;
 
 // 事件定义
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -567,6 +579,249 @@ pub async fn get_sub_task_execution_detail_for_ui(
     Ok(execution)
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SubTaskRunResult {
+    pub success: bool,
+    pub content: Option<String>,
+    pub error: Option<String>,
+    pub execution_id: i64,
+}
+
+#[tauri::command]
+pub async fn run_sub_task_sync(
+    app_handle: tauri::AppHandle,
+    feature_config_state: State<'_, FeatureConfigState>,
+    code: String,
+    task_prompt: String,
+    conversation_id: i64,
+    assistant_id: i64,
+) -> Result<SubTaskRunResult, String> {
+    // 获取任务定义
+    let sub_task_db = SubTaskDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+    let def_repo = sub_task_db.definition_repo().map_err(|e| e.to_string())?;
+
+    let task_definition = def_repo
+        .find_by_code(&code)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Sub task '{}' not found", code))?;
+
+    // 检查任务是否启用
+    if !task_definition.is_enabled {
+        return Err("Sub task is disabled".to_string());
+    }
+
+    // 验证父对话是否存在
+    let conv_db = ConversationDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+    let conv_repo = conv_db.conversation_repo().map_err(|e| e.to_string())?;
+    
+    if conv_repo.read(conversation_id).map_err(|e| e.to_string())?.is_none() {
+        return Err("Conversation not found".to_string());
+    }
+
+    // 获取助手配置
+    let assistant_detail = get_assistant(app_handle.clone(), assistant_id)
+        .map_err(|e| format!("Failed to get assistant: {}", e))?;
+
+    // 获取特征配置
+    let config_feature_map = feature_config_state.config_feature_map.lock().await;
+    let config_map = config_feature_map.clone();
+    drop(config_feature_map);
+
+    // 创建执行记录
+    let exec_repo = sub_task_db.execution_repo().map_err(|e| e.to_string())?;
+    let execution = SubTaskExecution {
+        id: 0,
+        task_definition_id: task_definition.id,
+        task_code: code.clone(),
+        task_name: task_definition.name.clone(),
+        task_prompt: task_prompt.clone(),
+        parent_conversation_id: conversation_id,
+        parent_message_id: None, // Run from plugin context
+        status: "pending".to_string(),
+        result_content: None,
+        error_message: None,
+        llm_model_id: None,
+        llm_model_name: None,
+        token_count: 0,
+        input_token_count: 0,
+        output_token_count: 0,
+        started_time: None,
+        finished_time: None,
+        created_time: Utc::now(),
+    };
+
+    let created_execution = exec_repo.create(&execution).map_err(|e| e.to_string())?;
+    let execution_id = created_execution.id;
+
+    // 同步执行任务
+    let started_time = Utc::now();
+    let _ = exec_repo.update_status(execution_id, "running", Some(started_time));
+
+    // 发送状态更新事件
+    let mut updated_execution = exec_repo.read(execution_id).map_err(|e| e.to_string())?.unwrap();
+    updated_execution.status = "running".to_string();
+    updated_execution.started_time = Some(started_time);
+    emit_sub_task_status_update(&app_handle, &updated_execution).await;
+
+    // 实际执行AI任务
+    let result: Result<(String, Option<(i32, i32, i32)>), String> = {
+        // 获取LLM数据库连接获取模型配置
+        let llm_db = LLMDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+        
+        // 获取助手的模型信息
+        let model_info = if assistant_detail.model.is_empty() {
+            return Err("Assistant has no model configured".to_string());
+        } else {
+            &assistant_detail.model[0]
+        };
+        
+        let llm_model = llm_db.get_llm_model_detail_by_id(&model_info.provider_id)
+            .map_err(|e| format!("Failed to get LLM model: {}", e))?;
+        
+        let model_name = if !model_info.model_code.is_empty() {
+            &model_info.model_code
+        } else {
+            return Err("Model code is empty".to_string());
+        };
+        
+        // 获取提供商配置
+        let provider_configs = llm_db.get_llm_provider_config(model_info.provider_id)
+            .map_err(|e| format!("Failed to get provider config: {}", e))?;
+        
+        // 构建配置
+        let network_proxy = get_network_proxy_from_config(&config_map);
+        let request_timeout = get_request_timeout_from_config(&config_map);
+        let proxy_enabled = network_proxy.is_some(); // 简化proxy启用检查
+        
+        // 创建AI客户端
+        let client = create_client_with_config(
+            &provider_configs,
+            model_name,
+            &llm_model.provider.api_type,
+            network_proxy.as_deref(),
+            proxy_enabled,
+            Some(request_timeout), // 包装为Option
+        ).map_err(|e| format!("Failed to create AI client: {}", e))?;
+        
+        // 构建消息
+        let init_messages = vec![
+            ("system".to_string(), task_definition.system_prompt.clone(), vec![]),
+            ("user".to_string(), task_prompt.clone(), vec![])
+        ];
+        
+        let chat_messages = build_chat_messages(&init_messages);
+        let chat_request = ChatRequest::new(chat_messages);
+        
+        // 构建聊天选项
+        let mut chat_options = ChatOptions::default();
+        
+        // 应用助手的模型配置
+        for config in &assistant_detail.model_configs {
+            match config.name.as_str() {
+                "max_tokens" => {
+                    if let Some(value) = &config.value {
+                        if let Ok(max_tokens) = value.parse::<u32>() {
+                            chat_options = chat_options.with_max_tokens(max_tokens);
+                        }
+                    }
+                },
+                "temperature" => {
+                    if let Some(value) = &config.value {
+                        if let Ok(temperature) = value.parse::<f64>() {
+                            chat_options = chat_options.with_temperature(temperature);
+                        }
+                    }
+                },
+                "top_p" => {
+                    if let Some(value) = &config.value {
+                        if let Ok(top_p) = value.parse::<f64>() {
+                            chat_options = chat_options.with_top_p(top_p);
+                        }
+                    }
+                },
+                _ => {}
+            }
+        }
+        
+        // 执行AI调用
+        match client.exec_chat(model_name, chat_request, Some(&chat_options)).await {
+            Ok(response) => {
+                // 提取响应内容
+                let content = if response.content.is_empty() {
+                    String::new()
+                } else {
+                    response.content.into_iter()
+                        .map(|c| match c {
+                            genai::chat::MessageContent::Text(text) => text,
+                            _ => String::new(),
+                        })
+                        .collect::<Vec<_>>()
+                        .join("")
+                };
+                
+                let token_usage = response.usage;
+                
+                // 提取token统计
+                let token_stats = {
+                    let total = token_usage.total_tokens.unwrap_or(0) as i32;
+                    let input = token_usage.prompt_tokens.unwrap_or(0) as i32;
+                    let output = token_usage.completion_tokens.unwrap_or(0) as i32;
+                    Some((total, input, output))
+                };
+                
+                Ok((content, token_stats))
+            },
+            Err(e) => {
+                Err(format!("AI execution failed: {}", e))
+            }
+        }
+    };
+
+    // 更新执行结果
+    let finished_time = Utc::now();
+    let sub_task_result = match result {
+        Ok((content, token_stats)) => {
+            let _ = exec_repo.update_result(
+                execution_id,
+                "success",
+                Some(&content),
+                None,
+                token_stats,
+                Some(finished_time),
+            );
+            SubTaskRunResult {
+                success: true,
+                content: Some(content),
+                error: None,
+                execution_id,
+            }
+        }
+        Err(error) => {
+            let _ = exec_repo.update_result(
+                execution_id,
+                "failed",
+                None,
+                Some(&error),
+                None,
+                Some(finished_time),
+            );
+            SubTaskRunResult {
+                success: false,
+                content: None,
+                error: Some(error),
+                execution_id,
+            }
+        }
+    };
+
+    // 发送完成事件
+    if let Ok(Some(final_execution)) = exec_repo.read(execution_id) {
+        emit_sub_task_status_update(&app_handle, &final_execution).await;
+    }
+
+    Ok(sub_task_result)
+}
+
 #[tauri::command]
 pub async fn sub_task_regist(
     app_handle: tauri::AppHandle,
@@ -574,7 +829,7 @@ pub async fn sub_task_regist(
     name: String,
     description: String,
     system_prompt: String,
-    plugin_source: String, // 应该是 "plugin"
+    plugin_source: String,
     source_id: i64,
 ) -> Result<i64, String> {
     let db = SubTaskDatabase::new(&app_handle).map_err(|e| e.to_string())?;
