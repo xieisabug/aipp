@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { AssistantType } from "@/types/assistant";
 
 export const useAssistantTypePlugin = (pluginList: any[]) => {
@@ -54,6 +55,21 @@ export const useAssistantTypePlugin = (pluginList: any[]) => {
                     newMap.set(code, label);
                     return newMap;
                 });
+            },
+            subTaskRegist: async (options: SubTaskRegistOptions) => {
+                try {
+                    await invoke("sub_task_regist", {
+                        code: options.code,
+                        name: options.name,
+                        description: options.description,
+                        systemPrompt: options.systemPrompt,
+                        pluginSource: options.pluginSource,
+                        sourceId: options.sourceId,
+                    });
+                    console.log(`Sub task '${options.code}' registered successfully`);
+                } catch (error) {
+                    console.error(`Failed to register sub task '${options.code}':`, error);
+                }
             },
             markdownRemarkRegist: (_: any) => {},
             changeFieldLabel: (fieldName: string, label: string) => {

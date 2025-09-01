@@ -567,6 +567,36 @@ pub async fn get_sub_task_execution_detail_for_ui(
     Ok(execution)
 }
 
+#[tauri::command]
+pub async fn sub_task_regist(
+    app_handle: tauri::AppHandle,
+    code: String,
+    name: String,
+    description: String,
+    system_prompt: String,
+    plugin_source: String, // 应该是 "plugin"
+    source_id: i64,
+) -> Result<i64, String> {
+    let db = SubTaskDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+    let repo = db.definition_repo().map_err(|e| e.to_string())?;
+
+    let definition = SubTaskDefinition {
+        id: 0, // Will be set by upsert_definition
+        name,
+        code,
+        description,
+        system_prompt,
+        plugin_source,
+        source_id,
+        is_enabled: true, // Default enabled
+        created_time: Utc::now(),
+        updated_time: Utc::now(),
+    };
+
+    let result = repo.upsert_definition(&definition).map_err(|e| e.to_string())?;
+    Ok(result.id)
+}
+
 /// 取消子任务执行（UI专用，不需要鉴权）
 #[tauri::command]
 pub async fn cancel_sub_task_execution_for_ui(

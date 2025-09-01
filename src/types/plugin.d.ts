@@ -62,8 +62,18 @@ interface AskAssistantOptions {
     ) => void;
 }
 
+interface SubTaskRegistOptions {
+    code: string;
+    name: string;
+    description: string;
+    systemPrompt: string;
+    pluginSource: "plugin";
+    sourceId: number;
+}
+
 interface AssistantTypeApi {
     typeRegist(pluginType: PluginType, code: number, label: string, plugin: AippAssistantTypePlugin): void;
+    subTaskRegist(options: SubTaskRegistOptions): void;
     markdownRemarkRegist(component: any): void;
     changeFieldLabel(fieldName: string, label: string): void;
     addField(options: AddFieldOptions): void;

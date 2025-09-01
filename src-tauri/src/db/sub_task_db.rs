@@ -139,6 +139,67 @@ impl SubTaskDefinitionRepository {
             .optional()
     }
 
+    pub fn find_by_source_and_code(&self, plugin_source: &str, source_id: i64, code: &str) -> Result<Option<SubTaskDefinition>> {
+        self.conn
+            .query_row(
+                "SELECT id, name, code, description, system_prompt, plugin_source, source_id, is_enabled, created_time, updated_time FROM sub_task_definition WHERE plugin_source = ? AND source_id = ? AND code = ?",
+                rusqlite::params![plugin_source, source_id, code],
+                |row| {
+                    Ok(SubTaskDefinition {
+                        id: row.get(0)?,
+                        name: row.get(1)?,
+                        code: row.get(2)?,
+                        description: row.get(3)?,
+                        system_prompt: row.get(4)?,
+                        plugin_source: row.get(5)?,
+                        source_id: row.get(6)?,
+                        is_enabled: row.get(7)?,
+                        created_time: row.get(8)?,
+                        updated_time: row.get(9)?,
+                    })
+                },
+            )
+            .optional()
+    }
+
+    pub fn upsert_definition(&self, definition: &SubTaskDefinition) -> Result<SubTaskDefinition> {
+        // First try to find existing definition by source and code
+        if let Some(existing) = self.find_by_source_and_code(&definition.plugin_source, definition.source_id, &definition.code)? {
+            // Update existing definition
+            let updated_definition = SubTaskDefinition {
+                id: existing.id,
+                name: definition.name.clone(),
+                code: definition.code.clone(),
+                description: definition.description.clone(),
+                system_prompt: definition.system_prompt.clone(),
+                plugin_source: existing.plugin_source,
+                source_id: existing.source_id,
+                is_enabled: definition.is_enabled,
+                created_time: existing.created_time,
+                updated_time: Utc::now(),
+            };
+            
+            self.update(&updated_definition)?;
+            Ok(updated_definition)
+        } else {
+            // Create new definition
+            let new_definition = SubTaskDefinition {
+                id: 0,
+                name: definition.name.clone(),
+                code: definition.code.clone(),
+                description: definition.description.clone(),
+                system_prompt: definition.system_prompt.clone(),
+                plugin_source: definition.plugin_source.clone(),
+                source_id: definition.source_id,
+                is_enabled: definition.is_enabled,
+                created_time: Utc::now(),
+                updated_time: Utc::now(),
+            };
+            
+            self.create(&new_definition)
+        }
+    }
+
     pub fn update_enabled_status(&self, id: i64, is_enabled: bool) -> Result<()> {
         self.conn.execute(
             "UPDATE sub_task_definition SET is_enabled = ?, updated_time = CURRENT_TIMESTAMP WHERE id = ?",

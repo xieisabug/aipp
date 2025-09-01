@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { invoke } from "@tauri-apps/api/core";
 
 // 用于存储AskAssistantApi中对应的处理函数
 interface AskAssistantApiFunctions {
@@ -37,6 +38,21 @@ export function usePluginManagement(pluginList: any[]): UsePluginManagementRetur
                     newMap.set(code, pluginInstance);
                     return newMap;
                 });
+            },
+            subTaskRegist: async (options: SubTaskRegistOptions) => {
+                try {
+                    await invoke("sub_task_regist", {
+                        code: options.code,
+                        name: options.name,
+                        description: options.description,
+                        systemPrompt: options.systemPrompt,
+                        pluginSource: options.pluginSource,
+                        sourceId: options.sourceId,
+                    });
+                    console.log(`Sub task '${options.code}' registered successfully`);
+                } catch (error) {
+                    console.error(`Failed to register sub task '${options.code}':`, error);
+                }
             },
             markdownRemarkRegist: (_: any) => {},
             changeFieldLabel: (_: string, __: string) => {},
