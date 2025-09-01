@@ -662,7 +662,7 @@ pub async fn run_sub_task_sync(
     updated_execution.status = "running".to_string();
     updated_execution.started_time = Some(started_time);
     emit_sub_task_status_update(&app_handle, &updated_execution).await;
-
+    
     // 实际执行AI任务
     let result: Result<(String, Option<(i32, i32, i32)>), String> = {
         // 获取LLM数据库连接获取模型配置
@@ -674,9 +674,16 @@ pub async fn run_sub_task_sync(
         } else {
             &assistant_detail.model[0]
         };
-        
-        let llm_model = llm_db.get_llm_model_detail_by_id(&model_info.provider_id)
-            .map_err(|e| format!("Failed to get LLM model: {}", e))?;
+
+        // 按提供商ID + 模型代码定位模型（避免将 provider_id 误当作 llm_model.id）
+        let llm_model = llm_db
+            .get_llm_model_detail(&model_info.provider_id, &model_info.model_code)
+            .map_err(|e| {
+                format!(
+                    "Failed to get LLM model (provider_id={}, code={}): {}",
+                    model_info.provider_id, model_info.model_code, e
+                )
+            })?;
         
         let model_name = if !model_info.model_code.is_empty() {
             &model_info.model_code
