@@ -133,9 +133,9 @@ interface AiResponse {
 }
 
 interface CreateConversationResponse {
-    conversationId: number;
-    userMessageId: number | null;
-    systemMessageId: number | null;
+    conversation_id: number;
+    user_message_id: number | null;
+    system_message_id: number | null;
 }
 
 interface McpToolInfo {

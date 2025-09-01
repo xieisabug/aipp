@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Conversation, Message, FileInfo } from "../data/Conversation";
 import { AssistantDetail } from "../data/Assistant";
 
@@ -34,11 +34,33 @@ export function useAssistantRuntime({
     // Cache for the current assistant's model ID
     const [cachedModelId, setCachedModelId] = useState<string>("");
     
+    // Internal conversation state for dynamically created conversations
+    const [runtimeConversation, setRuntimeConversation] = useState<Conversation | null>(null);
+
+    // A ref that always points to the most up-to-date effective conversation,
+    // avoiding stale-closure issues when calling API methods right after creation.
+    const effectiveConversationRef = useRef<Conversation | null>(null);
+
+    // Helper function to get the effective conversation (prefers ref to avoid stale closures)
+    const getEffectiveConversation = () =>
+        effectiveConversationRef.current || runtimeConversation || conversation || null;
+
+    // Keep the ref in sync when props.conversation changes
+    useEffect(() => {
+        if (conversation && conversation.id) {
+            effectiveConversationRef.current = conversation;
+        } else if (!runtimeConversation) {
+            // Only clear when we also don't have a runtime conversation
+            effectiveConversationRef.current = null;
+        }
+    }, [conversation, runtimeConversation]);
+    
     // Load assistant model ID when assistant changes
     useEffect(() => {
         const loadAssistantModelId = async () => {
             try {
-                const assistantId = conversation?.assistant_id || selectedAssistant;
+                const effectiveConversation = getEffectiveConversation();
+                const assistantId = effectiveConversation?.assistant_id || selectedAssistant;
                 if (!assistantId) {
                     setCachedModelId("");
                     return;
@@ -60,7 +82,7 @@ export function useAssistantRuntime({
         };
 
         loadAssistantModelId();
-    }, [conversation?.assistant_id, selectedAssistant]);
+    }, [conversation?.assistant_id, selectedAssistant, runtimeConversation?.assistant_id]);
     
     // 助手运行时API接口，提供给插件在运行时使用
     const assistantRunApi: AssistantRunApi = {
@@ -184,17 +206,19 @@ export function useAssistantRuntime({
             });
         },
         getAssistantId: function (): string {
-            if (!conversation || !conversation.id) {
+            const effectiveConversation = getEffectiveConversation();
+            if (!effectiveConversation || !effectiveConversation.id) {
                 return selectedAssistant + "";
             } else {
-                return conversation.assistant_id + "";
+                return effectiveConversation.assistant_id + "";
             }
         },
         getConversationId: function (): string {
-            if (!conversation || !conversation.id) {
+            const effectiveConversation = getEffectiveConversation();
+            if (!effectiveConversation || !effectiveConversation.id) {
                 return "";
             } else {
-                return conversation.id + "";
+                return effectiveConversation.id + "";
             }
         },
         getMcpProvider: async function (providerId: string): Promise<McpProviderInfo | null> {
@@ -285,7 +309,8 @@ export function useAssistantRuntime({
         
         // 保留MCP查询方法
         getMcpToolCalls: async function (conversationId?: number): Promise<McpToolCall[]> {
-            const targetConversationId = conversationId || (conversation?.id ? +conversation.id : undefined);
+            const effectiveConversation = getEffectiveConversation();
+            const targetConversationId = conversationId || (effectiveConversation?.id ? +effectiveConversation.id : undefined);
             if (!targetConversationId) {
                 console.warn("No conversation ID available for getMcpToolCalls");
                 return [];
@@ -316,15 +341,21 @@ export function useAssistantRuntime({
             }
         },
         
-        createConversation: async function (systemPrompt: string, userPrompt: string): Promise<CreateConversationResponse> {
+    createConversation: async function (systemPrompt: string, userPrompt: string): Promise<CreateConversationResponse> {
+            // Validation: prevent creating conversation when one already exists
+            const effectiveConversation = getEffectiveConversation();
+            if (effectiveConversation?.id) {
+                throw new Error("Cannot create conversation: conversation already exists");
+            }
+            
             console.log("Creating conversation with system and user prompts");
             try {
-                const assistantId = conversation?.assistant_id || selectedAssistant;
+                const assistantId = effectiveConversation?.assistant_id || selectedAssistant;
                 if (!assistantId) {
                     throw new Error("No assistant selected");
                 }
                 
-                const result = await invoke<CreateConversationResponse>("create_conversation_with_messages", {
+        const result = await invoke<CreateConversationResponse>("create_conversation_with_messages", {
                     assistantId: +assistantId,
                     systemPrompt: systemPrompt.trim() || undefined,
                     userMessage: userPrompt.trim() || undefined,
@@ -332,6 +363,22 @@ export function useAssistantRuntime({
                 });
                 
                 console.log("Conversation created:", result);
+                
+                // Update runtime conversation state with the newly created conversation
+                const newConversation: Conversation = {
+                    id: result.conversation_id,
+                    name: "", // Will be set by backend with default name
+                    assistant_id: +assistantId,
+                    assistant_name: "", // Will be populated by backend
+                    created_time: new Date(),
+                };
+        // Update ref immediately to make it available to subsequent API calls
+        effectiveConversationRef.current = newConversation;
+                setRuntimeConversation(newConversation);
+                
+                // Notify parent component of conversation change
+                onChangeConversationId(result.conversation_id + "");
+                
                 return result;
             } catch (error) {
                 console.error("Failed to create conversation:", error);
@@ -339,11 +386,12 @@ export function useAssistantRuntime({
             }
         },
         
-        runSubTask: async function (code: string, taskPrompt: string): Promise<SubTaskRunResult> {
+    runSubTask: async function (code: string, taskPrompt: string): Promise<SubTaskRunResult> {
             console.log("Running sub task:", code, "with prompt:", taskPrompt);
             try {
-                const assistantId = conversation?.assistant_id || selectedAssistant;
-                const conversationIdNumber = conversation?.id ? +conversation.id : 0;
+        const effectiveConversation = getEffectiveConversation();
+                const assistantId = effectiveConversation?.assistant_id || selectedAssistant;
+        const conversationIdNumber = effectiveConversation?.id ? +effectiveConversation.id : 0;
                 
                 if (!assistantId) {
                     throw new Error("No assistant selected for running sub task");

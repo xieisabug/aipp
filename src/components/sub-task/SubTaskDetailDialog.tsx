@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from "react";
 import { SubTaskExecutionDetail, SubTaskExecutionSummary } from "../../data/SubTask";
-import { subTaskService, getStatusColor, getStatusIcon, getStatusText, formatTokenCount, formatDuration } from "../../services/subTaskService";
 import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-    DialogFooter,
-} from "../ui/dialog";
+    subTaskService,
+    getStatusColor,
+    getStatusIcon,
+    getStatusText,
+    formatTokenCount,
+    formatDuration,
+} from "../../services/subTaskService";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { ScrollArea } from "../ui/scroll-area";
@@ -21,12 +22,7 @@ export interface SubTaskDetailDialogProps {
     onCancel?: (execution_id: number) => void;
 }
 
-const SubTaskDetailDialog: React.FC<SubTaskDetailDialogProps> = ({
-    isOpen,
-    onClose,
-    execution,
-    onCancel,
-}) => {
+const SubTaskDetailDialog: React.FC<SubTaskDetailDialogProps> = ({ isOpen, onClose, execution, onCancel }) => {
     const [detail, setDetail] = useState<SubTaskExecutionDetail | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -71,17 +67,13 @@ const SubTaskDetailDialog: React.FC<SubTaskDetailDialogProps> = ({
             <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
-                        <div className="text-lg flex items-center">
-                            {getStatusIcon(execution.status)}
-                        </div>
+                        <div className="text-lg flex items-center">{getStatusIcon(execution.status)}</div>
                         <span>{execution.task_name}</span>
-                        <Badge className={getStatusColor(execution.status)}>
-                            {getStatusText(execution.status)}
-                        </Badge>
+                        <Badge className={getStatusColor(execution.status)}>{getStatusText(execution.status)}</Badge>
                     </DialogTitle>
                 </DialogHeader>
 
-                <div className="flex-1 overflow-hidden">
+                <div className="flex-1">
                     {loading ? (
                         <div className="flex items-center justify-center h-32">
                             <RefreshCw className="w-6 h-6 animate-spin" />
@@ -93,7 +85,7 @@ const SubTaskDetailDialog: React.FC<SubTaskDetailDialogProps> = ({
                             <span className="ml-2">{error}</span>
                         </div>
                     ) : (
-                        <ScrollArea className="h-full">
+                        <ScrollArea className="h-[400px]">
                             <div className="space-y-4">
                                 {/* Basic Information */}
                                 <Card>
@@ -119,7 +111,9 @@ const SubTaskDetailDialog: React.FC<SubTaskDetailDialogProps> = ({
                                             {detail?.finished_time && (
                                                 <div>
                                                     <span className="text-muted-foreground">完成时间:</span>
-                                                    <span className="ml-2">{detail.finished_time.toLocaleString()}</span>
+                                                    <span className="ml-2">
+                                                        {detail.finished_time.toLocaleString()}
+                                                    </span>
                                                 </div>
                                             )}
                                         </div>
@@ -128,7 +122,9 @@ const SubTaskDetailDialog: React.FC<SubTaskDetailDialogProps> = ({
                                         <div className="flex items-center gap-4 pt-2">
                                             <div className="flex items-center gap-1 text-sm">
                                                 <Clock className="w-4 h-4 text-muted-foreground" />
-                                                <span>耗时: {formatDuration(detail?.started_time, detail?.finished_time)}</span>
+                                                <span>
+                                                    耗时: {formatDuration(detail?.started_time, detail?.finished_time)}
+                                                </span>
                                             </div>
                                             <div className="flex items-center gap-1 text-sm">
                                                 <Zap className="w-4 h-4 text-muted-foreground" />
@@ -194,11 +190,15 @@ const SubTaskDetailDialog: React.FC<SubTaskDetailDialogProps> = ({
                                             <div className="grid grid-cols-2 gap-4 text-sm">
                                                 <div>
                                                     <span className="text-muted-foreground">输入 Tokens:</span>
-                                                    <span className="ml-2">{formatTokenCount(detail.input_token_count)}</span>
+                                                    <span className="ml-2">
+                                                        {formatTokenCount(detail.input_token_count)}
+                                                    </span>
                                                 </div>
                                                 <div>
                                                     <span className="text-muted-foreground">输出 Tokens:</span>
-                                                    <span className="ml-2">{formatTokenCount(detail.output_token_count)}</span>
+                                                    <span className="ml-2">
+                                                        {formatTokenCount(detail.output_token_count)}
+                                                    </span>
                                                 </div>
                                             </div>
                                         </CardContent>
