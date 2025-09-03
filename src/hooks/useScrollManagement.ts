@@ -115,11 +115,25 @@ export function useScrollManagement(): UseScrollManagementReturn {
                 // 计算将用户消息置于顶部的滚动位置
                 const messageOffsetTop = (lastUserMessage as any).offsetTop;
                 const paddingTop = parseInt(getComputedStyle(scrollContainerRef.current).paddingTop || '0');
-                const targetScrollTop = messageOffsetTop - paddingTop - 10; // 减去10px作为缓冲
+                const desiredTopPosition = paddingTop + 10; // 期望的顶部位置（padding + 缓冲）
+                const targetScrollTop = messageOffsetTop - desiredTopPosition;
                 
-                // 确保不会超出可滚动范围
+                // 确保不会超出可滚动范围，同时尽可能接近目标位置
                 const maxScrollTop = scrollHeight - viewportHeight;
-                scrollContainerRef.current.scrollTop = Math.min(targetScrollTop, maxScrollTop);
+                const finalScrollTop = Math.max(0, Math.min(targetScrollTop, maxScrollTop));
+                
+                scrollContainerRef.current.scrollTop = finalScrollTop;
+                
+                // 调试信息（可以在生产中移除）
+                if (process.env.NODE_ENV === 'development') {
+                    console.log('User message scroll:', {
+                        messageOffset: messageOffsetTop,
+                        targetScroll: targetScrollTop,
+                        finalScroll: finalScrollTop,
+                        maxScroll: maxScrollTop,
+                        viewport: viewportHeight
+                    });
+                }
             } else {
                 // 如果没有找到用户消息，回退到普通滚动
                 scrollContainerRef.current.scrollTop = scrollHeight;

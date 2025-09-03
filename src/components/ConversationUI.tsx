@@ -564,7 +564,7 @@ const ConversationUI = forwardRef<ConversationUIRef, ConversationUIProps>(({
                     assistants={assistants}
                     setSelectedAssistant={setSelectedAssistant}
                 />
-                <div className="flex-none" style={{ height: 'calc(100vh - 300px)' }}></div>
+                <div className="flex-none" style={{ height: 'calc(100vh + 200px)' }}></div>
                 <div ref={messagesEndRef} />
             </div>
             
