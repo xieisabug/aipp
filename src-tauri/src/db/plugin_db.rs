@@ -1,9 +1,7 @@
 use super::get_db_path;
-use crate::errors::AppError;
 use chrono::prelude::*;
-use rusqlite::{Connection, OptionalExtension, Result};
+use rusqlite::{params, Connection, OptionalExtension, Result};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Plugin {
@@ -44,27 +42,90 @@ pub struct PluginData {
     pub updated_at: DateTime<Utc>,
 }
 
-pub trait Repository<T> {
-    fn create(&self, item: &T) -> Result<T>;
-    fn read(&self, id: i64) -> Result<Option<T>>;
-    fn update(&self, item: &T) -> Result<()>;
-    fn delete(&self, id: i64) -> Result<()>;
+pub struct PluginDatabase {
+    pub conn: Connection,
 }
 
-pub struct PluginRepository {
-    conn: Connection,
-}
-
-impl PluginRepository {
-    pub fn new(conn: Connection) -> Self {
-        PluginRepository { conn }
+impl PluginDatabase {
+    pub fn new(app_handle: &tauri::AppHandle) -> rusqlite::Result<Self> {
+        let db_path = get_db_path(app_handle, "plugin.db");
+        let conn = Connection::open(db_path.unwrap())?;
+        Ok(PluginDatabase { conn })
     }
 
-    pub fn list(&self) -> Result<Vec<Plugin>> {
+    pub fn create_tables(&self) -> rusqlite::Result<()> {
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS Plugins (
+                plugin_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                version TEXT NOT NULL,
+                folder_name TEXT NOT NULL,
+                description TEXT,
+                author TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
+
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS PluginStatus (
+                status_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                plugin_id INTEGER,
+                is_active INTEGER DEFAULT 1,
+                last_run TIMESTAMP,
+                FOREIGN KEY (plugin_id) REFERENCES Plugins(plugin_id)
+            )",
+            [],
+        )?;
+
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS PluginConfigurations (
+                config_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                plugin_id INTEGER,
+                config_key TEXT NOT NULL,
+                config_value TEXT,
+                FOREIGN KEY (plugin_id) REFERENCES Plugins(plugin_id)
+            )",
+            [],
+        )?;
+
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS PluginData (
+                data_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                plugin_id INTEGER,
+                session_id TEXT NOT NULL,
+                data_key TEXT NOT NULL,
+                data_value TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (plugin_id) REFERENCES Plugins(plugin_id)
+            )",
+            [],
+        )?;
+
+        Ok(())
+    }
+
+    // Plugin CRUD
+    pub fn add_plugin(
+        &self,
+        name: &str,
+        version: &str,
+        folder_name: &str,
+        description: Option<&str>,
+        author: Option<&str>,
+    ) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO Plugins (name, version, folder_name, description, author) VALUES (?, ?, ?, ?, ?)",
+            params![name, version, folder_name, description, author],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn get_plugins(&self) -> Result<Vec<Plugin>> {
         let mut stmt = self.conn.prepare(
-            "SELECT plugin_id, name, version, folder_name, description, author, created_at, updated_at
-             FROM Plugins
-             ORDER BY created_at DESC",
+            "SELECT plugin_id, name, version, folder_name, description, author, created_at, updated_at FROM Plugins ORDER BY created_at DESC",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(Plugin {
@@ -80,42 +141,12 @@ impl PluginRepository {
         })?;
         rows.collect()
     }
-}
 
-impl Repository<Plugin> for PluginRepository {
-    fn create(&self, plugin: &Plugin) -> Result<Plugin> {
-        self.conn.execute(
-            "INSERT INTO Plugins (name, version, folder_name, description, author, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            (
-                &plugin.name,
-                &plugin.version,
-                &plugin.folder_name,
-                &plugin.description,
-                &plugin.author,
-                &plugin.created_at,
-                &plugin.updated_at,
-            ),
-        )?;
-        let id = self.conn.last_insert_rowid();
-        Ok(Plugin {
-            plugin_id: id,
-            name: plugin.name.clone(),
-            version: plugin.version.clone(),
-            folder_name: plugin.folder_name.clone(),
-            description: plugin.description.clone(),
-            author: plugin.author.clone(),
-            created_at: plugin.created_at,
-            updated_at: plugin.updated_at,
-        })
-    }
-
-    fn read(&self, id: i64) -> Result<Option<Plugin>> {
+    pub fn get_plugin(&self, plugin_id: i64) -> Result<Option<Plugin>> {
         self.conn
             .query_row(
-                "SELECT plugin_id, name, version, folder_name, description, author, created_at, updated_at
-                 FROM Plugins WHERE plugin_id = ?",
-                &[&id],
+                "SELECT plugin_id, name, version, folder_name, description, author, created_at, updated_at FROM Plugins WHERE plugin_id = ?",
+                [plugin_id],
                 |row| {
                     Ok(Plugin {
                         plugin_id: row.get(0)?,
@@ -132,79 +163,33 @@ impl Repository<Plugin> for PluginRepository {
             .optional()
     }
 
-    fn update(&self, plugin: &Plugin) -> Result<()> {
+    pub fn update_plugin(&self, plugin: &Plugin) -> Result<()> {
         self.conn.execute(
-            "UPDATE Plugins SET name = ?1, version = ?2, folder_name = ?3, description = ?4, author = ?5, updated_at = ?6
-             WHERE plugin_id = ?7",
-            (
-                &plugin.name,
-                &plugin.version,
-                &plugin.folder_name,
-                &plugin.description,
-                &plugin.author,
-                &plugin.updated_at,
-                &plugin.plugin_id,
-            ),
+            "UPDATE Plugins SET name = ?, version = ?, folder_name = ?, description = ?, author = ?, updated_at = ? WHERE plugin_id = ?",
+            params![
+                plugin.name,
+                plugin.version,
+                plugin.folder_name,
+                plugin.description,
+                plugin.author,
+                plugin.updated_at,
+                plugin.plugin_id
+            ],
         )?;
         Ok(())
     }
 
-    fn delete(&self, id: i64) -> Result<()> {
-        self.conn.execute("DELETE FROM Plugins WHERE plugin_id = ?", &[&id])?;
+    pub fn delete_plugin(&self, plugin_id: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM Plugins WHERE plugin_id = ?", [plugin_id])?;
         Ok(())
     }
-}
 
-pub struct PluginStatusRepository {
-    conn: Connection,
-}
-
-impl PluginStatusRepository {
-    pub fn new(conn: Connection) -> Self {
-        PluginStatusRepository { conn }
-    }
-
-    pub fn get_status_by_plugin_id(&self, plugin_id: i64) -> Result<Option<PluginStatus>> {
+    // PluginStatus helpers
+    pub fn get_plugin_status(&self, plugin_id: i64) -> Result<Option<PluginStatus>> {
         self.conn
             .query_row(
-                "SELECT status_id, plugin_id, is_active, last_run
-                 FROM PluginStatus WHERE plugin_id = ?",
-                &[&plugin_id],
-                |row| {
-                    Ok(PluginStatus {
-                        status_id: row.get(0)?,
-                        plugin_id: row.get(1)?,
-                        is_active: row.get::<_, i64>(2)? != 0,
-                        last_run: row.get(3)?,
-                    })
-                },
-            )
-            .optional()
-    }
-}
-
-impl Repository<PluginStatus> for PluginStatusRepository {
-    fn create(&self, status: &PluginStatus) -> Result<PluginStatus> {
-        self.conn.execute(
-            "INSERT INTO PluginStatus (plugin_id, is_active, last_run)
-             VALUES (?1, ?2, ?3)",
-            (&status.plugin_id, &(status.is_active as i64), &status.last_run),
-        )?;
-        let id = self.conn.last_insert_rowid();
-        Ok(PluginStatus {
-            status_id: id,
-            plugin_id: status.plugin_id,
-            is_active: status.is_active,
-            last_run: status.last_run,
-        })
-    }
-
-    fn read(&self, id: i64) -> Result<Option<PluginStatus>> {
-        self.conn
-            .query_row(
-                "SELECT status_id, plugin_id, is_active, last_run
-                 FROM PluginStatus WHERE status_id = ?",
-                &[&id],
+                "SELECT status_id, plugin_id, is_active, last_run FROM PluginStatus WHERE plugin_id = ?",
+                [plugin_id],
                 |row| {
                     Ok(PluginStatus {
                         status_id: row.get(0)?,
@@ -217,40 +202,38 @@ impl Repository<PluginStatus> for PluginStatusRepository {
             .optional()
     }
 
-    fn update(&self, status: &PluginStatus) -> Result<()> {
-        self.conn.execute(
-            "UPDATE PluginStatus SET is_active = ?1, last_run = ?2
-             WHERE status_id = ?3",
-            (&(status.is_active as i64), &status.last_run, &status.status_id),
-        )?;
-        Ok(())
-    }
-
-    fn delete(&self, id: i64) -> Result<()> {
-        self.conn.execute("DELETE FROM PluginStatus WHERE status_id = ?", &[&id])?;
-        Ok(())
-    }
-}
-
-pub struct PluginConfigurationRepository {
-    conn: Connection,
-}
-
-impl PluginConfigurationRepository {
-    pub fn new(conn: Connection) -> Self {
-        PluginConfigurationRepository { conn }
-    }
-
-    pub fn get_configurations_by_plugin_id(
+    pub fn upsert_plugin_status(
         &self,
         plugin_id: i64,
-    ) -> Result<Vec<PluginConfiguration>> {
+        is_active: bool,
+        last_run: Option<DateTime<Utc>>,
+    ) -> Result<i64> {
+        if let Some(existing) = self.get_plugin_status(plugin_id)? {
+            self.conn.execute(
+                "UPDATE PluginStatus SET is_active = ?, last_run = ? WHERE status_id = ?",
+                params![is_active as i64, last_run, existing.status_id],
+            )?;
+            Ok(existing.status_id)
+        } else {
+            self.conn.execute(
+                "INSERT INTO PluginStatus (plugin_id, is_active, last_run) VALUES (?, ?, ?)",
+                params![plugin_id, is_active as i64, last_run],
+            )?;
+            Ok(self.conn.last_insert_rowid())
+        }
+    }
+
+    pub fn delete_plugin_status(&self, status_id: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM PluginStatus WHERE status_id = ?", [status_id])?;
+        Ok(())
+    }
+
+    // Configurations
+    pub fn get_plugin_configurations(&self, plugin_id: i64) -> Result<Vec<PluginConfiguration>> {
         let mut stmt = self.conn.prepare(
-            "SELECT config_id, plugin_id, config_key, config_value
-             FROM PluginConfigurations
-             WHERE plugin_id = ?",
+            "SELECT config_id, plugin_id, config_key, config_value FROM PluginConfigurations WHERE plugin_id = ?",
         )?;
-        let rows = stmt.query_map(&[&plugin_id], |row| {
+        let rows = stmt.query_map([plugin_id], |row| {
             Ok(PluginConfiguration {
                 config_id: row.get(0)?,
                 plugin_id: row.get(1)?,
@@ -260,77 +243,54 @@ impl PluginConfigurationRepository {
         })?;
         rows.collect()
     }
-}
 
-impl Repository<PluginConfiguration> for PluginConfigurationRepository {
-    fn create(&self, config: &PluginConfiguration) -> Result<PluginConfiguration> {
-        self.conn.execute(
-            "INSERT INTO PluginConfigurations (plugin_id, config_key, config_value)
-             VALUES (?1, ?2, ?3)",
-            (&config.plugin_id, &config.config_key, &config.config_value),
-        )?;
-        let id = self.conn.last_insert_rowid();
-        Ok(PluginConfiguration {
-            config_id: id,
-            plugin_id: config.plugin_id,
-            config_key: config.config_key.clone(),
-            config_value: config.config_value.clone(),
-        })
+    pub fn set_plugin_configuration(
+        &self,
+        plugin_id: i64,
+        config_key: &str,
+        config_value: Option<&str>,
+    ) -> Result<i64> {
+        // try update first
+        let existing_id: Option<i64> = self
+            .conn
+            .prepare("SELECT config_id FROM PluginConfigurations WHERE plugin_id = ? AND config_key = ?")?
+            .query_row(params![plugin_id, config_key], |row| row.get(0))
+            .optional()?;
+
+        match existing_id {
+            Some(id) => {
+                self.conn.execute(
+                    "UPDATE PluginConfigurations SET config_value = ? WHERE config_id = ?",
+                    params![config_value, id],
+                )?;
+                Ok(id)
+            }
+            None => {
+                self.conn.execute(
+                    "INSERT INTO PluginConfigurations (plugin_id, config_key, config_value) VALUES (?, ?, ?)",
+                    params![plugin_id, config_key, config_value],
+                )?;
+                Ok(self.conn.last_insert_rowid())
+            }
+        }
     }
 
-    fn read(&self, id: i64) -> Result<Option<PluginConfiguration>> {
+    pub fn delete_plugin_configuration(&self, config_id: i64) -> Result<()> {
         self.conn
-            .query_row(
-                "SELECT config_id, plugin_id, config_key, config_value
-                 FROM PluginConfigurations WHERE config_id = ?",
-                &[&id],
-                |row| {
-                    Ok(PluginConfiguration {
-                        config_id: row.get(0)?,
-                        plugin_id: row.get(1)?,
-                        config_key: row.get(2)?,
-                        config_value: row.get(3)?,
-                    })
-                },
-            )
-            .optional()
-    }
-
-    fn update(&self, config: &PluginConfiguration) -> Result<()> {
-        self.conn.execute(
-            "UPDATE PluginConfigurations SET config_value = ?1
-             WHERE config_id = ?2",
-            (&config.config_value, &config.config_id),
-        )?;
+            .execute("DELETE FROM PluginConfigurations WHERE config_id = ?", [config_id])?;
         Ok(())
     }
 
-    fn delete(&self, id: i64) -> Result<()> {
-        self.conn.execute("DELETE FROM PluginConfigurations WHERE config_id = ?", &[&id])?;
-        Ok(())
-    }
-}
-
-pub struct PluginDataRepository {
-    conn: Connection,
-}
-
-impl PluginDataRepository {
-    pub fn new(conn: Connection) -> Self {
-        PluginDataRepository { conn }
-    }
-
-    pub fn get_data_by_plugin_and_session(
+    // Data
+    pub fn get_plugin_data_by_session(
         &self,
         plugin_id: i64,
         session_id: &str,
     ) -> Result<Vec<PluginData>> {
         let mut stmt = self.conn.prepare(
-            "SELECT data_id, plugin_id, session_id, data_key, data_value, created_at, updated_at
-             FROM PluginData
-             WHERE plugin_id = ?1 AND session_id = ?2",
+            "SELECT data_id, plugin_id, session_id, data_key, data_value, created_at, updated_at FROM PluginData WHERE plugin_id = ?1 AND session_id = ?2",
         )?;
-        let rows = stmt.query_map(rusqlite::params![plugin_id, session_id], |row| {
+        let rows = stmt.query_map(params![plugin_id, session_id], |row| {
             Ok(PluginData {
                 data_id: row.get(0)?,
                 plugin_id: row.get(1)?,
@@ -343,154 +303,32 @@ impl PluginDataRepository {
         })?;
         rows.collect()
     }
-}
 
-impl Repository<PluginData> for PluginDataRepository {
-    fn create(&self, data: &PluginData) -> Result<PluginData> {
+    pub fn add_plugin_data(&self, data: &PluginData) -> Result<i64> {
         self.conn.execute(
-            "INSERT INTO PluginData (plugin_id, session_id, data_key, data_value, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            (
-                &data.plugin_id,
-                &data.session_id,
-                &data.data_key,
-                &data.data_value,
-                &data.created_at,
-                &data.updated_at,
-            ),
+            "INSERT INTO PluginData (plugin_id, session_id, data_key, data_value, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            params![
+                data.plugin_id,
+                data.session_id,
+                data.data_key,
+                data.data_value,
+                data.created_at,
+                data.updated_at
+            ],
         )?;
-        let id = self.conn.last_insert_rowid();
-        Ok(PluginData {
-            data_id: id,
-            plugin_id: data.plugin_id,
-            session_id: data.session_id.clone(),
-            data_key: data.data_key.clone(),
-            data_value: data.data_value.clone(),
-            created_at: data.created_at,
-            updated_at: data.updated_at,
-        })
+        Ok(self.conn.last_insert_rowid())
     }
 
-    fn read(&self, id: i64) -> Result<Option<PluginData>> {
-        self.conn
-            .query_row(
-                "SELECT data_id, plugin_id, session_id, data_key, data_value, created_at, updated_at
-                 FROM PluginData WHERE data_id = ?",
-                &[&id],
-                |row| {
-                    Ok(PluginData {
-                        data_id: row.get(0)?,
-                        plugin_id: row.get(1)?,
-                        session_id: row.get(2)?,
-                        data_key: row.get(3)?,
-                        data_value: row.get(4)?,
-                        created_at: row.get(5)?,
-                        updated_at: row.get(6)?,
-                    })
-                },
-            )
-            .optional()
-    }
-
-    fn update(&self, data: &PluginData) -> Result<()> {
+    pub fn update_plugin_data(&self, data_id: i64, data_value: Option<&str>, updated_at: DateTime<Utc>) -> Result<()> {
         self.conn.execute(
-            "UPDATE PluginData SET data_value = ?1, updated_at = ?2
-             WHERE data_id = ?3",
-            (&data.data_value, &data.updated_at, &data.data_id),
+            "UPDATE PluginData SET data_value = ?, updated_at = ? WHERE data_id = ?",
+            params![data_value, updated_at, data_id],
         )?;
         Ok(())
     }
 
-    fn delete(&self, id: i64) -> Result<()> {
-        self.conn.execute("DELETE FROM PluginData WHERE data_id = ?", &[&id])?;
-        Ok(())
-    }
-}
-
-pub struct PluginDatabase {
-    db_path: PathBuf,
-}
-
-impl PluginDatabase {
-    pub fn new(app_handle: &tauri::AppHandle) -> rusqlite::Result<Self> {
-        let db_path = get_db_path(app_handle, "plugin.db");
-
-        Ok(PluginDatabase { db_path: db_path.unwrap() })
-    }
-
-    pub fn plugin_repo(&self) -> Result<PluginRepository, AppError> {
-        let conn = Connection::open(self.db_path.clone()).map_err(AppError::from)?;
-        Ok(PluginRepository::new(conn))
-    }
-
-    pub fn plugin_status_repo(&self) -> Result<PluginStatusRepository, AppError> {
-        let conn = Connection::open(self.db_path.clone()).map_err(AppError::from)?;
-        Ok(PluginStatusRepository::new(conn))
-    }
-
-    pub fn plugin_config_repo(&self) -> Result<PluginConfigurationRepository, AppError> {
-        let conn = Connection::open(self.db_path.clone()).map_err(AppError::from)?;
-        Ok(PluginConfigurationRepository::new(conn))
-    }
-
-    pub fn plugin_data_repo(&self) -> Result<PluginDataRepository, AppError> {
-        let conn = Connection::open(self.db_path.clone()).map_err(AppError::from)?;
-        Ok(PluginDataRepository::new(conn))
-    }
-
-    pub fn create_tables(&self) -> rusqlite::Result<()> {
-        let conn = Connection::open(self.db_path.clone()).unwrap();
-
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS Plugins (
-                plugin_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                version TEXT NOT NULL,
-                folder_name TEXT NOT NULL,
-                description TEXT,
-                author TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )",
-            [],
-        )?;
-
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS PluginStatus (
-                status_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                plugin_id INTEGER,
-                is_active INTEGER DEFAULT 1,
-                last_run TIMESTAMP,
-                FOREIGN KEY (plugin_id) REFERENCES Plugins(plugin_id)
-            )",
-            [],
-        )?;
-
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS PluginConfigurations (
-                config_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                plugin_id INTEGER,
-                config_key TEXT NOT NULL,
-                config_value TEXT,
-                FOREIGN KEY (plugin_id) REFERENCES Plugins(plugin_id)
-            )",
-            [],
-        )?;
-
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS PluginData (
-                data_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                plugin_id INTEGER,
-                session_id TEXT NOT NULL,
-                data_key TEXT NOT NULL,
-                data_value TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (plugin_id) REFERENCES Plugins(plugin_id)
-            )",
-            [],
-        )?;
-
+    pub fn delete_plugin_data(&self, data_id: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM PluginData WHERE data_id = ?", [data_id])?;
         Ok(())
     }
 }

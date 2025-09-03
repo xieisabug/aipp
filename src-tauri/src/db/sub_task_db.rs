@@ -1,10 +1,9 @@
 use std::path::PathBuf;
 
 use chrono::prelude::*;
-use rusqlite::{Connection, OptionalExtension, Result};
+use rusqlite::{params, Connection, OptionalExtension, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::errors::AppError;
 use crate::utils::db_utils::{get_datetime_from_row, get_required_datetime_from_row};
 
 use super::get_db_path;
@@ -60,23 +59,29 @@ pub struct SubTaskExecutionSummary {
     pub token_count: i32,
 }
 
-pub trait Repository<T> {
-    fn create(&self, item: &T) -> Result<T>;
-    fn read(&self, id: i64) -> Result<Option<T>>;
-    fn update(&self, item: &T) -> Result<()>;
-    fn delete(&self, id: i64) -> Result<()>;
+impl SubTaskDefinition {
+    // helper: nothing for now
 }
 
-pub struct SubTaskDefinitionRepository {
-    conn: Connection,
+pub struct SubTaskDatabase {
+    pub conn: Connection,
+    pub db_path: PathBuf,
 }
 
-impl SubTaskDefinitionRepository {
-    pub fn new(conn: Connection) -> Self {
-        SubTaskDefinitionRepository { conn }
+impl SubTaskDatabase {
+    pub fn new(app_handle: &tauri::AppHandle) -> rusqlite::Result<Self> {
+        let db_path = get_db_path(app_handle, "conversation.db").unwrap();
+        let conn = Connection::open(&db_path)?;
+        Ok(SubTaskDatabase { conn, db_path })
     }
 
-    pub fn list_by_source(&self, plugin_source: Option<&str>, source_id: Option<i64>, is_enabled: Option<bool>) -> Result<Vec<SubTaskDefinition>> {
+    pub fn get_connection(&self) -> rusqlite::Result<Connection> {
+        // Open a fresh connection when needed by migrations or external helpers
+        Connection::open(&self.db_path)
+    }
+
+    // Definition methods
+    pub fn list_definitions_by_source(&self, plugin_source: Option<&str>, source_id: Option<i64>, is_enabled: Option<bool>) -> Result<Vec<SubTaskDefinition>> {
         let mut query = String::from("SELECT id, name, code, description, system_prompt, plugin_source, source_id, is_enabled, created_time, updated_time FROM sub_task_definition WHERE 1=1");
         let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
@@ -115,12 +120,11 @@ impl SubTaskDefinitionRepository {
         })?;
         rows.collect()
     }
-
-    pub fn find_by_code(&self, code: &str) -> Result<Option<SubTaskDefinition>> {
+    pub fn find_definition_by_code(&self, code: &str) -> Result<Option<SubTaskDefinition>> {
         self.conn
             .query_row(
                 "SELECT id, name, code, description, system_prompt, plugin_source, source_id, is_enabled, created_time, updated_time FROM sub_task_definition WHERE code = ?",
-                &[&code],
+                [code],
                 |row| {
                     Ok(SubTaskDefinition {
                         id: row.get(0)?,
@@ -139,11 +143,11 @@ impl SubTaskDefinitionRepository {
             .optional()
     }
 
-    pub fn find_by_source_and_code(&self, plugin_source: &str, source_id: i64, code: &str) -> Result<Option<SubTaskDefinition>> {
+    pub fn find_definition_by_source_and_code(&self, plugin_source: &str, source_id: i64, code: &str) -> Result<Option<SubTaskDefinition>> {
         self.conn
             .query_row(
                 "SELECT id, name, code, description, system_prompt, plugin_source, source_id, is_enabled, created_time, updated_time FROM sub_task_definition WHERE plugin_source = ? AND source_id = ? AND code = ?",
-                rusqlite::params![plugin_source, source_id, code],
+                params![plugin_source, source_id, code],
                 |row| {
                     Ok(SubTaskDefinition {
                         id: row.get(0)?,
@@ -162,9 +166,9 @@ impl SubTaskDefinitionRepository {
             .optional()
     }
 
-    pub fn upsert_definition(&self, definition: &SubTaskDefinition) -> Result<SubTaskDefinition> {
+    pub fn upsert_sub_task_definition(&self, definition: &SubTaskDefinition) -> Result<SubTaskDefinition> {
         // First try to find existing definition by source and code
-        if let Some(existing) = self.find_by_source_and_code(&definition.plugin_source, definition.source_id, &definition.code)? {
+        if let Some(existing) = self.find_definition_by_source_and_code(&definition.plugin_source, definition.source_id, &definition.code)? {
             // Update existing definition
             let updated_definition = SubTaskDefinition {
                 id: existing.id,
@@ -179,7 +183,7 @@ impl SubTaskDefinitionRepository {
                 updated_time: Utc::now(),
             };
             
-            self.update(&updated_definition)?;
+            self.update_sub_task_definition(&updated_definition)?;
             Ok(updated_definition)
         } else {
             // Create new definition
@@ -196,45 +200,32 @@ impl SubTaskDefinitionRepository {
                 updated_time: Utc::now(),
             };
             
-            self.create(&new_definition)
+            self.create_sub_task_definition(&new_definition)
         }
     }
 
-    pub fn update_enabled_status(&self, id: i64, is_enabled: bool) -> Result<()> {
+    pub fn update_definition_enabled_status(&self, id: i64, is_enabled: bool) -> Result<()> {
         self.conn.execute(
             "UPDATE sub_task_definition SET is_enabled = ?, updated_time = CURRENT_TIMESTAMP WHERE id = ?",
-            (&is_enabled, &id),
+            params![is_enabled, id],
         )?;
         Ok(())
     }
-}
 
-impl Repository<SubTaskDefinition> for SubTaskDefinitionRepository {
-    fn create(&self, definition: &SubTaskDefinition) -> Result<SubTaskDefinition> {
+    pub fn create_sub_task_definition(&self, definition: &SubTaskDefinition) -> Result<SubTaskDefinition> {
         self.conn.execute(
             "INSERT INTO sub_task_definition (name, code, description, system_prompt, plugin_source, source_id, is_enabled, created_time, updated_time) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            (&definition.name, &definition.code, &definition.description, &definition.system_prompt, &definition.plugin_source, &definition.source_id, &definition.is_enabled, &definition.created_time, &definition.updated_time),
+            params![definition.name, definition.code, definition.description, definition.system_prompt, definition.plugin_source, definition.source_id, definition.is_enabled, definition.created_time, definition.updated_time],
         )?;
         let id = self.conn.last_insert_rowid();
-        Ok(SubTaskDefinition {
-            id,
-            name: definition.name.clone(),
-            code: definition.code.clone(),
-            description: definition.description.clone(),
-            system_prompt: definition.system_prompt.clone(),
-            plugin_source: definition.plugin_source.clone(),
-            source_id: definition.source_id,
-            is_enabled: definition.is_enabled,
-            created_time: definition.created_time,
-            updated_time: definition.updated_time,
-        })
+        Ok(SubTaskDefinition { id, ..definition.clone() })
     }
 
-    fn read(&self, id: i64) -> Result<Option<SubTaskDefinition>> {
+    pub fn read_sub_task_definition(&self, id: i64) -> Result<Option<SubTaskDefinition>> {
         self.conn
             .query_row(
                 "SELECT id, name, code, description, system_prompt, plugin_source, source_id, is_enabled, created_time, updated_time FROM sub_task_definition WHERE id = ?",
-                &[&id],
+                [id],
                 |row| {
                     Ok(SubTaskDefinition {
                         id: row.get(0)?,
@@ -253,30 +244,21 @@ impl Repository<SubTaskDefinition> for SubTaskDefinitionRepository {
             .optional()
     }
 
-    fn update(&self, definition: &SubTaskDefinition) -> Result<()> {
+    pub fn update_sub_task_definition(&self, definition: &SubTaskDefinition) -> Result<()> {
         self.conn.execute(
             "UPDATE sub_task_definition SET name = ?1, description = ?2, system_prompt = ?3, is_enabled = ?4, updated_time = CURRENT_TIMESTAMP WHERE id = ?5",
-            (&definition.name, &definition.description, &definition.system_prompt, &definition.is_enabled, &definition.id),
+            params![definition.name, definition.description, definition.system_prompt, definition.is_enabled, definition.id],
         )?;
         Ok(())
     }
 
-    fn delete(&self, id: i64) -> Result<()> {
-        self.conn.execute("DELETE FROM sub_task_definition WHERE id = ?", &[&id])?;
+    pub fn delete_sub_task_definition_row(&self, id: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM sub_task_definition WHERE id = ?", [id])?;
         Ok(())
     }
-}
 
-pub struct SubTaskExecutionRepository {
-    conn: Connection,
-}
-
-impl SubTaskExecutionRepository {
-    pub fn new(conn: Connection) -> Self {
-        SubTaskExecutionRepository { conn }
-    }
-
-    pub fn list_by_conversation(
+    // Execution methods
+    pub fn list_executions_by_conversation(
         &self,
         parent_conversation_id: i64,
         parent_message_id: Option<i64>,
@@ -332,35 +314,35 @@ impl SubTaskExecutionRepository {
         result
     }
 
-    pub fn update_status(&self, id: i64, status: &str, started_time: Option<DateTime<Utc>>) -> Result<()> {
+    pub fn update_execution_status(&self, id: i64, status: &str, started_time: Option<DateTime<Utc>>) -> Result<()> {
         match started_time {
             Some(time) => {
                 self.conn.execute(
                     "UPDATE sub_task_execution SET status = ?, started_time = ? WHERE id = ?",
-                    (status, time, id),
+                    params![status, time, id],
                 )?;
             }
             None => {
                 self.conn.execute(
                     "UPDATE sub_task_execution SET status = ? WHERE id = ?",
-                    (status, id),
+                    params![status, id],
                 )?;
             }
         }
         Ok(())
     }
 
-    pub fn update_result(&self, id: i64, status: &str, result_content: Option<&str>, error_message: Option<&str>, token_stats: Option<(i32, i32, i32)>, finished_time: Option<DateTime<Utc>>) -> Result<()> {
+    pub fn update_execution_result(&self, id: i64, status: &str, result_content: Option<&str>, error_message: Option<&str>, token_stats: Option<(i32, i32, i32)>, finished_time: Option<DateTime<Utc>>) -> Result<()> {
         let (token_count, input_tokens, output_tokens) = token_stats.unwrap_or((0, 0, 0));
         
         self.conn.execute(
             "UPDATE sub_task_execution SET status = ?, result_content = ?, error_message = ?, token_count = ?, input_token_count = ?, output_token_count = ?, finished_time = ? WHERE id = ?",
-            (status, result_content, error_message, token_count, input_tokens, output_tokens, finished_time, id),
+            params![status, result_content, error_message, token_count, input_tokens, output_tokens, finished_time, id],
         )?;
         Ok(())
     }
 
-    pub fn list_by_source_filter(&self, parent_conversation_id: i64, source_id: Option<i64>) -> Result<Vec<SubTaskExecutionSummary>> {
+    pub fn list_executions_by_source_filter(&self, parent_conversation_id: i64, source_id: Option<i64>) -> Result<Vec<SubTaskExecutionSummary>> {
         let mut query = String::from(
             "SELECT ste.id, ste.task_code, ste.task_name, ste.task_prompt, ste.status, ste.created_time, ste.token_count 
              FROM sub_task_execution ste
@@ -391,10 +373,8 @@ impl SubTaskExecutionRepository {
         })?;
         rows.collect()
     }
-}
-
-impl Repository<SubTaskExecution> for SubTaskExecutionRepository {
-    fn create(&self, execution: &SubTaskExecution) -> Result<SubTaskExecution> {
+    
+    pub fn create_sub_task_execution(&self, execution: &SubTaskExecution) -> Result<SubTaskExecution> {
         // 使用 rusqlite::params! 宏来处理多个参数
         self.conn.execute(
             "INSERT INTO sub_task_execution (task_definition_id, task_code, task_name, task_prompt, parent_conversation_id, parent_message_id, status, result_content, error_message, llm_model_id, llm_model_name, token_count, input_token_count, output_token_count, started_time, finished_time, created_time) 
@@ -442,11 +422,11 @@ impl Repository<SubTaskExecution> for SubTaskExecutionRepository {
         })
     }
 
-    fn read(&self, id: i64) -> Result<Option<SubTaskExecution>> {
+    pub fn read_sub_task_execution(&self, id: i64) -> Result<Option<SubTaskExecution>> {
         self.conn
             .query_row(
                 "SELECT id, task_definition_id, task_code, task_name, task_prompt, parent_conversation_id, parent_message_id, status, result_content, error_message, llm_model_id, llm_model_name, token_count, input_token_count, output_token_count, started_time, finished_time, created_time FROM sub_task_execution WHERE id = ?",
-                &[&id],
+                [id],
                 |row| {
                     Ok(SubTaskExecution {
                         id: row.get(0)?,
@@ -472,51 +452,25 @@ impl Repository<SubTaskExecution> for SubTaskExecutionRepository {
             )
             .optional()
     }
-
-    fn update(&self, execution: &SubTaskExecution) -> Result<()> {
+    
+    pub fn update_sub_task_execution(&self, execution: &SubTaskExecution) -> Result<()> {
         self.conn.execute(
             "UPDATE sub_task_execution SET task_prompt = ?1, status = ?2, result_content = ?3, error_message = ?4, token_count = ?5, input_token_count = ?6, output_token_count = ?7, finished_time = ?8 WHERE id = ?9",
-            (&execution.task_prompt, &execution.status, &execution.result_content, &execution.error_message, &execution.token_count, &execution.input_token_count, &execution.output_token_count, &execution.finished_time, &execution.id),
+            params![execution.task_prompt, execution.status, execution.result_content, execution.error_message, execution.token_count, execution.input_token_count, execution.output_token_count, execution.finished_time, execution.id],
         )?;
         Ok(())
     }
 
-    fn delete(&self, id: i64) -> Result<()> {
-        self.conn.execute("DELETE FROM sub_task_execution WHERE id = ?", &[&id])?;
+    pub fn delete_sub_task_execution_row(&self, id: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM sub_task_execution WHERE id = ?", [id])?;
         Ok(())
     }
-}
-
-pub struct SubTaskDatabase {
-    db_path: PathBuf,
-}
-
-impl SubTaskDatabase {
-    pub fn new(app_handle: &tauri::AppHandle) -> rusqlite::Result<Self> {
-        let db_path = get_db_path(app_handle, "conversation.db");
-
-        Ok(SubTaskDatabase { db_path: db_path.unwrap() })
-    }
-
-    pub fn get_connection(&self) -> rusqlite::Result<Connection> {
-        Connection::open(&self.db_path)
-    }
-
-    pub fn definition_repo(&self) -> Result<SubTaskDefinitionRepository, AppError> {
-        let conn = Connection::open(self.db_path.clone()).map_err(AppError::from)?;
-        Ok(SubTaskDefinitionRepository::new(conn))
-    }
-
-    pub fn execution_repo(&self) -> Result<SubTaskExecutionRepository, AppError> {
-        let conn = Connection::open(self.db_path.clone()).map_err(AppError::from)?;
-        Ok(SubTaskExecutionRepository::new(conn))
-    }
-
+    
     pub fn create_tables(&self) -> rusqlite::Result<()> {
-        let conn = Connection::open(self.db_path.clone()).unwrap();
+        let conn = &self.conn;
 
         // 创建 sub_task_definition 表
-        conn.execute(
+    conn.execute(
             "CREATE TABLE IF NOT EXISTS sub_task_definition (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
@@ -533,7 +487,7 @@ impl SubTaskDatabase {
         )?;
 
         // 创建 sub_task_execution 表
-        conn.execute(
+    conn.execute(
             "CREATE TABLE IF NOT EXISTS sub_task_execution (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 task_definition_id INTEGER NOT NULL,
@@ -565,27 +519,27 @@ impl SubTaskDatabase {
         )?;
 
         // 创建索引以优化查询性能
-        conn.execute(
+    conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_sub_task_definition_code ON sub_task_definition(code)",
             [],
         )?;
         
-        conn.execute(
+    conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_sub_task_definition_source ON sub_task_definition(plugin_source, source_id)",
             [],
         )?;
 
-        conn.execute(
+    conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_sub_task_execution_conversation ON sub_task_execution(parent_conversation_id)",
             [],
         )?;
         
-        conn.execute(
+    conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_sub_task_execution_message ON sub_task_execution(parent_message_id)",
             [],
         )?;
 
-        conn.execute(
+    conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_sub_task_execution_status ON sub_task_execution(status)",
             [],
         )?;

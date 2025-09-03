@@ -14,10 +14,7 @@ use crate::{
     db::{
         conversation_db::{ConversationDatabase, Repository as ConversationRepository},
         llm_db::LLMDatabase,
-        sub_task_db::{
-            Repository, SubTaskDatabase, SubTaskDefinition, SubTaskExecution,
-            SubTaskExecutionSummary,
-        },
+        sub_task_db::{SubTaskDatabase, SubTaskDefinition, SubTaskExecution, SubTaskExecutionSummary},
     },
     FeatureConfigState,
 };
@@ -127,10 +124,9 @@ pub async fn register_sub_task_definition(
     }
 
     let db = SubTaskDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    let repo = db.definition_repo().map_err(|e| e.to_string())?;
 
     // 检查 code 是否已存在
-    if repo.find_by_code(&code).map_err(|e| e.to_string())?.is_some() {
+    if db.find_definition_by_code(&code).map_err(|e| e.to_string())?.is_some() {
         return Err(format!("任务代码 '{}' 已存在", code));
     }
 
@@ -147,7 +143,7 @@ pub async fn register_sub_task_definition(
         updated_time: Utc::now(),
     };
 
-    let created = repo.create(&definition).map_err(|e| e.to_string())?;
+    let created = db.create_sub_task_definition(&definition).map_err(|e| e.to_string())?;
     Ok(created.id)
 }
 
@@ -159,14 +155,9 @@ pub async fn list_sub_task_definitions(
     is_enabled: Option<bool>,      // 过滤条件
 ) -> Result<Vec<SubTaskDefinition>, String> {
     let db = SubTaskDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    let repo = db.definition_repo().map_err(|e| e.to_string())?;
 
-    let definitions = repo
-        .list_by_source(
-            plugin_source.as_deref(),
-            source_id,
-            is_enabled,
-        )
+    let definitions = db
+        .list_definitions_by_source(plugin_source.as_deref(), source_id, is_enabled)
         .map_err(|e| e.to_string())?;
 
     // 鉴权过滤：只返回有权限的任务定义
@@ -189,9 +180,8 @@ pub async fn get_sub_task_definition(
     source_id: i64, // 鉴权参数
 ) -> Result<Option<SubTaskDefinition>, String> {
     let db = SubTaskDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    let repo = db.definition_repo().map_err(|e| e.to_string())?;
 
-    if let Some(definition) = repo.find_by_code(&code).map_err(|e| e.to_string())? {
+    if let Some(definition) = db.find_definition_by_code(&code).map_err(|e| e.to_string())? {
         // 鉴权检查
         if definition.source_id != source_id {
             return Err("没有权限访问此任务定义".to_string());
@@ -225,10 +215,9 @@ pub async fn update_sub_task_definition(
     source_id: i64, // 鉴权参数
 ) -> Result<(), String> {
     let db = SubTaskDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    let repo = db.definition_repo().map_err(|e| e.to_string())?;
 
     // 获取现有定义并检查权限
-    if let Some(mut definition) = repo.read(id).map_err(|e| e.to_string())? {
+    if let Some(mut definition) = db.read_sub_task_definition(id).map_err(|e| e.to_string())? {
         if definition.source_id != source_id {
             return Err("没有权限更新此任务定义".to_string());
         }
@@ -260,7 +249,7 @@ pub async fn update_sub_task_definition(
 
         definition.updated_time = Utc::now();
 
-        repo.update(&definition).map_err(|e| e.to_string())?;
+    db.update_sub_task_definition(&definition).map_err(|e| e.to_string())?;
         Ok(())
     } else {
         Err("任务定义不存在".to_string())
@@ -274,10 +263,9 @@ pub async fn delete_sub_task_definition(
     source_id: i64, // 鉴权参数
 ) -> Result<(), String> {
     let db = SubTaskDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    let repo = db.definition_repo().map_err(|e| e.to_string())?;
 
     // 获取现有定义并检查权限
-    if let Some(definition) = repo.read(id).map_err(|e| e.to_string())? {
+    if let Some(definition) = db.read_sub_task_definition(id).map_err(|e| e.to_string())? {
         if definition.source_id != source_id {
             return Err("没有权限删除此任务定义".to_string());
         }
@@ -293,7 +281,7 @@ pub async fn delete_sub_task_definition(
             return Err("没有权限删除此任务定义".to_string());
         }
 
-        repo.delete(id).map_err(|e| e.to_string())?;
+    db.delete_sub_task_definition_row(id).map_err(|e| e.to_string())?;
         Ok(())
     } else {
         Err("任务定义不存在".to_string())
@@ -309,10 +297,9 @@ pub async fn create_sub_task_execution(
 ) -> Result<i64, String> {
     // 获取任务定义并验证权限
     let sub_task_db = SubTaskDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    let def_repo = sub_task_db.definition_repo().map_err(|e| e.to_string())?;
 
-    let task_definition = def_repo
-        .find_by_code(&request.task_code)
+    let task_definition = sub_task_db
+        .find_definition_by_code(&request.task_code)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("任务定义 '{}' 不存在", request.task_code))?;
 
@@ -358,7 +345,6 @@ pub async fn create_sub_task_execution(
     }
 
     // 创建执行记录
-    let exec_repo = sub_task_db.execution_repo().map_err(|e| e.to_string())?;
     let execution = SubTaskExecution {
         id: 0,
         task_definition_id: task_definition.id,
@@ -380,7 +366,7 @@ pub async fn create_sub_task_execution(
         created_time: Utc::now(),
     };
 
-    let created_execution = exec_repo.create(&execution).map_err(|e| e.to_string())?;
+    let created_execution = sub_task_db.create_sub_task_execution(&execution).map_err(|e| e.to_string())?;
     let execution_id = created_execution.id;
 
     // 异步执行任务
@@ -391,14 +377,13 @@ pub async fn create_sub_task_execution(
 
     tokio::spawn(async move {
         // 更新状态为 running
-        let sub_task_db = SubTaskDatabase::new(&app_handle_clone).unwrap();
-        let exec_repo = sub_task_db.execution_repo().unwrap();
+    let sub_task_db = SubTaskDatabase::new(&app_handle_clone).unwrap();
         let started_time = Utc::now();
         
-        let _ = exec_repo.update_status(execution_id, "running", Some(started_time));
+    let _ = sub_task_db.update_execution_status(execution_id, "running", Some(started_time));
 
         // 发送状态更新事件
-        let mut updated_execution = exec_repo.read(execution_id).unwrap().unwrap();
+    let mut updated_execution = sub_task_db.read_sub_task_execution(execution_id).unwrap().unwrap();
         updated_execution.status = "running".to_string();
         updated_execution.started_time = Some(started_time);
         emit_sub_task_status_update(&app_handle_clone, &updated_execution).await;
@@ -413,7 +398,7 @@ pub async fn create_sub_task_execution(
         let finished_time = Utc::now();
         match result {
             Ok((content, token_stats)) => {
-                let _ = exec_repo.update_result(
+                let _ = sub_task_db.update_execution_result(
                     execution_id,
                     "success",
                     Some(&content),
@@ -423,7 +408,7 @@ pub async fn create_sub_task_execution(
                 );
             }
             Err(error) => {
-                let _ = exec_repo.update_result(
+                let _ = sub_task_db.update_execution_result(
                     execution_id,
                     "failed",
                     None,
@@ -435,7 +420,7 @@ pub async fn create_sub_task_execution(
         }
 
         // 发送完成事件
-        if let Ok(Some(final_execution)) = exec_repo.read(execution_id) {
+    if let Ok(Some(final_execution)) = sub_task_db.read_sub_task_execution(execution_id) {
             emit_sub_task_status_update(&app_handle_clone, &final_execution).await;
         }
     });
@@ -453,12 +438,11 @@ pub async fn list_sub_task_executions(
     page_size: Option<u32>,
 ) -> Result<Vec<SubTaskExecutionSummary>, String> {
     let db = SubTaskDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    let repo = db.execution_repo().map_err(|e| e.to_string())?;
 
     let page = page.unwrap_or(1);
     let page_size = page_size.unwrap_or(20);
 
-    let executions = repo.list_by_conversation(
+    let executions = db.list_executions_by_conversation(
             parent_conversation_id,
             parent_message_id,
             status.as_deref(),
@@ -477,13 +461,11 @@ pub async fn get_sub_task_execution_detail(
     source_id: i64, // 鉴权参数
 ) -> Result<Option<SubTaskExecution>, String> {
     let db = SubTaskDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    let exec_repo = db.execution_repo().map_err(|e| e.to_string())?;
-    let def_repo = db.definition_repo().map_err(|e| e.to_string())?;
 
-    if let Some(execution) = exec_repo.read(execution_id).map_err(|e| e.to_string())? {
+    if let Some(execution) = db.read_sub_task_execution(execution_id).map_err(|e| e.to_string())? {
         // 获取任务定义进行鉴权检查
-        if let Some(definition) = def_repo
-            .read(execution.task_definition_id)
+        if let Some(definition) = db
+            .read_sub_task_definition(execution.task_definition_id)
             .map_err(|e| e.to_string())?
         {
             if definition.source_id != source_id {
@@ -517,13 +499,11 @@ pub async fn cancel_sub_task_execution(
     source_id: i64, // 鉴权参数
 ) -> Result<(), String> {
     let db = SubTaskDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    let exec_repo = db.execution_repo().map_err(|e| e.to_string())?;
-    let def_repo = db.definition_repo().map_err(|e| e.to_string())?;
 
-    if let Some(execution) = exec_repo.read(execution_id).map_err(|e| e.to_string())? {
+    if let Some(execution) = db.read_sub_task_execution(execution_id).map_err(|e| e.to_string())? {
         // 获取任务定义进行鉴权检查
-        if let Some(definition) = def_repo
-            .read(execution.task_definition_id)
+        if let Some(definition) = db
+            .read_sub_task_definition(execution.task_definition_id)
             .map_err(|e| e.to_string())?
         {
             if definition.source_id != source_id {
@@ -547,12 +527,12 @@ pub async fn cancel_sub_task_execution(
             }
 
             // 更新状态为 cancelled
-            exec_repo
-                .update_status(execution_id, "cancelled", None)
+            db
+                .update_execution_status(execution_id, "cancelled", None)
                 .map_err(|e| e.to_string())?;
 
             // 发送状态更新事件
-            if let Ok(Some(updated_execution)) = exec_repo.read(execution_id) {
+            if let Ok(Some(updated_execution)) = db.read_sub_task_execution(execution_id) {
                 emit_sub_task_status_update(&app_handle, &updated_execution).await;
             }
 
@@ -572,10 +552,9 @@ pub async fn get_sub_task_execution_detail_for_ui(
     execution_id: i64,
 ) -> Result<Option<SubTaskExecution>, String> {
     let db = SubTaskDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    let exec_repo = db.execution_repo().map_err(|e| e.to_string())?;
 
     // 直接获取执行详情，不进行鉴权检查（用于UI展示）
-    let execution = exec_repo.read(execution_id).map_err(|e| e.to_string())?;
+    let execution = db.read_sub_task_execution(execution_id).map_err(|e| e.to_string())?;
     Ok(execution)
 }
 
@@ -598,10 +577,9 @@ pub async fn run_sub_task_sync(
 ) -> Result<SubTaskRunResult, String> {
     // 获取任务定义
     let sub_task_db = SubTaskDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    let def_repo = sub_task_db.definition_repo().map_err(|e| e.to_string())?;
 
-    let task_definition = def_repo
-        .find_by_code(&code)
+    let task_definition = sub_task_db
+        .find_definition_by_code(&code)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Sub task '{}' not found", code))?;
 
@@ -628,7 +606,6 @@ pub async fn run_sub_task_sync(
     drop(config_feature_map);
 
     // 创建执行记录
-    let exec_repo = sub_task_db.execution_repo().map_err(|e| e.to_string())?;
     let execution = SubTaskExecution {
         id: 0,
         task_definition_id: task_definition.id,
@@ -650,15 +627,15 @@ pub async fn run_sub_task_sync(
         created_time: Utc::now(),
     };
 
-    let created_execution = exec_repo.create(&execution).map_err(|e| e.to_string())?;
+    let created_execution = sub_task_db.create_sub_task_execution(&execution).map_err(|e| e.to_string())?;
     let execution_id = created_execution.id;
 
     // 同步执行任务
     let started_time = Utc::now();
-    let _ = exec_repo.update_status(execution_id, "running", Some(started_time));
+    let _ = sub_task_db.update_execution_status(execution_id, "running", Some(started_time));
 
     // 发送状态更新事件
-    let mut updated_execution = exec_repo.read(execution_id).map_err(|e| e.to_string())?.unwrap();
+    let mut updated_execution = sub_task_db.read_sub_task_execution(execution_id).map_err(|e| e.to_string())?.unwrap();
     updated_execution.status = "running".to_string();
     updated_execution.started_time = Some(started_time);
     emit_sub_task_status_update(&app_handle, &updated_execution).await;
@@ -788,7 +765,7 @@ pub async fn run_sub_task_sync(
     let finished_time = Utc::now();
     let sub_task_result = match result {
         Ok((content, token_stats)) => {
-            let _ = exec_repo.update_result(
+            let _ = sub_task_db.update_execution_result(
                 execution_id,
                 "success",
                 Some(&content),
@@ -804,7 +781,7 @@ pub async fn run_sub_task_sync(
             }
         }
         Err(error) => {
-            let _ = exec_repo.update_result(
+            let _ = sub_task_db.update_execution_result(
                 execution_id,
                 "failed",
                 None,
@@ -822,7 +799,7 @@ pub async fn run_sub_task_sync(
     };
 
     // 发送完成事件
-    if let Ok(Some(final_execution)) = exec_repo.read(execution_id) {
+    if let Ok(Some(final_execution)) = sub_task_db.read_sub_task_execution(execution_id) {
         emit_sub_task_status_update(&app_handle, &final_execution).await;
     }
 
@@ -840,7 +817,6 @@ pub async fn sub_task_regist(
     source_id: i64,
 ) -> Result<i64, String> {
     let db = SubTaskDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    let repo = db.definition_repo().map_err(|e| e.to_string())?;
 
     let definition = SubTaskDefinition {
         id: 0, // Will be set by upsert_definition
@@ -855,7 +831,7 @@ pub async fn sub_task_regist(
         updated_time: Utc::now(),
     };
 
-    let result = repo.upsert_definition(&definition).map_err(|e| e.to_string())?;
+    let result = db.upsert_sub_task_definition(&definition).map_err(|e| e.to_string())?;
     Ok(result.id)
 }
 
@@ -866,21 +842,20 @@ pub async fn cancel_sub_task_execution_for_ui(
     execution_id: i64,
 ) -> Result<(), String> {
     let db = SubTaskDatabase::new(&app_handle).map_err(|e| e.to_string())?;
-    let exec_repo = db.execution_repo().map_err(|e| e.to_string())?;
 
-    if let Some(execution) = exec_repo.read(execution_id).map_err(|e| e.to_string())? {
+    if let Some(execution) = db.read_sub_task_execution(execution_id).map_err(|e| e.to_string())? {
         // 只有 pending 或 running 状态的任务可以取消
         if execution.status != "pending" && execution.status != "running" {
             return Err(format!("任务状态为 '{}' 时无法取消", execution.status));
         }
 
         // 更新状态为 cancelled
-        exec_repo
-            .update_status(execution_id, "cancelled", None)
+        db
+            .update_execution_status(execution_id, "cancelled", None)
             .map_err(|e| e.to_string())?;
 
         // 发送状态更新事件
-        if let Ok(Some(updated_execution)) = exec_repo.read(execution_id) {
+    if let Ok(Some(updated_execution)) = db.read_sub_task_execution(execution_id) {
             emit_sub_task_status_update(&app_handle, &updated_execution).await;
         }
 
