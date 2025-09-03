@@ -64,7 +64,7 @@ const SubTaskDetailDialog: React.FC<SubTaskDetailDialogProps> = ({ isOpen, onClo
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+            <DialogContent className="w-[50vw] sm:max-w-none max-w-none h-[80vh] min-w-[480px] min-h-[400px] flex flex-col">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <div className="text-lg flex items-center">{getStatusIcon(execution.status)}</div>
@@ -73,19 +73,19 @@ const SubTaskDetailDialog: React.FC<SubTaskDetailDialogProps> = ({ isOpen, onClo
                     </DialogTitle>
                 </DialogHeader>
 
-                <div className="flex-1">
+                <div className="flex-1 min-h-0">
                     {loading ? (
-                        <div className="flex items-center justify-center h-32">
+                        <div className="flex items-center justify-center h-full">
                             <RefreshCw className="w-6 h-6 animate-spin" />
                             <span className="ml-2">加载中...</span>
                         </div>
                     ) : error ? (
-                        <div className="flex items-center justify-center h-32 text-destructive">
+                        <div className="flex items-center justify-center h-full text-destructive">
                             <AlertCircle className="w-6 h-6" />
                             <span className="ml-2">{error}</span>
                         </div>
                     ) : (
-                        <ScrollArea className="h-[400px]">
+                        <ScrollArea className="h-full">
                             <div className="space-y-4">
                                 {/* Basic Information */}
                                 <Card>
