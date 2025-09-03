@@ -12,11 +12,9 @@ use genai::chat::{ChatOptions, ChatRequest, ToolCall};
 use genai::Client;
 use serde_json;
 use std::collections::HashMap;
-use std::sync::Arc;
 use tauri::{Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 use tokio::time::{sleep, Duration};
-use tokio_util::sync::CancellationToken;
 use anyhow::Context as _;
 
 /// 发送消息完成通知
@@ -919,9 +917,7 @@ pub async fn handle_stream_chat(
     chat_request: &ChatRequest,
     chat_options: &ChatOptions,
     conversation_id: i64,
-    cancel_token: &CancellationToken,
     conversation_db: &ConversationDatabase,
-    tokens: &Arc<tokio::sync::Mutex<HashMap<i64, CancellationToken>>>,
     window: &tauri::Window,
     app_handle: &tauri::AppHandle,
     need_generate_title: bool,
@@ -950,9 +946,7 @@ pub async fn handle_stream_chat(
             chat_request,
             chat_options,
             conversation_id,
-            cancel_token,
             conversation_db,
-            tokens,
             window,
             &app_handle_clone,
             need_generate_title,
@@ -976,7 +970,6 @@ pub async fn handle_stream_chat(
 
                 if main_attempts >= max_retry_attempts {
                     // 最终失败，清理资源并返回错误
-                    super::conversation::cleanup_token(tokens, conversation_id).await;
                     let final_error =
                         format!("AI请求失败: {}", get_user_friendly_error_message(&e));
                     eprintln!(
@@ -1019,9 +1012,7 @@ async fn attempt_stream_chat(
     chat_request: &ChatRequest,
     chat_options: &ChatOptions,
     conversation_id: i64,
-    cancel_token: &CancellationToken,
     conversation_db: &ConversationDatabase,
-    tokens: &Arc<tokio::sync::Mutex<HashMap<i64, CancellationToken>>>,
     window: &tauri::Window,
     app_handle: &tauri::AppHandle,
     need_generate_title: bool,
@@ -1102,306 +1093,297 @@ async fn attempt_stream_chat(
     let mut response_start_time: Option<chrono::DateTime<chrono::Utc>> = None;
 
     loop {
-        tokio::select! {
-            stream_result = chat_stream.next() => {
-                match stream_result {
-                    Some(Ok(stream_event)) => {
-                        match stream_event {
-                            ChatStreamEvent::Start => {}
-                            ChatStreamEvent::Chunk(chunk) => {
-                                if current_output_type == OutputType::Reasoning {
-                                    if let (Some(msg_id), Some(start_time)) = (reasoning_message_id, reasoning_start_time) {
-                                        if let Err(e) = super::conversation::handle_message_type_end(
-                                            msg_id,
-                                            "reasoning",
-                                            &reasoning_content,
-                                            start_time,
-                                            &conversation_db,
-                                            &window,
-                                            conversation_id,
-                                            &app_handle,
-                                            false, // allow MCP detection
-                                        ).await {
-                                            eprintln!("[[reasoning_type_end_failed]]: {}", e);
-                                        }
-                                    }
+        let stream_result = chat_stream.next().await;
+        match stream_result {
+            Some(Ok(stream_event)) => {
+                match stream_event {
+                    ChatStreamEvent::Start => {}
+                    ChatStreamEvent::Chunk(chunk) => {
+                        if current_output_type == OutputType::Reasoning {
+                            if let (Some(msg_id), Some(start_time)) = (reasoning_message_id, reasoning_start_time) {
+                                if let Err(e) = super::conversation::handle_message_type_end(
+                                    msg_id,
+                                    "reasoning",
+                                    &reasoning_content,
+                                    start_time,
+                                    &conversation_db,
+                                    &window,
+                                    conversation_id,
+                                    &app_handle,
+                                    false, // allow MCP detection
+                                ).await {
+                                    eprintln!("[[reasoning_type_end_failed]]: {}", e);
                                 }
-
-                                if current_output_type != OutputType::Response {
-                                    current_output_type = OutputType::Response;
-                                }
-
-                                response_content.push_str(&chunk.content);
-
-                                if response_message_id.is_none() {
-                                    let now = chrono::Utc::now();
-                                    response_start_time = Some(now);
-
-                                    if let Ok(new_id) = ensure_stream_message(
-                                        &conversation_db,
-                                        &window,
-                                        conversation_id,
-                                        "response",
-                                        &response_content,
-                                        llm_model_id,
-                                        &llm_model_name,
-                                        &generation_group_id,
-                                        parent_group_id_override.clone(),
-                                    ).await {
-                                        response_message_id = Some(new_id);
-
-                                        if is_regeneration && !group_merge_event_emitted {
-                                            if let Some(ref parent_group_id) = parent_group_id_override {
-                                                let group_merge_event = serde_json::json!({
-                                                    "type": "group_merge",
-                                                    "data": {
-                                                        "original_group_id": parent_group_id,
-                                                        "new_group_id": generation_group_id.clone(),
-                                                        "is_regeneration": true,
-                                                        "first_message_id": new_id,
-                                                        "conversation_id": conversation_id
-                                                    }
-                                                });
-                                                let _ = window.emit(
-                                                    format!("conversation_event_{}", conversation_id).as_str(),
-                                                    group_merge_event
-                                                );
-                                                group_merge_event_emitted = true;
-                                            }
-                                        }
-                                    }
-                                }
-
-                                if let Some(msg_id) = response_message_id {
-                                    let _ = persist_and_emit_update(
-                                        &conversation_db,
-                                        &window,
-                                        conversation_id,
-                                        msg_id,
-                                        "response",
-                                        &response_content,
-                                        false,
-                                    );
-                                }
-                            }
-                            ChatStreamEvent::ReasoningChunk(reasoning_chunk) => {
-                                if current_output_type != OutputType::Reasoning {
-                                    current_output_type = OutputType::Reasoning;
-                                }
-
-                                reasoning_content.push_str(&reasoning_chunk.content);
-
-                                if reasoning_message_id.is_none() {
-                                    let now = chrono::Utc::now();
-                                    reasoning_start_time = Some(now);
-
-                                    if let Ok(new_id) = ensure_stream_message(
-                                        &conversation_db,
-                                        &window,
-                                        conversation_id,
-                                        "reasoning",
-                                        &reasoning_content,
-                                        llm_model_id,
-                                        &llm_model_name,
-                                        &generation_group_id,
-                                        parent_group_id_override.clone(),
-                                    ).await {
-                                        reasoning_message_id = Some(new_id);
-                                    }
-                                }
-
-                                if let Some(msg_id) = reasoning_message_id {
-                                    let _ = persist_and_emit_update(
-                                        &conversation_db,
-                                        &window,
-                                        conversation_id,
-                                        msg_id,
-                                        "reasoning",
-                                        &reasoning_content,
-                                        false,
-                                    );
-                                }
-                            }
-                            ChatStreamEvent::ToolCallChunk(tool_call_chunk) => {
-                                println!("[[tool_call_chunk]]: {:#?}\n", tool_call_chunk);
-                            }
-                            ChatStreamEvent::End(end_event) => {
-                                println!("[[end_event]]: {:#?}\n", end_event);
-                                // Capture tool calls if they exist
-                                if let Some(tool_calls) = end_event.captured_into_tool_calls() {
-                                    captured_tool_calls = tool_calls;
-                                    println!("[[captured_tool_calls]]: {:#?}\n", captured_tool_calls);
-                                }
-
-                                // If native tool calls were captured, persist UI hints and DB records, and optionally auto-run
-                                if !captured_tool_calls.is_empty() {
-                                    // Ensure we have a response message to attach UI hints
-                                    if response_message_id.is_none() {
-                                        // Create a minimal response message to host MCP UI hints
-                                        let now = chrono::Utc::now();
-                                        response_start_time = Some(now);
-                                        match ensure_stream_message(
-                                            &conversation_db,
-                                            &window,
-                                            conversation_id,
-                                            "response",
-                                            "",
-                                            llm_model_id,
-                                            &llm_model_name,
-                                            &generation_group_id,
-                                            parent_group_id_override.clone(),
-                                        ).await {
-                                            Ok(new_id) => response_message_id = Some(new_id),
-                                            Err(e) => {
-                                                eprintln!("Failed to create response message for MCP hints: {}", e);
-                                            }
-                                        }
-                                    }
-                                    if let Some(msg_id) = response_message_id {
-                                        let _ = handle_captured_tool_calls_common(
-                                            &app_handle,
-                                            &conversation_db,
-                                            &window,
-                                            conversation_id,
-                                            msg_id,
-                                            &captured_tool_calls,
-                                            &mut response_content,
-                                            true,
-                                            mcp_override_config.as_ref(),
-                                        ).await;
-                                    }
-                                }
-
-                                // 按当前输出类型收尾，确保 response 触发 MCP 检测与事件
-                                match current_output_type {
-                                    OutputType::Reasoning => {
-                                        if let (Some(msg_id), Some(start_time)) = (reasoning_message_id, reasoning_start_time) {
-                                            if let Err(e) = super::conversation::handle_message_type_end(
-                                                msg_id,
-                                                "reasoning",
-                                                &reasoning_content,
-                                                start_time,
-                                                &conversation_db,
-                                                &window,
-                                                conversation_id,
-                                                &app_handle,
-                                                false, // allow MCP detection
-                                            ).await {
-                                                eprintln!("[[reasoning_type_end_failed]]: {}", e);
-                                            }
-                                        }
-                                    }
-                                    OutputType::Response => {
-                                        if let (Some(msg_id), Some(start_time)) = (response_message_id, response_start_time) {
-                                            if let Err(e) = super::conversation::handle_message_type_end(
-                                                msg_id,
-                                                "response",
-                                                &response_content,
-                                                start_time,
-                                                &conversation_db,
-                                                &window,
-                                                conversation_id,
-                                                &app_handle,
-                                                false, // allow MCP detection
-                                            ).await {
-                                                eprintln!("[[response_type_end_failed]]: {}", e);
-                                            }
-                                        } else {
-                                            // 兜底：如果缺少 start_time 或 msg_id，至少完成事件更新
-                                            super::conversation::finish_stream_messages(
-                                                &conversation_db,
-                                                reasoning_message_id,
-                                                response_message_id,
-                                                &reasoning_content,
-                                                &response_content,
-                                                &window,
-                                                conversation_id,
-                                            )?;
-                                        }
-                                    }
-                                    OutputType::None => {
-                                        // 无活跃类型时，走统一收尾
-                                        super::conversation::finish_stream_messages(
-                                            &conversation_db,
-                                            reasoning_message_id,
-                                            response_message_id,
-                                            &reasoning_content,
-                                            &response_content,
-                                            &window,
-                                            conversation_id,
-                                        )?;
-                                    }
-                                }
-
-                                // 工具调用事件已在 handle_captured_tool_calls_common 中按需发出
-
-                                if need_generate_title && !response_content.is_empty() {
-                                    let app_handle_clone = app_handle.clone();
-                                    let user_prompt_clone = user_prompt.clone();
-                                    let content_clone = response_content.clone();
-                                    let config_feature_map_clone = config_feature_map.clone();
-                                    let window_clone = window.clone();
-
-                                    tokio::spawn(async move {
-                                        if let Err(e) = crate::api::ai::title::generate_title(
-                                            &app_handle_clone,
-                                            conversation_id,
-                                            user_prompt_clone,
-                                            content_clone,
-                                            config_feature_map_clone,
-                                            window_clone,
-                                        ).await {
-                                            eprintln!("[[title_generation_failed]]: {}", e);
-                                        }
-                                    });
-                                }
-
-                                // 获取助手名称并发送完成通知
-                                let assistant_name = if let Ok(Some(conv)) = conversation_db
-                                    .conversation_repo()
-                                    .unwrap()
-                                    .read(conversation_id)
-                                {
-                                    if let Some(assistant_id) = conv.assistant_id {
-                                        if let Ok(assistant) = crate::api::assistant_api::get_assistant(app_handle.clone(), assistant_id) {
-                                            Some(assistant.assistant.name.clone())
-                                        } else {
-                                            None
-                                        }
-                                    } else {
-                                        None
-                                    }
-                                } else {
-                                    None
-                                };
-
-                                send_completion_notification(
-                                    app_handle,
-                                    &response_content,
-                                    assistant_name,
-                                    &config_feature_map,
-                                ).await;
-
-                                return Ok(());
                             }
                         }
+
+                        if current_output_type != OutputType::Response {
+                            current_output_type = OutputType::Response;
+                        }
+
+                        response_content.push_str(&chunk.content);
+
+                        if response_message_id.is_none() {
+                            let now = chrono::Utc::now();
+                            response_start_time = Some(now);
+
+                            if let Ok(new_id) = ensure_stream_message(
+                                &conversation_db,
+                                &window,
+                                conversation_id,
+                                "response",
+                                &response_content,
+                                llm_model_id,
+                                &llm_model_name,
+                                &generation_group_id,
+                                parent_group_id_override.clone(),
+                            ).await {
+                                response_message_id = Some(new_id);
+
+                                if is_regeneration && !group_merge_event_emitted {
+                                    if let Some(ref parent_group_id) = parent_group_id_override {
+                                        let group_merge_event = serde_json::json!({
+                                            "type": "group_merge",
+                                            "data": {
+                                                "original_group_id": parent_group_id,
+                                                "new_group_id": generation_group_id.clone(),
+                                                "is_regeneration": true,
+                                                "first_message_id": new_id,
+                                                "conversation_id": conversation_id
+                                            }
+                                        });
+                                        let _ = window.emit(
+                                            format!("conversation_event_{}", conversation_id).as_str(),
+                                            group_merge_event
+                                        );
+                                        group_merge_event_emitted = true;
+                                    }
+                                }
+                            }
+                        }
+
+                        if let Some(msg_id) = response_message_id {
+                            let _ = persist_and_emit_update(
+                                &conversation_db,
+                                &window,
+                                conversation_id,
+                                msg_id,
+                                "response",
+                                &response_content,
+                                false,
+                            );
+                        }
                     }
-                    Some(Err(e)) => {
-                        let _user_friendly_error = enhanced_error_logging_v2(&e, "Stream Processing").await;
-                        super::conversation::cleanup_token(tokens, conversation_id).await;
-                        return Err(anyhow::anyhow!("Stream processing failed: {}", e));
+                    ChatStreamEvent::ReasoningChunk(reasoning_chunk) => {
+                        if current_output_type != OutputType::Reasoning {
+                            current_output_type = OutputType::Reasoning;
+                        }
+
+                        reasoning_content.push_str(&reasoning_chunk.content);
+
+                        if reasoning_message_id.is_none() {
+                            let now = chrono::Utc::now();
+                            reasoning_start_time = Some(now);
+
+                            if let Ok(new_id) = ensure_stream_message(
+                                &conversation_db,
+                                &window,
+                                conversation_id,
+                                "reasoning",
+                                &reasoning_content,
+                                llm_model_id,
+                                &llm_model_name,
+                                &generation_group_id,
+                                parent_group_id_override.clone(),
+                            ).await {
+                                reasoning_message_id = Some(new_id);
+                            }
+                        }
+
+                        if let Some(msg_id) = reasoning_message_id {
+                            let _ = persist_and_emit_update(
+                                &conversation_db,
+                                &window,
+                                conversation_id,
+                                msg_id,
+                                "reasoning",
+                                &reasoning_content,
+                                false,
+                            );
+                        }
                     }
-                    None => break,
+                    ChatStreamEvent::ToolCallChunk(tool_call_chunk) => {
+                        println!("[[tool_call_chunk]]: {:#?}\n", tool_call_chunk);
+                    }
+                    ChatStreamEvent::End(end_event) => {
+                        println!("[[end_event]]: {:#?}\n", end_event);
+                        // Capture tool calls if they exist
+                        if let Some(tool_calls) = end_event.captured_into_tool_calls() {
+                            captured_tool_calls = tool_calls;
+                            println!("[[captured_tool_calls]]: {:#?}\n", captured_tool_calls);
+                        }
+
+                        // If native tool calls were captured, persist UI hints and DB records, and optionally auto-run
+                        if !captured_tool_calls.is_empty() {
+                            // Ensure we have a response message to attach UI hints
+                            if response_message_id.is_none() {
+                                // Create a minimal response message to host MCP UI hints
+                                let now = chrono::Utc::now();
+                                response_start_time = Some(now);
+                                match ensure_stream_message(
+                                    &conversation_db,
+                                    &window,
+                                    conversation_id,
+                                    "response",
+                                    "",
+                                    llm_model_id,
+                                    &llm_model_name,
+                                    &generation_group_id,
+                                    parent_group_id_override.clone(),
+                                ).await {
+                                    Ok(new_id) => response_message_id = Some(new_id),
+                                    Err(e) => {
+                                        eprintln!("Failed to create response message for MCP hints: {}", e);
+                                    }
+                                }
+                            }
+                            if let Some(msg_id) = response_message_id {
+                                let _ = handle_captured_tool_calls_common(
+                                    &app_handle,
+                                    &conversation_db,
+                                    &window,
+                                    conversation_id,
+                                    msg_id,
+                                    &captured_tool_calls,
+                                    &mut response_content,
+                                    true,
+                                    mcp_override_config.as_ref(),
+                                ).await;
+                            }
+                        }
+
+                        // 按当前输出类型收尾，确保 response 触发 MCP 检测与事件
+                        match current_output_type {
+                            OutputType::Reasoning => {
+                                if let (Some(msg_id), Some(start_time)) = (reasoning_message_id, reasoning_start_time) {
+                                    if let Err(e) = super::conversation::handle_message_type_end(
+                                        msg_id,
+                                        "reasoning",
+                                        &reasoning_content,
+                                        start_time,
+                                        &conversation_db,
+                                        &window,
+                                        conversation_id,
+                                        &app_handle,
+                                        false, // allow MCP detection
+                                    ).await {
+                                        eprintln!("[[reasoning_type_end_failed]]: {}", e);
+                                    }
+                                }
+                            }
+                            OutputType::Response => {
+                                if let (Some(msg_id), Some(start_time)) = (response_message_id, response_start_time) {
+                                    if let Err(e) = super::conversation::handle_message_type_end(
+                                        msg_id,
+                                        "response",
+                                        &response_content,
+                                        start_time,
+                                        &conversation_db,
+                                        &window,
+                                        conversation_id,
+                                        &app_handle,
+                                        false, // allow MCP detection
+                                    ).await {
+                                        eprintln!("[[response_type_end_failed]]: {}", e);
+                                    }
+                                } else {
+                                    // 兜底：如果缺少 start_time 或 msg_id，至少完成事件更新
+                                    super::conversation::finish_stream_messages(
+                                        &conversation_db,
+                                        reasoning_message_id,
+                                        response_message_id,
+                                        &reasoning_content,
+                                        &response_content,
+                                        &window,
+                                        conversation_id,
+                                    )?;
+                                }
+                            }
+                            OutputType::None => {
+                                // 无活跃类型时，走统一收尾
+                                super::conversation::finish_stream_messages(
+                                    &conversation_db,
+                                    reasoning_message_id,
+                                    response_message_id,
+                                    &reasoning_content,
+                                    &response_content,
+                                    &window,
+                                    conversation_id,
+                                )?;
+                            }
+                        }
+
+                        // 工具调用事件已在 handle_captured_tool_calls_common 中按需发出
+
+                        if need_generate_title && !response_content.is_empty() {
+                            let app_handle_clone = app_handle.clone();
+                            let user_prompt_clone = user_prompt.clone();
+                            let content_clone = response_content.clone();
+                            let config_feature_map_clone = config_feature_map.clone();
+                            let window_clone = window.clone();
+
+                            tokio::spawn(async move {
+                                if let Err(e) = crate::api::ai::title::generate_title(
+                                    &app_handle_clone,
+                                    conversation_id,
+                                    user_prompt_clone,
+                                    content_clone,
+                                    config_feature_map_clone,
+                                    window_clone,
+                                ).await {
+                                    eprintln!("[[title_generation_failed]]: {}", e);
+                                }
+                            });
+                        }
+
+                        // 获取助手名称并发送完成通知
+                        let assistant_name = if let Ok(Some(conv)) = conversation_db
+                            .conversation_repo()
+                            .unwrap()
+                            .read(conversation_id)
+                        {
+                            if let Some(assistant_id) = conv.assistant_id {
+                                if let Ok(assistant) = crate::api::assistant_api::get_assistant(app_handle.clone(), assistant_id) {
+                                    Some(assistant.assistant.name.clone())
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+
+                        send_completion_notification(
+                            app_handle,
+                            &response_content,
+                            assistant_name,
+                            &config_feature_map,
+                        ).await;
+
+                        return Ok(());
+                    }
                 }
             }
-            _ = cancel_token.cancelled() => {
-                super::conversation::cleanup_token(tokens, conversation_id).await;
-                return Err(anyhow::anyhow!("Request cancelled"));
+            Some(Err(e)) => {
+                let _user_friendly_error = enhanced_error_logging_v2(&e, "Stream Processing").await;
+                return Err(anyhow::anyhow!("Stream processing failed: {}", e));
             }
+            None => break,
         }
     }
 
-    super::conversation::cleanup_token(tokens, conversation_id).await;
     Ok(())
 }
 
@@ -1468,9 +1450,7 @@ pub async fn handle_non_stream_chat(
     chat_request: &ChatRequest,
     chat_options: &ChatOptions,
     conversation_id: i64,
-    cancel_token: &CancellationToken,
     conversation_db: &ConversationDatabase,
-    tokens: &Arc<tokio::sync::Mutex<HashMap<i64, CancellationToken>>>,
     window: &tauri::Window,
     app_handle: &tauri::AppHandle,
     need_generate_title: bool,
@@ -1525,8 +1505,7 @@ pub async fn handle_non_stream_chat(
         }
     }
 
-    let chat_result = tokio::select! {
-        result = async {
+    let chat_result = {
             let mut attempts = 0;
             loop {
                 attempts += 1;
@@ -1557,12 +1536,7 @@ pub async fn handle_non_stream_chat(
                     }
                 }
             }
-        } => result,
-        _ = cancel_token.cancelled() => {
-            super::conversation::cleanup_token(tokens, conversation_id).await;
-            return Err(anyhow::anyhow!("Request cancelled"));
-        }
-    };
+        };
 
     match chat_result {
         Ok(chat_response) => {
@@ -1719,7 +1693,6 @@ pub async fn handle_non_stream_chat(
             Ok(())
         }
         Err(e) => {
-            super::conversation::cleanup_token(tokens, conversation_id).await;
             let user_friendly_error = get_user_friendly_error_message(&e);
             let err_msg = format!("AI请求失败: {}", user_friendly_error);
             let now = chrono::Utc::now();

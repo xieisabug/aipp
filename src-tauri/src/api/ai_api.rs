@@ -27,7 +27,6 @@ use genai::chat::Tool;
 use std::collections::{HashMap, HashSet};
 use tauri::Emitter;
 use tauri::State;
-use tokio_util::sync::CancellationToken;
 
 #[tauri::command]
 pub async fn ask_ai(
@@ -139,10 +138,6 @@ pub async fn ask_ai(
 
     let app_handle_clone = app_handle.clone();
 
-    let cancel_token = CancellationToken::new();
-
-    message_token_manager.store_token(conversation_id, cancel_token.clone()).await;
-
     // 在异步任务外获取模型详情（避免线程安全问题）
     let llm_db = LLMDatabase::new(&app_handle).map_err(AppError::from)?;
     
@@ -168,7 +163,6 @@ pub async fn ask_ai(
             .context("Failed to get LLM model detail")?
     };
 
-    let tokens = message_token_manager.get_tokens();
     let window_clone = window.clone(); // 在移动之前克隆
     let model_id = model_detail.model.id; // 提前获取模型ID
     let model_code = model_detail.model.code.clone(); // 提前获取模型代码
@@ -176,7 +170,7 @@ pub async fn ask_ai(
     let provider_api_type = model_detail.provider.api_type.clone(); // 提前获取API类型
     let assistant_model_configs = assistant_detail.model_configs.clone(); // 提前获取助手模型配置
 
-    let _task_handle = tokio::spawn(async move {
+    let task_handle = tokio::spawn(async move {
         // 直接创建数据库连接（避免线程安全问题）
         let conversation_db = ConversationDatabase::new(&app_handle_clone).unwrap();
 
@@ -294,9 +288,7 @@ pub async fn ask_ai(
                 &chat_request,
                 &chat_config.chat_options,
                 conversation_id,
-                &cancel_token,
                 &conversation_db,
-                &tokens,
                 &window_clone,
                 &app_handle_clone,
                 _need_generate_title,
@@ -317,9 +309,7 @@ pub async fn ask_ai(
                 &chat_request,
                 &chat_config.chat_options,
                 conversation_id,
-                &cancel_token,
                 &conversation_db,
-                &tokens,
                 &window_clone,
                 &app_handle_clone,
                 _need_generate_title,
@@ -336,6 +326,9 @@ pub async fn ask_ai(
 
         Ok::<(), Error>(())
     });
+
+    // Store the task handle for proper cancellation
+    message_token_manager.store_task_handle(conversation_id, task_handle).await;
 
     println!("================================ Ask AI End ===============================================");
 
@@ -451,9 +444,6 @@ pub async fn tool_result_continue_ask_ai(
     let mcp_info = collect_mcp_info_for_assistant(&app_handle, assistant_id, None).await?;
     let is_native_toolcall = mcp_info.use_native_toolcall;
 
-    let cancel_token = CancellationToken::new();
-    message_token_manager.store_token(conversation_id_i64, cancel_token.clone()).await;
-
     // Get model details (same as ask_ai)
     let llm_db = LLMDatabase::new(&app_handle).map_err(AppError::from)?;
     let provider_id = &assistant_detail.model[0].provider_id;
@@ -462,7 +452,6 @@ pub async fn tool_result_continue_ask_ai(
         .get_llm_model_detail(provider_id, model_code)
         .context("Failed to get LLM model detail")?;
 
-    let tokens = message_token_manager.get_tokens();
     let window_clone = window.clone();
     let model_id = model_detail.model.id;
     let model_code = model_detail.model.code.clone();
@@ -663,9 +652,7 @@ pub async fn tool_result_continue_ask_ai(
             &chat_request,
             &chat_config.chat_options,
             conversation_id_i64,
-            &cancel_token,
             &conversation_db,
-            &tokens,
             &window_clone,
             &app_handle,
             false,          // no title generation needed
@@ -685,9 +672,7 @@ pub async fn tool_result_continue_ask_ai(
             &chat_request,
             &chat_config.chat_options,
             conversation_id_i64,
-            &cancel_token,
             &conversation_db,
-            &tokens,
             &window_clone,
             &app_handle,
             false,          // no title generation needed
@@ -835,9 +820,6 @@ pub async fn regenerate_ai(
         (Some(uuid::Uuid::new_v4().to_string()), original_group_id)
     };
 
-    let cancel_token = CancellationToken::new();
-    message_token_manager.store_token(conversation_id, cancel_token.clone()).await;
-
     // 在异步任务外获取模型详情（避免线程安全问题）
     let llm_db = LLMDatabase::new(&app_handle).map_err(AppError::from)?;
     let provider_id = &assistant_detail.model[0].provider_id;
@@ -846,7 +828,6 @@ pub async fn regenerate_ai(
         .get_llm_model_detail(provider_id, model_code)
         .context("Failed to get LLM model detail")?;
 
-    let tokens = message_token_manager.get_tokens();
     let window_clone = window.clone(); // 在移动之前克隆
     let app_handle_clone = app_handle.clone(); // 添加这行
     let regenerate_model_id = model_detail.model.id; // 提前获取模型ID
@@ -857,7 +838,7 @@ pub async fn regenerate_ai(
 
     // 获取网络配置
     let _config_feature_map = feature_config_state.config_feature_map.lock().await.clone();
-    let _task_handle = tokio::spawn(async move {
+    let regenerate_task_handle = tokio::spawn(async move {
         // 直接创建数据库连接（避免线程安全问题）
         let conversation_db = ConversationDatabase::new(&app_handle_clone).unwrap();
 
@@ -998,9 +979,7 @@ pub async fn regenerate_ai(
                 &chat_request,
                 &chat_config.chat_options,
                 conversation_id,
-                &cancel_token,
                 &conversation_db,
-                &tokens,
                 &window_clone,
                 &app_handle_clone,
                 false,                                  // regenerate 不需要生成标题
@@ -1021,9 +1000,7 @@ pub async fn regenerate_ai(
                 &chat_request,
                 &chat_config.chat_options,
                 conversation_id,
-                &cancel_token,
                 &conversation_db,
-                &tokens,
                 &window_clone,
                 &app_handle_clone,
                 false,                                  // regenerate 不需要生成标题
@@ -1040,6 +1017,9 @@ pub async fn regenerate_ai(
 
         Ok::<(), Error>(())
     });
+
+    // Store the task handle for proper cancellation
+    message_token_manager.store_task_handle(conversation_id, regenerate_task_handle).await;
 
     println!("================================ Regenerate AI End ===============================================");
 
