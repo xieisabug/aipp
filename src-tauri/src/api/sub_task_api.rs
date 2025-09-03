@@ -19,7 +19,8 @@ use crate::{
     },
     mcp::{
         detection::detect_and_process_mcp_calls_for_subtask,
-        mcp_db::{MCPDatabase, MCPToolCall},
+        mcp_db::MCPToolCall,
+        prompt::{collect_mcp_info_for_assistant, format_mcp_prompt_with_filters},
     },
     FeatureConfigState,
 };
@@ -958,13 +959,63 @@ async fn execute_mcp_loop(
 ) -> Result<McpLoopResult, String> {
     let max_loops = options.max_loops.unwrap_or(3);
     let debug = options.debug.unwrap_or(false);
+    let injection_mode = options.mcp_prompt_injection_mode.as_deref().unwrap_or("append");
     
     let mut debug_log = if debug { Some(Vec::new()) } else { None };
     let mut all_calls = Vec::new();
-    let mut current_messages = vec![
-        ("system".to_string(), system_prompt.to_string(), vec![]),
-        ("user".to_string(), user_prompt.to_string(), vec![]),
-    ];
+    
+    // Collect MCP info for prompt injection
+    let mcp_info = if injection_mode != "none" {
+        Some(collect_mcp_info_for_assistant(app_handle, assistant_id, None).await
+            .map_err(|e| format!("Failed to collect MCP info: {}", e))?)
+    } else {
+        None
+    };
+    
+    // Build initial messages with MCP prompt injection
+    let mut current_messages = vec![];
+    
+    match injection_mode {
+        "prepend" => {
+            // Add system prompt first
+            current_messages.push(("system".to_string(), system_prompt.to_string(), vec![]));
+            
+            // Inject MCP prompt after system prompt if MCP info is available
+            if let Some(ref mcp_info) = mcp_info {
+                let mcp_prompt = format_mcp_prompt_with_filters(
+                    "".to_string(),
+                    mcp_info,
+                    Some(&options.enabled_servers),
+                    options.enabled_tools.as_ref(),
+                ).await;
+                current_messages.push(("system".to_string(), mcp_prompt, vec![]));
+            }
+            
+            // Add user prompt
+            current_messages.push(("user".to_string(), user_prompt.to_string(), vec![]));
+        },
+        "append" => {
+            // Build enhanced system prompt by appending MCP prompt
+            let enhanced_system_prompt = if let Some(ref mcp_info) = mcp_info {
+                format_mcp_prompt_with_filters(
+                    system_prompt.to_string(),
+                    mcp_info,
+                    Some(&options.enabled_servers),
+                    options.enabled_tools.as_ref(),
+                ).await
+            } else {
+                system_prompt.to_string()
+            };
+            
+            current_messages.push(("system".to_string(), enhanced_system_prompt, vec![]));
+            current_messages.push(("user".to_string(), user_prompt.to_string(), vec![]));
+        },
+        _ => {
+            // Default behavior - no MCP prompt injection
+            current_messages.push(("system".to_string(), system_prompt.to_string(), vec![]));
+            current_messages.push(("user".to_string(), user_prompt.to_string(), vec![]));
+        }
+    }
     
     let mut loops_count = 0u32;
     let mut final_text = String::new();
@@ -973,6 +1024,14 @@ async fn execute_mcp_loop(
 
     if let Some(ref mut log) = debug_log {
         log.push(format!("开始 MCP 循环执行，最大循环数: {}", max_loops));
+        log.push(format!("MCP 提示词注入模式: {}", injection_mode));
+        if let Some(ref mcp_info) = mcp_info {
+            log.push(format!("可用 MCP 服务器数量: {}", mcp_info.enabled_servers.len()));
+            log.push(format!("限制的服务器: {:?}", options.enabled_servers));
+            if let Some(ref enabled_tools) = options.enabled_tools {
+                log.push(format!("限制的工具: {:?}", enabled_tools));
+            }
+        }
     }
 
     // 获取助手配置
@@ -1164,6 +1223,8 @@ async fn execute_mcp_loop(
         total_exec_time_ms: total_time,
         average_exec_time_ms: if all_calls.is_empty() { 0 } else { total_time / all_calls.len() as u64 },
     };
+
+    println!("[SubTask] MCP Logs: {:?}", debug_log);
 
     Ok(McpLoopResult {
         final_text,

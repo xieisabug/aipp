@@ -45,6 +45,15 @@ pub async fn format_mcp_prompt(
     assistant_prompt_result: String,
     mcp_info: &MCPInfoForAssistant,
 ) -> String {
+    format_mcp_prompt_with_filters(assistant_prompt_result, mcp_info, None, None).await
+}
+
+pub async fn format_mcp_prompt_with_filters(
+    assistant_prompt_result: String,
+    mcp_info: &MCPInfoForAssistant,
+    enabled_servers: Option<&Vec<String>>,
+    enabled_tools: Option<&std::collections::HashMap<String, Vec<String>>>,
+) -> String {
     let mcp_constraint_prompt: &str = r#"
 # MCP (Model Context Protocol) 工具使用规范
 
@@ -73,11 +82,28 @@ pub async fn format_mcp_prompt(
 "#;
 
     let mut tools_info = String::from("\n## 可用的 MCP 工具\n\n");
+    
     for server_details in &mcp_info.enabled_servers {
+        // Check if this server is in the enabled servers list
+        if let Some(enabled_server_names) = enabled_servers {
+            if !enabled_server_names.contains(&server_details.name) {
+                continue;
+            }
+        }
+
         tools_info.push_str(&format!("### 服务器: {}\n", server_details.name));
         tools_info.push_str("\n#### 可用工具:\n\n");
 
         for tool in &server_details.tools {
+            // Check if this tool is enabled for this server
+            if let Some(enabled_tools_map) = enabled_tools {
+                if let Some(allowed_tools) = enabled_tools_map.get(&server_details.name) {
+                    if !allowed_tools.contains(&tool.name) {
+                        continue;
+                    }
+                }
+            }
+
             tools_info.push_str(&format!("**{}** \n", tool.name));
             tools_info.push_str(&format!(" - description: {}\n", tool.description));
             tools_info.push_str(&format!(" - parameters: {}\n", tool.parameters));
