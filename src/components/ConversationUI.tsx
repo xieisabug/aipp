@@ -238,6 +238,7 @@ const ConversationUI = forwardRef<ConversationUIRef, ConversationUIProps>(({
         scrollContainerRef,
         handleScroll,
         smartScroll,
+        smartScrollForUserMessage,
     } = useScrollManagement();
 
     // 使用 useMemo 稳定 options 对象，避免频繁触发 useConversationEvents 内部的 useEffect
@@ -262,7 +263,10 @@ const ConversationUI = forwardRef<ConversationUIRef, ConversationUIProps>(({
             }
 
             // 每次消息更新时手动触发滚动
-            setTimeout(() => smartScroll(), 0);
+            // 如果是用户消息完成，将由useEffect中的逻辑处理特殊滚动
+            if (streamEvent.message_type !== "user" || !streamEvent.is_done) {
+                setTimeout(() => smartScroll(), 0);
+            }
         };
 
         return {
@@ -324,6 +328,28 @@ const ConversationUI = forwardRef<ConversationUIRef, ConversationUIProps>(({
         allDisplayMessages: combinedMessagesForGrouping,
         groupMergeMap 
     });
+
+    // 监听消息变化，检测用户消息发送并触发适当的滚动行为
+    const lastMessageRef = useRef<Message | null>(null);
+    useEffect(() => {
+        if (messages.length > 0) {
+            const lastMessage = messages[messages.length - 1];
+            const prevLastMessage = lastMessageRef.current;
+            
+            // 检测是否有新的用户消息
+            if (lastMessage && 
+                lastMessage.message_type === "user" && 
+                (!prevLastMessage || lastMessage.id !== prevLastMessage.id)) {
+                // 延迟触发滚动，确保DOM已更新
+                setTimeout(() => smartScrollForUserMessage(), 100);
+            } else if (lastMessage && lastMessage !== prevLastMessage) {
+                // 非用户消息，使用普通滚动
+                setTimeout(() => smartScroll(), 50);
+            }
+            
+            lastMessageRef.current = lastMessage;
+        }
+    }, [messages, smartScroll, smartScrollForUserMessage]);
 
     // 助手运行时API
     const { assistantRunApi } = useAssistantRuntime({
@@ -538,7 +564,7 @@ const ConversationUI = forwardRef<ConversationUIRef, ConversationUIProps>(({
                     assistants={assistants}
                     setSelectedAssistant={setSelectedAssistant}
                 />
-                <div className="flex-none h-[120px]"></div>
+                <div className="flex-none" style={{ height: 'calc(100vh - 300px)' }}></div>
                 <div ref={messagesEndRef} />
             </div>
             

@@ -123,6 +123,7 @@ const MessageItem = React.memo<MessageItemProps>(
         // 常规消息渲染
         return (
             <div
+                data-message-type={message.message_type}
                 className={`group relative py-4 px-5 rounded-2xl inline-block max-w-[65%] transition-all duration-200 bg-background text-foreground border border-border ${
                     isUserMessage ? "self-end" : "self-start"
                 }`}

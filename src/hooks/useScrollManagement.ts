@@ -5,6 +5,7 @@ export interface UseScrollManagementReturn {
     scrollContainerRef: React.RefObject<HTMLDivElement | null>;
     handleScroll: () => void;
     smartScroll: () => void;
+    smartScrollForUserMessage: () => void;
 }
 
 export function useScrollManagement(): UseScrollManagementReturn {
@@ -76,6 +77,69 @@ export function useScrollManagement(): UseScrollManagementReturn {
         }
     }, []); // 依赖项为空，函数是稳定的
 
+    // 专门为用户消息发送后的智能滚动函数
+    const smartScrollForUserMessage = useCallback(() => {
+        // 从 Ref 读取状态，这总是最新的值
+        if (isUserScrolledUpRef.current) {
+            return;
+        }
+
+        const container = scrollContainerRef.current;
+        if (!container) return;
+
+        // 清理之前的观察器
+        if (resizeObserverRef.current) {
+            resizeObserverRef.current.disconnect();
+        }
+
+        resizeObserverRef.current = new ResizeObserver(() => {
+            // 再次从 Ref 检查，确保万无一失
+            if (isUserScrolledUpRef.current || !scrollContainerRef.current) {
+                if (resizeObserverRef.current) {
+                    resizeObserverRef.current.disconnect();
+                }
+                return;
+            }
+
+            isAutoScrolling.current = true;
+            
+            // 获取容器的可视高度
+            const viewportHeight = scrollContainerRef.current.clientHeight;
+            const scrollHeight = scrollContainerRef.current.scrollHeight;
+            
+            // 找到最后一个用户消息元素
+            const messageElements = scrollContainerRef.current.querySelectorAll('[data-message-type="user"]');
+            const lastUserMessage = messageElements[messageElements.length - 1] as HTMLElement;
+            
+            if (lastUserMessage) {
+                // 计算将用户消息置于顶部的滚动位置
+                const messageOffsetTop = (lastUserMessage as any).offsetTop;
+                const paddingTop = parseInt(getComputedStyle(scrollContainerRef.current).paddingTop || '0');
+                const targetScrollTop = messageOffsetTop - paddingTop - 10; // 减去10px作为缓冲
+                
+                // 确保不会超出可滚动范围
+                const maxScrollTop = scrollHeight - viewportHeight;
+                scrollContainerRef.current.scrollTop = Math.min(targetScrollTop, maxScrollTop);
+            } else {
+                // 如果没有找到用户消息，回退到普通滚动
+                scrollContainerRef.current.scrollTop = scrollHeight;
+            }
+
+            if (resizeObserverRef.current) {
+                resizeObserverRef.current.disconnect();
+            }
+
+            setTimeout(() => {
+                isAutoScrolling.current = false;
+            }, 100);
+        });
+
+        const lastMessageElement = container.lastElementChild;
+        if (lastMessageElement) {
+            resizeObserverRef.current.observe(lastMessageElement);
+        }
+    }, []); // 依赖项为空，函数是稳定的
+
     // 组件卸载时清理资源
     useEffect(() => {
         return () => {
@@ -91,5 +155,6 @@ export function useScrollManagement(): UseScrollManagementReturn {
         scrollContainerRef,
         handleScroll,
         smartScroll,
+        smartScrollForUserMessage,
     };
 }
