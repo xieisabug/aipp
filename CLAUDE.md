@@ -20,7 +20,7 @@ AIPP (AI 助手平台) is a cross-platform desktop application built with Tauri 
 npm run build
 
 # Verify Rust backend changes
-cargo check --manifest-path src-tauri/Cargo.toml
+cargo build --manifest-path src-tauri/Cargo.toml
 
 # Build complete application
 npm run package
