@@ -407,6 +407,37 @@ export function useAssistantRuntime({
                 throw error;
             }
         },
+
+        runSubTaskWithMcpLoop: async function (code: string, taskPrompt: string, options: McpLoopOptions): Promise<SubTaskRunWithMcpResult> {
+            console.log("Running sub task with MCP loop:", code, "with prompt:", taskPrompt, "options:", options);
+            try {
+                const effectiveConversation = getEffectiveConversation();
+                const assistantId = effectiveConversation?.assistant_id || selectedAssistant;
+                const conversationIdNumber = effectiveConversation?.id ? +effectiveConversation.id : 0;
+
+                if (!assistantId) {
+                    throw new Error("No assistant selected for running sub task with MCP loop");
+                }
+
+                if (!conversationIdNumber) {
+                    throw new Error("No conversation context available for running sub task with MCP loop");
+                }
+
+                const result = await invoke<SubTaskRunWithMcpResult>("run_sub_task_with_mcp_loop", {
+                    code,
+                    taskPrompt,
+                    conversationId: conversationIdNumber,
+                    assistantId: +assistantId,
+                    options,
+                });
+
+                console.log("Sub task with MCP loop completed:", result);
+                return result;
+            } catch (error) {
+                console.error("Failed to run sub task with MCP loop:", error);
+                throw error;
+            }
+        },
     };
 
     return {

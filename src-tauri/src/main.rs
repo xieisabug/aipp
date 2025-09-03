@@ -61,7 +61,7 @@ use crate::api::sub_task_api::{
     cancel_sub_task_execution, cancel_sub_task_execution_for_ui, create_sub_task_execution, delete_sub_task_definition,
     get_sub_task_definition, get_sub_task_execution_detail, get_sub_task_execution_detail_for_ui,
     list_sub_task_definitions, list_sub_task_executions, register_sub_task_definition, 
-    run_sub_task_sync, sub_task_regist, update_sub_task_definition,
+    run_sub_task_sync, run_sub_task_with_mcp_loop, sub_task_regist, update_sub_task_definition,
 };
 use crate::artifacts::react_preview::{
     close_react_preview, create_react_preview, create_react_preview_for_artifact,
@@ -351,6 +351,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             execute_aipp_builtin_tool,
             register_sub_task_definition,
             run_sub_task_sync,
+            run_sub_task_with_mcp_loop,
             sub_task_regist,
             list_sub_task_definitions,
             get_sub_task_definition,

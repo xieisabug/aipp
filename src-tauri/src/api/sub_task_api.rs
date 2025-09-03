@@ -1,5 +1,6 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tauri::Emitter;
 
 use crate::{
@@ -16,10 +17,88 @@ use crate::{
         llm_db::LLMDatabase,
         sub_task_db::{SubTaskDatabase, SubTaskDefinition, SubTaskExecution, SubTaskExecutionSummary},
     },
+    mcp::{
+        mcp_db::{MCPDatabase, MCPToolCall},
+    },
     FeatureConfigState,
 };
 use genai::chat::{ChatRequest, ChatOptions};
 use tauri::State;
+
+// MCP 循环选项
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct McpLoopOptions {
+    // 允许哪些 server 的 name
+    pub enabled_servers: Vec<String>,
+
+    // 针对特定 server 限制工具（key=serverName, value=允许的 tool 名称列表）
+    pub enabled_tools: Option<HashMap<String, Vec<String>>>,
+
+    // 最大循环轮数（模型 ↔ 工具往返），默认 3
+    pub max_loops: Option<u32>,
+
+    // 单个工具执行超时（毫秒），默认 60000 ms
+    pub tool_timeout_ms: Option<u32>,
+
+    // mcp提示词的注入位置，默认 append
+    pub mcp_prompt_injection_mode: Option<String>, // 'append' | 'prepend'
+
+    // 遇到工具执行错误是否继续后续工具 默认false
+    pub continue_on_tool_error: Option<bool>,
+
+    // 如果循环达到 maxLoops 仍有调用请求，是否强制终止 默认true
+    pub hard_stop_on_max_loops: Option<bool>,
+
+    // 启用调试日志（供外层 UI 展示），默认false
+    pub debug: Option<bool>,
+}
+
+// MCP 循环结果
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct McpLoopResult {
+    // 注：最终留给上层业务消费的文本（可作为 parseSearchResults 的输入等）
+    pub final_text: String,
+
+    // 最后一轮模型的原始文本（含工具标签，便于调试或二次解析）
+    pub raw_model_output: String,
+
+    // 所有解析出的调用（按时间序）
+    pub calls: Vec<MCPToolCall>,
+
+    // 实际循环了多少轮
+    pub loops: u32,
+
+    // 是否因为达到 maxLoops 中止
+    pub reached_max_loops: bool,
+
+    // 中止/失败原因（如 'abort_by_interceptor' | 'hard_stop' | 'no_calls' 等）
+    pub abort_reason: Option<String>,
+
+    // 指标统计
+    pub metrics: McpLoopMetrics,
+
+    // 额外调试信息
+    pub debug_log: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct McpLoopMetrics {
+    pub total_calls: u32,
+    pub success_calls: u32,
+    pub failed_calls: u32,
+    pub total_exec_time_ms: u64,
+    pub average_exec_time_ms: u64,
+}
+
+// 扩展子任务运行结果，包含 MCP 执行信息
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SubTaskRunWithMcpResult {
+    pub success: bool,
+    pub content: Option<String>,
+    pub error: Option<String>,
+    pub execution_id: i64,
+    pub mcp_result: Option<McpLoopResult>,
+}
 
 // 事件定义
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -863,4 +942,501 @@ pub async fn cancel_sub_task_execution_for_ui(
     } else {
         Err("任务执行记录不存在".to_string())
     }
+}
+
+/// 核心 MCP 循环执行引擎
+async fn execute_mcp_loop(
+    app_handle: &tauri::AppHandle,
+    subtask_id: i64,
+    conversation_id: i64,
+    assistant_id: i64,
+    system_prompt: &str,
+    user_prompt: &str,
+    options: &McpLoopOptions,
+    config_map: &HashMap<String, HashMap<String, crate::db::system_db::FeatureConfig>>,
+) -> Result<McpLoopResult, String> {
+    let max_loops = options.max_loops.unwrap_or(3);
+    let debug = options.debug.unwrap_or(false);
+    
+    let mut debug_log = if debug { Some(Vec::new()) } else { None };
+    let mut all_calls = Vec::new();
+    let mut current_messages = vec![
+        ("system".to_string(), system_prompt.to_string(), vec![]),
+        ("user".to_string(), user_prompt.to_string(), vec![]),
+    ];
+    
+    let mut loops_count = 0u32;
+    let mut final_text = String::new();
+    let mut raw_model_output = String::new();
+    let loop_start_time = std::time::Instant::now();
+
+    if let Some(ref mut log) = debug_log {
+        log.push(format!("开始 MCP 循环执行，最大循环数: {}", max_loops));
+    }
+
+    // 获取助手配置
+    let assistant_detail = get_assistant(app_handle.clone(), assistant_id)
+        .map_err(|e| format!("Failed to get assistant: {}", e))?;
+
+    // 获取模型信息
+    let model_info = if assistant_detail.model.is_empty() {
+        return Err("Assistant has no model configured".to_string());
+    } else {
+        &assistant_detail.model[0]
+    };
+
+    // 获取 LLM 数据库连接
+    let llm_db = LLMDatabase::new(app_handle).map_err(|e| e.to_string())?;
+    let llm_model = llm_db
+        .get_llm_model_detail(&model_info.provider_id, &model_info.model_code)
+        .map_err(|e| {
+            format!(
+                "Failed to get LLM model (provider_id={}, code={}): {}",
+                model_info.provider_id, model_info.model_code, e
+            )
+        })?;
+
+    let model_name = &model_info.model_code;
+    let provider_configs = llm_db.get_llm_provider_config(model_info.provider_id)
+        .map_err(|e| format!("Failed to get provider config: {}", e))?;
+
+    // 构建客户端配置
+    let network_proxy = get_network_proxy_from_config(config_map);
+    let request_timeout = get_request_timeout_from_config(config_map);
+    let proxy_enabled = network_proxy.is_some();
+
+    let client = create_client_with_config(
+        &provider_configs,
+        model_name,
+        &llm_model.provider.api_type,
+        network_proxy.as_deref(),
+        proxy_enabled,
+        Some(request_timeout),
+    ).map_err(|e| format!("Failed to create AI client: {}", e))?;
+
+    // 构建聊天选项
+    let mut chat_options = ChatOptions::default();
+    for config in &assistant_detail.model_configs {
+        match config.name.as_str() {
+            "max_tokens" => {
+                if let Some(value) = &config.value {
+                    if let Ok(max_tokens) = value.parse::<u32>() {
+                        chat_options = chat_options.with_max_tokens(max_tokens);
+                    }
+                }
+            },
+            "temperature" => {
+                if let Some(value) = &config.value {
+                    if let Ok(temperature) = value.parse::<f64>() {
+                        chat_options = chat_options.with_temperature(temperature);
+                    }
+                }
+            },
+            "top_p" => {
+                if let Some(value) = &config.value {
+                    if let Ok(top_p) = value.parse::<f64>() {
+                        chat_options = chat_options.with_top_p(top_p);
+                    }
+                }
+            },
+            _ => {}
+        }
+    }
+
+    // MCP 工具循环
+    loop {
+        if loops_count >= max_loops {
+            if let Some(ref mut log) = debug_log {
+                log.push(format!("达到最大循环数: {}", max_loops));
+            }
+            break;
+        }
+
+        loops_count += 1;
+        
+        if let Some(ref mut log) = debug_log {
+            log.push(format!("开始第 {} 轮循环", loops_count));
+        }
+
+        // 执行 AI 调用
+        let chat_messages = build_chat_messages(&current_messages);
+        let chat_request = ChatRequest::new(chat_messages);
+
+        let ai_response = match client.exec_chat(model_name, chat_request, Some(&chat_options)).await {
+            Ok(response) => {
+                let content = if response.content.is_empty() {
+                    String::new()
+                } else {
+                    response.content.into_iter()
+                        .map(|c| match c {
+                            genai::chat::MessageContent::Text(text) => text,
+                            _ => String::new(),
+                        })
+                        .collect::<Vec<_>>()
+                        .join("")
+                };
+                content
+            },
+            Err(e) => {
+                return Err(format!("AI execution failed: {}", e));
+            }
+        };
+
+        raw_model_output = ai_response.clone();
+        final_text = ai_response.clone();
+
+        if let Some(ref mut log) = debug_log {
+            log.push(format!("AI 响应: {}", ai_response));
+        }
+
+        // 检测 MCP 工具调用
+        let mcp_calls = detect_mcp_tool_calls_in_content(&ai_response, &options.enabled_servers, &options.enabled_tools);
+        
+        if mcp_calls.is_empty() {
+            if let Some(ref mut log) = debug_log {
+                log.push("没有检测到 MCP 工具调用，结束循环".to_string());
+            }
+            break;
+        }
+
+        if let Some(ref mut log) = debug_log {
+            log.push(format!("检测到 {} 个 MCP 工具调用", mcp_calls.len()));
+        }
+
+        // 执行 MCP 工具调用
+        let mut tool_results = Vec::new();
+        for (server_name, tool_name, parameters) in mcp_calls {
+            if let Some(ref mut log) = debug_log {
+                log.push(format!("执行工具: {} / {}", server_name, tool_name));
+            }
+
+            // 查找服务器
+            let mcp_db = MCPDatabase::new(app_handle).map_err(|e| e.to_string())?;
+            let servers = mcp_db.get_mcp_servers().map_err(|e| e.to_string())?;
+            let server_opt = servers.iter().find(|s| s.name == server_name && s.is_enabled);
+
+            if let Some(server) = server_opt {
+                // 创建工具调用记录
+                let tool_call = mcp_db.create_mcp_tool_call_for_subtask(
+                    conversation_id,
+                    subtask_id,
+                    server.id,
+                    &server_name,
+                    &tool_name,
+                    &parameters,
+                    None,
+                ).map_err(|e| e.to_string())?;
+
+                all_calls.push(tool_call.clone());
+
+                // 执行工具调用
+                let execution_start = std::time::Instant::now();
+                let tool_result = execute_tool_call_direct(app_handle, server, &tool_name, &parameters).await;
+                let _execution_time = execution_start.elapsed().as_millis() as u64;
+
+                match tool_result {
+                    Ok(result) => {
+                        if let Some(ref mut log) = debug_log {
+                            log.push("工具执行成功".to_string());
+                        }
+                        
+                        // 更新工具调用状态
+                        let _ = mcp_db.update_mcp_tool_call_status(
+                            tool_call.id,
+                            "success",
+                            Some(&result),
+                            None,
+                        );
+
+                        tool_results.push(format!(
+                            "Tool: {}\nServer: {}\nParameters: {}\nResult:\n{}",
+                            tool_name, server_name, parameters, result
+                        ));
+                    },
+                    Err(error) => {
+                        if let Some(ref mut log) = debug_log {
+                            log.push(format!("工具执行失败: {}", error));
+                        }
+
+                        // 更新工具调用状态
+                        let _ = mcp_db.update_mcp_tool_call_status(
+                            tool_call.id,
+                            "failed",
+                            None,
+                            Some(&error),
+                        );
+
+                        if !options.continue_on_tool_error.unwrap_or(false) {
+                            return Err(format!("Tool execution failed: {}", error));
+                        }
+
+                        tool_results.push(format!(
+                            "Tool: {}\nServer: {}\nParameters: {}\nError: {}",
+                            tool_name, server_name, parameters, error
+                        ));
+                    }
+                }
+            } else {
+                let error_msg = format!("Server '{}' not found or disabled", server_name);
+                if let Some(ref mut log) = debug_log {
+                    log.push(error_msg.clone());
+                }
+                
+                if !options.continue_on_tool_error.unwrap_or(false) {
+                    return Err(error_msg);
+                }
+            }
+        }
+
+        // 将工具结果添加到对话历史
+        if !tool_results.is_empty() {
+            current_messages.push((
+                "user".to_string(),
+                format!("Tool execution results:\n\n{}", tool_results.join("\n\n")),
+                vec![]
+            ));
+        }
+    }
+
+    let total_time = loop_start_time.elapsed().as_millis() as u64;
+    let success_calls = all_calls.iter().filter(|c| c.status == "success").count() as u32;
+    let failed_calls = all_calls.iter().filter(|c| c.status == "failed").count() as u32;
+    
+    let metrics = McpLoopMetrics {
+        total_calls: all_calls.len() as u32,
+        success_calls,
+        failed_calls,
+        total_exec_time_ms: total_time,
+        average_exec_time_ms: if all_calls.is_empty() { 0 } else { total_time / all_calls.len() as u64 },
+    };
+
+    Ok(McpLoopResult {
+        final_text,
+        raw_model_output,
+        calls: all_calls,
+        loops: loops_count,
+        reached_max_loops: loops_count >= max_loops,
+        abort_reason: None,
+        metrics,
+        debug_log,
+    })
+}
+
+/// 检测内容中的 MCP 工具调用
+fn detect_mcp_tool_calls_in_content(
+    content: &str,
+    enabled_servers: &[String],
+    enabled_tools: &Option<HashMap<String, Vec<String>>>,
+) -> Vec<(String, String, String)> {
+    let mcp_regex = regex::Regex::new(r"<mcp_tool_call>\s*<server_name>([^<]*)</server_name>\s*<tool_name>([^<]*)</tool_name>\s*<parameters>([\s\S]*?)</parameters>\s*</mcp_tool_call>").unwrap();
+    
+    let mut calls = Vec::new();
+    for cap in mcp_regex.captures_iter(content) {
+        let server_name = cap[1].trim().to_string();
+        let tool_name = cap[2].trim().to_string();
+        let parameters = cap[3].trim().to_string();
+
+        // 检查服务器是否启用
+        if !enabled_servers.contains(&server_name) {
+            continue;
+        }
+
+        // 检查工具是否启用
+        if let Some(ref tools_map) = enabled_tools {
+            if let Some(allowed_tools) = tools_map.get(&server_name) {
+                if !allowed_tools.contains(&tool_name) {
+                    continue;
+                }
+            }
+        }
+
+        calls.push((server_name, tool_name, parameters));
+    }
+
+    calls
+}
+
+/// 直接执行工具调用 (简化版本，避免循环依赖)
+async fn execute_tool_call_direct(
+    app_handle: &tauri::AppHandle,
+    server: &crate::mcp::mcp_db::MCPServer,
+    tool_name: &str,
+    parameters: &str,
+) -> Result<String, String> {
+    match server.transport_type.as_str() {
+        "stdio" => {
+            if let Some(cmd) = &server.command {
+                if crate::mcp::builtin_mcp::is_builtin_mcp_call(cmd) {
+                    execute_builtin_tool_direct(app_handle, server, tool_name, parameters).await
+                } else {
+                    execute_stdio_tool_direct(app_handle, server, tool_name, parameters).await
+                }
+            } else {
+                execute_stdio_tool_direct(app_handle, server, tool_name, parameters).await
+            }
+        },
+        "builtin" => execute_builtin_tool_direct(app_handle, server, tool_name, parameters).await,
+        _ => Err(format!("不支持的传输类型: {}", server.transport_type)),
+    }
+}
+
+/// 简化的内置工具执行
+async fn execute_builtin_tool_direct(
+    _app_handle: &tauri::AppHandle,
+    _server: &crate::mcp::mcp_db::MCPServer,
+    tool_name: &str,
+    _parameters: &str,
+) -> Result<String, String> {
+    match tool_name {
+        "search" => {
+            // 简化的搜索实现 - 返回占位符结果
+            Ok("Search functionality is not fully integrated in MCP loop mode yet. Please use regular conversation for search tasks.".to_string())
+        }
+        "fetch_url" => {
+            // 简化的URL获取实现 - 返回占位符结果
+            Ok("URL fetch functionality is not fully integrated in MCP loop mode yet. Please use regular conversation for URL fetching.".to_string())
+        }
+        _ => Err(format!("Unknown builtin tool: {}", tool_name))
+    }
+}
+
+/// 简化的 stdio 工具执行
+async fn execute_stdio_tool_direct(
+    _app_handle: &tauri::AppHandle,
+    _server: &crate::mcp::mcp_db::MCPServer,
+    _tool_name: &str,
+    _parameters: &str,
+) -> Result<String, String> {
+    // 暂时返回占位符，完整实现需要 stdio 通信
+    Err("Stdio tool execution not implemented in MCP loop".to_string())
+}
+
+#[tauri::command]
+pub async fn run_sub_task_with_mcp_loop(
+    app_handle: tauri::AppHandle,
+    feature_config_state: State<'_, FeatureConfigState>,
+    code: String,
+    task_prompt: String,
+    conversation_id: i64,
+    assistant_id: i64,
+    options: McpLoopOptions,
+) -> Result<SubTaskRunWithMcpResult, String> {
+    // 获取任务定义
+    let sub_task_db = SubTaskDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+
+    let task_definition = sub_task_db
+        .find_definition_by_code(&code)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Sub task '{}' not found", code))?;
+
+    // 检查任务是否启用
+    if !task_definition.is_enabled {
+        return Err("Sub task is disabled".to_string());
+    }
+
+    // 验证父对话是否存在
+    let conv_db = ConversationDatabase::new(&app_handle).map_err(|e| e.to_string())?;
+    let conv_repo = conv_db.conversation_repo().map_err(|e| e.to_string())?;
+    
+    if conv_repo.read(conversation_id).map_err(|e| e.to_string())?.is_none() {
+        return Err("Conversation not found".to_string());
+    }
+
+    // 获取特征配置
+    let config_feature_map = feature_config_state.config_feature_map.lock().await;
+    let config_map = config_feature_map.clone();
+    drop(config_feature_map);
+
+    // 创建执行记录
+    let execution = SubTaskExecution {
+        id: 0,
+        task_definition_id: task_definition.id,
+        task_code: code.clone(),
+        task_name: task_definition.name.clone(),
+        task_prompt: task_prompt.clone(),
+        parent_conversation_id: conversation_id,
+        parent_message_id: None, // MCP loop context
+        status: "pending".to_string(),
+        result_content: None,
+        error_message: None,
+        llm_model_id: None,
+        llm_model_name: None,
+        token_count: 0,
+        input_token_count: 0,
+        output_token_count: 0,
+        started_time: None,
+        finished_time: None,
+        created_time: Utc::now(),
+    };
+
+    let created_execution = sub_task_db.create_sub_task_execution(&execution).map_err(|e| e.to_string())?;
+    let execution_id = created_execution.id;
+
+    // 执行 MCP 循环
+    let started_time = Utc::now();
+    let _ = sub_task_db.update_execution_status(execution_id, "running", Some(started_time));
+
+    // 发送状态更新事件
+    let mut updated_execution = sub_task_db.read_sub_task_execution(execution_id).map_err(|e| e.to_string())?.unwrap();
+    updated_execution.status = "running".to_string();
+    updated_execution.started_time = Some(started_time);
+    emit_sub_task_status_update(&app_handle, &updated_execution).await;
+
+    let mcp_result = execute_mcp_loop(
+        &app_handle,
+        execution_id,
+        conversation_id,
+        assistant_id,
+        &task_definition.system_prompt,
+        &task_prompt,
+        &options,
+        &config_map,
+    ).await;
+
+    let finished_time = Utc::now();
+    let sub_task_result = match mcp_result {
+        Ok(mcp_loop_result) => {
+            let _ = sub_task_db.update_execution_result(
+                execution_id,
+                "success",
+                Some(&mcp_loop_result.final_text),
+                None,
+                Some((0, 0, 0)), // Token stats not tracked for MCP loops yet
+                Some(finished_time),
+            );
+            
+            SubTaskRunWithMcpResult {
+                success: true,
+                content: Some(mcp_loop_result.final_text.clone()),
+                error: None,
+                execution_id,
+                mcp_result: Some(mcp_loop_result),
+            }
+        }
+        Err(error) => {
+            let _ = sub_task_db.update_execution_result(
+                execution_id,
+                "failed",
+                None,
+                Some(&error),
+                None,
+                Some(finished_time),
+            );
+            
+            SubTaskRunWithMcpResult {
+                success: false,
+                content: None,
+                error: Some(error),
+                execution_id,
+                mcp_result: None,
+            }
+        }
+    };
+
+    // 发送完成事件
+    if let Ok(Some(final_execution)) = sub_task_db.read_sub_task_execution(execution_id) {
+        emit_sub_task_status_update(&app_handle, &final_execution).await;
+    }
+
+    Ok(sub_task_result)
 }

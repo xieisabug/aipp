@@ -69,6 +69,48 @@ interface SubTaskRunResult {
     executionId: number;
 }
 
+// MCP 循环选项
+interface McpLoopOptions {
+    enabledServers: string[];
+    enabledTools?: Record<string, string[]>;
+    maxLoops?: number;
+    toolTimeoutMs?: number;
+    mcpPromptInjectionMode?: "append" | "prepend";
+    continueOnToolError?: boolean;
+    hardStopOnMaxLoops?: boolean;
+    debug?: boolean;
+}
+
+// MCP 循环指标
+interface McpLoopMetrics {
+    totalCalls: number;
+    successCalls: number;
+    failedCalls: number;
+    totalExecTimeMs: number;
+    averageExecTimeMs: number;
+}
+
+// MCP 循环结果
+interface McpLoopResult {
+    finalText: string;
+    rawModelOutput: string;
+    calls: McpToolCall[];
+    loops: number;
+    reachedMaxLoops: boolean;
+    abortReason?: string;
+    metrics: McpLoopMetrics;
+    debugLog?: string[];
+}
+
+// 扩展的子任务运行结果，包含 MCP 执行信息
+interface SubTaskRunWithMcpResult {
+    success: boolean;
+    content?: string;
+    error?: string;
+    executionId: number;
+    mcpResult?: McpLoopResult;
+}
+
 interface SubTaskRegistOptions {
     code: string;
     name: string;
@@ -125,6 +167,7 @@ interface AssistantRunApi {
     
     createConversation(systemPrompt: string, userPrompt: string): Promise<CreateConversationResponse>;
     runSubTask(code: string, taskPrompt: string): Promise<SubTaskRunResult>;
+    runSubTaskWithMcpLoop(code: string, taskPrompt: string, options: McpLoopOptions): Promise<SubTaskRunWithMcpResult>;
 }
 
 interface AiResponse {

@@ -55,6 +55,7 @@ pub struct MCPToolCall {
     pub id: i64,
     pub conversation_id: i64,
     pub message_id: Option<i64>,
+    pub subtask_id: Option<i64>,  // 新增：关联的子任务执行 ID
     pub server_id: i64,
     pub server_name: String,
     pub tool_name: String,
@@ -179,7 +180,7 @@ impl MCPDatabase {
 
     /// Migrate existing mcp_tool_call table to add new columns
     fn migrate_mcp_tool_call_table(&self) -> rusqlite::Result<()> {
-        // Check if llm_call_id column exists
+        // Check if columns exist
         let columns_result = self.conn.prepare("PRAGMA table_info(mcp_tool_call)");
 
         match columns_result {
@@ -190,6 +191,7 @@ impl MCPDatabase {
 
                 let mut has_llm_call_id = false;
                 let mut has_assistant_message_id = false;
+                let mut has_subtask_id = false;
 
                 for column in column_info {
                     match column {
@@ -198,6 +200,8 @@ impl MCPDatabase {
                                 has_llm_call_id = true;
                             } else if name == "assistant_message_id" {
                                 has_assistant_message_id = true;
+                            } else if name == "subtask_id" {
+                                has_subtask_id = true;
                             }
                         }
                         Err(_) => continue,
@@ -212,6 +216,12 @@ impl MCPDatabase {
                 if !has_assistant_message_id {
                     self.conn.execute(
                         "ALTER TABLE mcp_tool_call ADD COLUMN assistant_message_id INTEGER",
+                        [],
+                    )?;
+                }
+                if !has_subtask_id {
+                    self.conn.execute(
+                        "ALTER TABLE mcp_tool_call ADD COLUMN subtask_id INTEGER",
                         [],
                     )?;
                 }
@@ -647,8 +657,8 @@ impl MCPDatabase {
         assistant_message_id: Option<i64>,
     ) -> rusqlite::Result<MCPToolCall> {
         let mut stmt = self.conn.prepare(
-            "INSERT INTO mcp_tool_call (conversation_id, message_id, server_id, server_name, tool_name, parameters, llm_call_id, assistant_message_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO mcp_tool_call (conversation_id, message_id, server_id, server_name, tool_name, parameters, llm_call_id, assistant_message_id, subtask_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )?;
 
         stmt.execute(params![
@@ -659,7 +669,42 @@ impl MCPDatabase {
             tool_name,
             parameters,
             llm_call_id,
-            assistant_message_id
+            assistant_message_id,
+            None::<i64> // Default subtask_id to None
+        ])?;
+
+        let id = self.conn.last_insert_rowid();
+
+        // Return the created tool call
+        self.get_mcp_tool_call(id)
+    }
+
+    /// Create MCP tool call specifically for subtask execution
+    pub fn create_mcp_tool_call_for_subtask(
+        &self,
+        conversation_id: i64,
+        subtask_id: i64,
+        server_id: i64,
+        server_name: &str,
+        tool_name: &str,
+        parameters: &str,
+        llm_call_id: Option<&str>,
+    ) -> rusqlite::Result<MCPToolCall> {
+        let mut stmt = self.conn.prepare(
+            "INSERT INTO mcp_tool_call (conversation_id, message_id, server_id, server_name, tool_name, parameters, llm_call_id, assistant_message_id, subtask_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )?;
+
+        stmt.execute(params![
+            conversation_id,
+            None::<i64>, // No specific message for subtask calls
+            server_id,
+            server_name,
+            tool_name,
+            parameters,
+            llm_call_id,
+            None::<i64>, // No assistant message for subtask calls
+            subtask_id
         ])?;
 
         let id = self.conn.last_insert_rowid();
@@ -671,7 +716,7 @@ impl MCPDatabase {
     pub fn get_mcp_tool_call(&self, id: i64) -> rusqlite::Result<MCPToolCall> {
         let mut stmt = self.conn.prepare(
             "SELECT id, conversation_id, message_id, server_id, server_name, tool_name, 
-             parameters, status, result, error, created_time, started_time, finished_time, llm_call_id, assistant_message_id
+             parameters, status, result, error, created_time, started_time, finished_time, llm_call_id, assistant_message_id, subtask_id
              FROM mcp_tool_call WHERE id = ?"
         )?;
 
@@ -680,6 +725,7 @@ impl MCPDatabase {
                 id: row.get(0)?,
                 conversation_id: row.get(1)?,
                 message_id: row.get(2)?,
+                subtask_id: row.get(15)?, // New field
                 server_id: row.get(3)?,
                 server_name: row.get(4)?,
                 tool_name: row.get(5)?,
@@ -746,7 +792,7 @@ impl MCPDatabase {
     ) -> rusqlite::Result<Vec<MCPToolCall>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, conversation_id, message_id, server_id, server_name, tool_name, 
-             parameters, status, result, error, created_time, started_time, finished_time, llm_call_id, assistant_message_id
+             parameters, status, result, error, created_time, started_time, finished_time, llm_call_id, assistant_message_id, subtask_id
              FROM mcp_tool_call WHERE conversation_id = ? ORDER BY created_time DESC"
         )?;
 
@@ -755,6 +801,7 @@ impl MCPDatabase {
                 id: row.get(0)?,
                 conversation_id: row.get(1)?,
                 message_id: row.get(2)?,
+                subtask_id: row.get(15)?,  // New field
                 server_id: row.get(3)?,
                 server_name: row.get(4)?,
                 tool_name: row.get(5)?,
