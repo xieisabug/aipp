@@ -18,6 +18,7 @@ use crate::{
         sub_task_db::{SubTaskDatabase, SubTaskDefinition, SubTaskExecution, SubTaskExecutionSummary},
     },
     mcp::{
+        detection::detect_and_process_mcp_calls_for_subtask,
         mcp_db::{MCPDatabase, MCPToolCall},
     },
     FeatureConfigState,
@@ -1089,10 +1090,17 @@ async fn execute_mcp_loop(
             log.push(format!("AI 响应: {}", ai_response));
         }
 
-        // 检测 MCP 工具调用
-        let mcp_calls = detect_mcp_tool_calls_in_content(&ai_response, &options.enabled_servers, &options.enabled_tools);
+        // 检测并执行 MCP 工具调用（最大化复用现有逻辑）
+        let executed_calls = detect_and_process_mcp_calls_for_subtask(
+            app_handle,
+            conversation_id,
+            subtask_id,
+            &ai_response,
+            &options.enabled_servers,
+            &options.enabled_tools,
+        ).await.map_err(|e| format!("MCP call detection failed: {}", e))?;
         
-        if mcp_calls.is_empty() {
+        if executed_calls.is_empty() {
             if let Some(ref mut log) = debug_log {
                 log.push("没有检测到 MCP 工具调用，结束循环".to_string());
             }
@@ -1100,92 +1108,39 @@ async fn execute_mcp_loop(
         }
 
         if let Some(ref mut log) = debug_log {
-            log.push(format!("检测到 {} 个 MCP 工具调用", mcp_calls.len()));
+            log.push(format!("检测并执行了 {} 个 MCP 工具调用", executed_calls.len()));
         }
 
-        // 执行 MCP 工具调用
+        // 将执行的调用添加到记录中
+        all_calls.extend(executed_calls.clone());
+
+        // 构建工具结果文本
         let mut tool_results = Vec::new();
-        for (server_name, tool_name, parameters) in mcp_calls {
+        for call in executed_calls {
             if let Some(ref mut log) = debug_log {
-                log.push(format!("执行工具: {} / {}", server_name, tool_name));
+                log.push(format!("工具调用: {} / {} - 状态: {}", call.server_name, call.tool_name, call.status));
             }
 
-            // 查找服务器
-            let mcp_db = MCPDatabase::new(app_handle).map_err(|e| e.to_string())?;
-            let servers = mcp_db.get_mcp_servers().map_err(|e| e.to_string())?;
-            let server_opt = servers.iter().find(|s| s.name == server_name && s.is_enabled);
-
-            if let Some(server) = server_opt {
-                // 创建工具调用记录
-                let tool_call = mcp_db.create_mcp_tool_call_for_subtask(
-                    conversation_id,
-                    subtask_id,
-                    server.id,
-                    &server_name,
-                    &tool_name,
-                    &parameters,
-                    None,
-                ).map_err(|e| e.to_string())?;
-
-                all_calls.push(tool_call.clone());
-
-                // 执行工具调用
-                let execution_start = std::time::Instant::now();
-                let tool_result = execute_tool_call_direct(app_handle, server, &tool_name, &parameters).await;
-                let _execution_time = execution_start.elapsed().as_millis() as u64;
-
-                match tool_result {
-                    Ok(result) => {
-                        if let Some(ref mut log) = debug_log {
-                            log.push("工具执行成功".to_string());
-                        }
-                        
-                        // 更新工具调用状态
-                        let _ = mcp_db.update_mcp_tool_call_status(
-                            tool_call.id,
-                            "success",
-                            Some(&result),
-                            None,
-                        );
-
-                        tool_results.push(format!(
-                            "Tool: {}\nServer: {}\nParameters: {}\nResult:\n{}",
-                            tool_name, server_name, parameters, result
-                        ));
-                    },
-                    Err(error) => {
-                        if let Some(ref mut log) = debug_log {
-                            log.push(format!("工具执行失败: {}", error));
-                        }
-
-                        // 更新工具调用状态
-                        let _ = mcp_db.update_mcp_tool_call_status(
-                            tool_call.id,
-                            "failed",
-                            None,
-                            Some(&error),
-                        );
-
-                        if !options.continue_on_tool_error.unwrap_or(false) {
-                            return Err(format!("Tool execution failed: {}", error));
-                        }
-
-                        tool_results.push(format!(
-                            "Tool: {}\nServer: {}\nParameters: {}\nError: {}",
-                            tool_name, server_name, parameters, error
-                        ));
-                    }
-                }
+            let result_text = if call.status == "success" {
+                format!(
+                    "Tool: {}\nServer: {}\nParameters: {}\nResult:\n{}",
+                    call.tool_name, call.server_name, call.parameters, 
+                    call.result.as_deref().unwrap_or("No result")
+                )
             } else {
-                let error_msg = format!("Server '{}' not found or disabled", server_name);
-                if let Some(ref mut log) = debug_log {
-                    log.push(error_msg.clone());
-                }
+                let error_msg = call.error.as_deref().unwrap_or("Unknown error");
                 
                 if !options.continue_on_tool_error.unwrap_or(false) {
-                    return Err(error_msg);
+                    return Err(format!("Tool execution failed: {}", error_msg));
                 }
-            }
+
+                format!(
+                    "Tool: {}\nServer: {}\nParameters: {}\nError: {}",
+                    call.tool_name, call.server_name, call.parameters, error_msg
+                )
+            };
+            
+            tool_results.push(result_text);
         }
 
         // 将工具结果添加到对话历史
@@ -1220,95 +1175,6 @@ async fn execute_mcp_loop(
         metrics,
         debug_log,
     })
-}
-
-/// 检测内容中的 MCP 工具调用
-fn detect_mcp_tool_calls_in_content(
-    content: &str,
-    enabled_servers: &[String],
-    enabled_tools: &Option<HashMap<String, Vec<String>>>,
-) -> Vec<(String, String, String)> {
-    let mcp_regex = regex::Regex::new(r"<mcp_tool_call>\s*<server_name>([^<]*)</server_name>\s*<tool_name>([^<]*)</tool_name>\s*<parameters>([\s\S]*?)</parameters>\s*</mcp_tool_call>").unwrap();
-    
-    let mut calls = Vec::new();
-    for cap in mcp_regex.captures_iter(content) {
-        let server_name = cap[1].trim().to_string();
-        let tool_name = cap[2].trim().to_string();
-        let parameters = cap[3].trim().to_string();
-
-        // 检查服务器是否启用
-        if !enabled_servers.contains(&server_name) {
-            continue;
-        }
-
-        // 检查工具是否启用
-        if let Some(ref tools_map) = enabled_tools {
-            if let Some(allowed_tools) = tools_map.get(&server_name) {
-                if !allowed_tools.contains(&tool_name) {
-                    continue;
-                }
-            }
-        }
-
-        calls.push((server_name, tool_name, parameters));
-    }
-
-    calls
-}
-
-/// 直接执行工具调用 (简化版本，避免循环依赖)
-async fn execute_tool_call_direct(
-    app_handle: &tauri::AppHandle,
-    server: &crate::mcp::mcp_db::MCPServer,
-    tool_name: &str,
-    parameters: &str,
-) -> Result<String, String> {
-    match server.transport_type.as_str() {
-        "stdio" => {
-            if let Some(cmd) = &server.command {
-                if crate::mcp::builtin_mcp::is_builtin_mcp_call(cmd) {
-                    execute_builtin_tool_direct(app_handle, server, tool_name, parameters).await
-                } else {
-                    execute_stdio_tool_direct(app_handle, server, tool_name, parameters).await
-                }
-            } else {
-                execute_stdio_tool_direct(app_handle, server, tool_name, parameters).await
-            }
-        },
-        "builtin" => execute_builtin_tool_direct(app_handle, server, tool_name, parameters).await,
-        _ => Err(format!("不支持的传输类型: {}", server.transport_type)),
-    }
-}
-
-/// 简化的内置工具执行
-async fn execute_builtin_tool_direct(
-    _app_handle: &tauri::AppHandle,
-    _server: &crate::mcp::mcp_db::MCPServer,
-    tool_name: &str,
-    _parameters: &str,
-) -> Result<String, String> {
-    match tool_name {
-        "search" => {
-            // 简化的搜索实现 - 返回占位符结果
-            Ok("Search functionality is not fully integrated in MCP loop mode yet. Please use regular conversation for search tasks.".to_string())
-        }
-        "fetch_url" => {
-            // 简化的URL获取实现 - 返回占位符结果
-            Ok("URL fetch functionality is not fully integrated in MCP loop mode yet. Please use regular conversation for URL fetching.".to_string())
-        }
-        _ => Err(format!("Unknown builtin tool: {}", tool_name))
-    }
-}
-
-/// 简化的 stdio 工具执行
-async fn execute_stdio_tool_direct(
-    _app_handle: &tauri::AppHandle,
-    _server: &crate::mcp::mcp_db::MCPServer,
-    _tool_name: &str,
-    _parameters: &str,
-) -> Result<String, String> {
-    // 暂时返回占位符，完整实现需要 stdio 通信
-    Err("Stdio tool execution not implemented in MCP loop".to_string())
 }
 
 #[tauri::command]

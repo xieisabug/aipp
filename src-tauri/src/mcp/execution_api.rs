@@ -442,8 +442,8 @@ async fn trigger_conversation_continuation(
     Ok(())
 }
 
-// 统一的工具执行函数，根据传输类型选择相应的执行策略
-async fn execute_tool_by_transport(
+// 统一的工具执行函数，根据传输类型选择相应的执行策略（公开供子任务复用）
+pub async fn execute_tool_by_transport(
     app_handle: &tauri::AppHandle,
     server: &MCPServer,
     tool_name: &str,
