@@ -1,4 +1,4 @@
-use crate::api::ai::events::ERROR_NOTIFICATION_EVENT;
+use crate::api::ai::events::{ConversationEvent, ERROR_NOTIFICATION_EVENT};
 use tauri::{Emitter, Manager, Window};
 
 /// 检查chat和ask窗口是否有任何一个聚焦
@@ -55,5 +55,25 @@ pub fn send_error_to_appropriate_window(window: &Window, error_message: &str) {
     } else {
         // 回退到全局广播（保险起见）
         let _ = window.emit(ERROR_NOTIFICATION_EVENT, error_message);
+    }
+}
+
+/// 向对话相关窗口发送对话事件
+/// 同时向 ask 和 chat_ui 窗口发送对话事件，确保所有相关界面都能收到通知
+pub fn send_conversation_event_to_chat_windows(
+    app_handle: &tauri::AppHandle,
+    conversation_id: i64,
+    event: ConversationEvent,
+) {
+    let event_name = format!("conversation_event_{}", conversation_id);
+    
+    // 发送给 Ask 窗口
+    if let Some(ask_window) = app_handle.get_webview_window("ask") {
+        let _ = ask_window.emit(&event_name, &event);
+    }
+    
+    // 发送给 Chat UI 窗口
+    if let Some(chat_ui_window) = app_handle.get_webview_window("chat_ui") {
+        let _ = chat_ui_window.emit(&event_name, &event);
     }
 }

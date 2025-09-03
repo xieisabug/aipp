@@ -6,6 +6,7 @@ import {
     MessageUpdateEvent,
     GroupMergeEvent,
     MCPToolCallUpdateEvent,
+    ConversationCancelEvent,
 } from "../data/Conversation";
 
 export interface UseConversationEventsOptions {
@@ -14,6 +15,7 @@ export interface UseConversationEventsOptions {
     onMessageUpdate?: (streamEvent: StreamEvent) => void;
     onGroupMerge?: (groupMergeData: GroupMergeEvent) => void;
     onMCPToolCallUpdate?: (mcpUpdateData: MCPToolCallUpdateEvent) => void;
+    onConversationCancel?: (cancelData: ConversationCancelEvent) => void;
     onAiResponseStart?: () => void;
     onAiResponseComplete?: () => void;
     onError?: (errorMessage: string) => void;
@@ -285,6 +287,21 @@ export function useConversationEvents(options: UseConversationEventsOptions) {
 
                 // 调用外部的MCP状态更新处理函数
                 callbacksRef.current.onMCPToolCallUpdate?.(mcpUpdateData);
+            } else if (conversationEvent.type === "conversation_cancel") {
+                // 处理对话取消事件
+                const cancelData = conversationEvent.data as ConversationCancelEvent;
+                console.log("Received conversation_cancel event:", cancelData);
+
+                // 立即清理所有流式状态，停止显示闪亮边框
+                setPendingUserMessageId(null);
+                setStreamingAssistantMessageIds(new Set());
+                setActiveMcpCallIds(new Set());
+
+                // 调用 AI 响应完成回调，确保状态重置
+                callbacksRef.current.onAiResponseComplete?.();
+                
+                // 调用外部的取消处理函数
+                callbacksRef.current.onConversationCancel?.(cancelData);
             }
         },
         [], // 不再依赖 options，因为我们使用 callbacksRef

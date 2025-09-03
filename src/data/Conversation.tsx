@@ -83,6 +83,11 @@ export interface MCPToolCallUpdateEvent {
     finished_time?: Date;
 }
 
+export interface ConversationCancelEvent {
+    conversation_id: number;
+    cancelled_at: Date;
+}
+
 // 消息类型枚举
 export type MessageType = 'system' | 'user' | 'assistant' | 'reasoning' | 'response' | 'error';
 

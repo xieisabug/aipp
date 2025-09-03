@@ -39,5 +39,11 @@ pub struct MCPToolCallUpdateEvent {
     pub finished_time: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationCancelEvent {
+    pub conversation_id: i64,
+    pub cancelled_at: chrono::DateTime<chrono::Utc>,
+}
+
 pub const TITLE_CHANGE_EVENT: &str = "title_change";
 pub const ERROR_NOTIFICATION_EVENT: &str = "conversation-window-error-notification";

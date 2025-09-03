@@ -19,6 +19,7 @@ use crate::db::llm_db::LLMDatabase;
 use crate::errors::AppError;
 use crate::state::message_token::MessageTokenManager;
 use crate::template_engine::TemplateEngine;
+use crate::utils::window_utils::send_conversation_event_to_chat_windows;
 use crate::{AppState, FeatureConfigState};
 use anyhow::Context;
 use anyhow::Error;
@@ -697,10 +698,23 @@ pub async fn tool_result_continue_ask_ai(
 
 #[tauri::command]
 pub async fn cancel_ai(
+    app_handle: tauri::AppHandle,
     message_token_manager: State<'_, MessageTokenManager>,
     conversation_id: i64,
 ) -> Result<(), String> {
     message_token_manager.cancel_request(conversation_id).await;
+    
+    // Send cancellation event to both ask and chat_ui windows
+    let cancel_event = crate::api::ai::events::ConversationEvent {
+        r#type: "conversation_cancel".to_string(),
+        data: serde_json::json!({
+            "conversation_id": conversation_id,
+            "cancelled_at": chrono::Utc::now(),
+        }),
+    };
+    
+    send_conversation_event_to_chat_windows(&app_handle, conversation_id, cancel_event);
+    
     Ok(())
 }
 
