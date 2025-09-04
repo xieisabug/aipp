@@ -8,7 +8,6 @@ use crate::api::ai::config::{
 };
 use crate::api::ai::conversation::{build_chat_messages, init_conversation};
 use crate::api::ai::events::{ConversationEvent, MessageAddEvent, MessageUpdateEvent};
-use crate::mcp::{collect_mcp_info_for_assistant, format_mcp_prompt};
 use crate::api::ai::title::generate_title;
 use crate::api::ai::types::{AiRequest, AiResponse, McpOverrideConfig};
 use crate::api::assistant_api::{get_assistant, get_assistants};
@@ -17,6 +16,7 @@ use crate::db::conversation_db::{AttachmentType, Repository};
 use crate::db::conversation_db::{ConversationDatabase, Message, MessageAttachment};
 use crate::db::llm_db::LLMDatabase;
 use crate::errors::AppError;
+use crate::mcp::{collect_mcp_info_for_assistant, format_mcp_prompt};
 use crate::state::message_token::MessageTokenManager;
 use crate::template_engine::TemplateEngine;
 use crate::utils::window_utils::send_conversation_event_to_chat_windows;
@@ -80,8 +80,13 @@ pub async fn ask_ai(
     }
 
     // 收集 MCP 信息
-    let mcp_info =
-        collect_mcp_info_for_assistant(&app_handle, processed_request.assistant_id, override_mcp_config.as_ref()).await?;
+    let mcp_info = collect_mcp_info_for_assistant(
+        &app_handle,
+        processed_request.assistant_id,
+        override_mcp_config.as_ref(),
+        None,
+    )
+    .await?;
     println!(
         "[[MCP enabled_servers]]: {} [[native_toolcall]]: {}\n",
         mcp_info.enabled_servers.len(),
@@ -141,7 +146,7 @@ pub async fn ask_ai(
 
     // 在异步任务外获取模型详情（避免线程安全问题）
     let llm_db = LLMDatabase::new(&app_handle).map_err(AppError::from)?;
-    
+
     // 检查是否需要覆盖模型
     let model_detail = if let Some(override_model_id) = &processed_request.override_model_id {
         println!("Using override model ID: {}", override_model_id);
@@ -150,7 +155,9 @@ pub async fn ask_ai(
             return Err(AppError::UnknownError("Invalid override model ID format".to_string()));
         }
         let (model_code, provider_id) = (parts[0], parts[1]);
-        let provider_id_i64 = provider_id.parse::<i64>().map_err(|e| AppError::UnknownError(format!("Invalid provider_id: {}", e)))?;
+        let provider_id_i64 = provider_id
+            .parse::<i64>()
+            .map_err(|e| AppError::UnknownError(format!("Invalid provider_id: {}", e)))?;
         let model_code_string = model_code.to_string();
         llm_db
             .get_llm_model_detail(&provider_id_i64, &model_code_string)
@@ -295,10 +302,10 @@ pub async fn ask_ai(
                 _need_generate_title,
                 processed_request.prompt.clone(),
                 _config_feature_map.clone(),
-                None,               // 普通ask_ai不需要复用generation_group_id
-                None,               // 普通ask_ai不需要parent_group_id
-                model_id,           // 传递模型ID
-                model_code.clone(), // 传递模型名称
+                None,                // 普通ask_ai不需要复用generation_group_id
+                None,                // 普通ask_ai不需要parent_group_id
+                model_id,            // 传递模型ID
+                model_code.clone(),  // 传递模型名称
                 override_mcp_config, // MCP override配置
             )
             .await?;
@@ -316,10 +323,10 @@ pub async fn ask_ai(
                 _need_generate_title,
                 processed_request.prompt.clone(),
                 _config_feature_map.clone(),
-                None,               // 普通ask_ai不需要复用generation_group_id
-                None,               // 普通ask_ai不需要parent_group_id
-                model_id,           // 传递模型ID
-                model_code.clone(), // 传递模型名称
+                None,                // 普通ask_ai不需要复用generation_group_id
+                None,                // 普通ask_ai不需要parent_group_id
+                model_id,            // 传递模型ID
+                model_code.clone(),  // 传递模型名称
                 override_mcp_config, // MCP override配置
             )
             .await?;
@@ -442,7 +449,7 @@ pub async fn tool_result_continue_ask_ai(
     let init_message_list = sort_messages_by_group_and_id(init_message_list, &all_messages);
 
     // 收集 MCP 信息
-    let mcp_info = collect_mcp_info_for_assistant(&app_handle, assistant_id, None).await?;
+    let mcp_info = collect_mcp_info_for_assistant(&app_handle, assistant_id, None, None).await?;
     let is_native_toolcall = mcp_info.use_native_toolcall;
 
     // Get model details (same as ask_ai)
@@ -656,14 +663,14 @@ pub async fn tool_result_continue_ask_ai(
             &conversation_db,
             &window_clone,
             &app_handle,
-            false,          // no title generation needed
-            String::new(),  // no user prompt
-            HashMap::new(), // no feature config needed
-            reuse_generation_group_id.clone(),           // 复用上一条assistant响应的generation_group_id
-            None,           // no parent_group_id
+            false,                             // no title generation needed
+            String::new(),                     // no user prompt
+            HashMap::new(),                    // no feature config needed
+            reuse_generation_group_id.clone(), // 复用上一条assistant响应的generation_group_id
+            None,                              // no parent_group_id
             model_id,
             model_code.clone(),
-            None,           // no MCP override config
+            None, // no MCP override config
         ))
         .await?;
     } else {
@@ -676,14 +683,14 @@ pub async fn tool_result_continue_ask_ai(
             &conversation_db,
             &window_clone,
             &app_handle,
-            false,          // no title generation needed
-            String::new(),  // no user prompt
-            HashMap::new(), // no feature config needed
-            reuse_generation_group_id,           // 复用上一条assistant响应的generation_group_id
-            None,           // no parent_group_id
+            false,                     // no title generation needed
+            String::new(),             // no user prompt
+            HashMap::new(),            // no feature config needed
+            reuse_generation_group_id, // 复用上一条assistant响应的generation_group_id
+            None,                      // no parent_group_id
             model_id,
             model_code.clone(),
-            None,           // no MCP override config
+            None, // no MCP override config
         ))
         .await?;
     }
@@ -703,7 +710,7 @@ pub async fn cancel_ai(
     conversation_id: i64,
 ) -> Result<(), String> {
     message_token_manager.cancel_request(conversation_id).await;
-    
+
     // Send cancellation event to both ask and chat_ui windows
     let cancel_event = crate::api::ai::events::ConversationEvent {
         r#type: "conversation_cancel".to_string(),
@@ -712,9 +719,9 @@ pub async fn cancel_ai(
             "cancelled_at": chrono::Utc::now(),
         }),
     };
-    
+
     send_conversation_event_to_chat_windows(&app_handle, conversation_id, cancel_event);
-    
+
     Ok(())
 }
 
@@ -795,7 +802,7 @@ pub async fn regenerate_ai(
 
     // 兼容 MCP：根据助手配置判断是否使用提供商原生 toolcall
     let mcp_info =
-        crate::mcp::collect_mcp_info_for_assistant(&app_handle, assistant_id, None).await?;
+        crate::mcp::collect_mcp_info_for_assistant(&app_handle, assistant_id, None, None).await?;
     let is_native_toolcall = mcp_info.use_native_toolcall;
 
     // 确定要使用的generation_group_id和parent_group_id
@@ -958,9 +965,13 @@ pub async fn regenerate_ai(
         let chat_request = if has_available_tools {
             // 重新拉取一次助手的 MCP 工具，确保一致
             let mut tools: Vec<Tool> = Vec::new();
-            if let Ok(mcp_info) =
-                crate::mcp::collect_mcp_info_for_assistant(&app_handle_clone, assistant_id, None)
-                    .await
+            if let Ok(mcp_info) = crate::mcp::collect_mcp_info_for_assistant(
+                &app_handle_clone,
+                assistant_id,
+                None,
+                None,
+            )
+            .await
             {
                 for server in &mcp_info.enabled_servers {
                     for tool in &server.tools {

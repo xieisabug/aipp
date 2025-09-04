@@ -55,7 +55,7 @@ pub struct MCPToolCall {
     pub id: i64,
     pub conversation_id: i64,
     pub message_id: Option<i64>,
-    pub subtask_id: Option<i64>,  // 新增：关联的子任务执行 ID
+    pub subtask_id: Option<i64>, // 新增：关联的子任务执行 ID
     pub server_id: i64,
     pub server_name: String,
     pub tool_name: String,
@@ -220,10 +220,8 @@ impl MCPDatabase {
                     )?;
                 }
                 if !has_subtask_id {
-                    self.conn.execute(
-                        "ALTER TABLE mcp_tool_call ADD COLUMN subtask_id INTEGER",
-                        [],
-                    )?;
+                    self.conn
+                        .execute("ALTER TABLE mcp_tool_call ADD COLUMN subtask_id INTEGER", [])?;
                 }
             }
             Err(_) => {
@@ -294,6 +292,87 @@ impl MCPDatabase {
             Some(server) => Ok(server),
             None => Err(rusqlite::Error::QueryReturnedNoRows),
         }
+    }
+
+    /// 批量获取指定 ID 的服务器及其所有工具（不做启用过滤，调用方自行处理）
+    pub fn get_mcp_servers_with_tools_by_ids(
+        &self,
+        server_ids: &[i64],
+    ) -> rusqlite::Result<Vec<(MCPServer, Vec<MCPServerTool>)>> {
+        if server_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // 构造占位符
+        let placeholders = vec!["?"; server_ids.len()].join(",");
+        let sql = format!(
+            "SELECT id, name, description, transport_type, command, environment_variables, url, timeout, is_long_running, is_enabled, COALESCE(is_builtin, 0), created_time \
+             FROM mcp_server WHERE id IN ({})",
+            placeholders
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let servers_iter =
+            stmt.query_map(rusqlite::params_from_iter(server_ids.iter()), |row| {
+                Ok(MCPServer {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    description: row.get(2)?,
+                    transport_type: row.get(3)?,
+                    command: row.get(4)?,
+                    environment_variables: row.get(5)?,
+                    url: row.get(6)?,
+                    timeout: row.get(7)?,
+                    is_long_running: row.get(8)?,
+                    is_enabled: row.get(9)?,
+                    is_builtin: row.get(10)?,
+                    created_time: row.get(11)?,
+                })
+            })?;
+
+        let mut servers: Vec<MCPServer> = Vec::new();
+        for s in servers_iter {
+            servers.push(s?);
+        }
+        if servers.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // 取所有 tool
+        let placeholders_tools = vec!["?"; servers.len()].join(",");
+        let tools_sql = format!(
+            "SELECT id, server_id, tool_name, tool_description, is_enabled, is_auto_run, parameters \
+             FROM mcp_server_tool WHERE server_id IN ({}) ORDER BY server_id, tool_name",
+            placeholders_tools
+        );
+        let mut tool_stmt = self.conn.prepare(&tools_sql)?;
+        let tools_iter = tool_stmt.query_map(
+            rusqlite::params_from_iter(servers.iter().map(|s| s.id)),
+            |row| {
+                Ok(MCPServerTool {
+                    id: row.get(0)?,
+                    server_id: row.get(1)?,
+                    tool_name: row.get(2)?,
+                    tool_description: row.get(3)?,
+                    is_enabled: row.get(4)?,
+                    is_auto_run: row.get(5)?,
+                    parameters: row.get(6)?,
+                })
+            },
+        )?;
+
+        use std::collections::HashMap;
+        let mut tool_map: HashMap<i64, Vec<MCPServerTool>> = HashMap::new();
+        for t in tools_iter {
+            let tool = t?;
+            tool_map.entry(tool.server_id).or_default().push(tool);
+        }
+
+        let mut result = Vec::new();
+        for srv in servers {
+            let tools = tool_map.remove(&srv.id).unwrap_or_default();
+            result.push((srv, tools));
+        }
+        Ok(result)
     }
 
     pub fn update_mcp_server_with_builtin(
@@ -801,7 +880,7 @@ impl MCPDatabase {
                 id: row.get(0)?,
                 conversation_id: row.get(1)?,
                 message_id: row.get(2)?,
-                subtask_id: row.get(15)?,  // New field
+                subtask_id: row.get(15)?, // New field
                 server_id: row.get(3)?,
                 server_name: row.get(4)?,
                 tool_name: row.get(5)?,

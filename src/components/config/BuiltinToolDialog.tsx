@@ -69,7 +69,7 @@ const BuiltinToolDialog: React.FC<BuiltinToolDialogProps> = ({
             setEnvValues({});
             return;
         }
-        
+
         const envs: Record<string, string> = {};
         initialEnvText
             .split("\n")
@@ -89,9 +89,9 @@ const BuiltinToolDialog: React.FC<BuiltinToolDialogProps> = ({
     // Set default values when template changes (non-editing mode only)
     useEffect(() => {
         if (editing || !selected) return;
-        
+
         const defaultValues: Record<string, string> = {};
-        selected.required_envs.forEach(env => {
+        selected.required_envs.forEach((env) => {
             if (env.default_value) {
                 defaultValues[env.key] = env.default_value;
             }
@@ -119,9 +119,9 @@ const BuiltinToolDialog: React.FC<BuiltinToolDialogProps> = ({
     }, [envValues, onEnvChange, editing]);
 
     const handleEnvValueChange = (key: string, value: string) => {
-        setEnvValues(prev => ({
+        setEnvValues((prev) => ({
             ...prev,
-            [key]: value
+            [key]: value,
         }));
     };
 
@@ -131,9 +131,7 @@ const BuiltinToolDialog: React.FC<BuiltinToolDialogProps> = ({
 
         setBusy(true);
         // Convert envValues to the expected format
-        const envs = Object.fromEntries(
-            Object.entries(envValues).filter(([_, value]) => value !== "")
-        );
+        const envs = Object.fromEntries(Object.entries(envValues).filter(([_, value]) => value !== ""));
 
         try {
             if (!editing) {
@@ -158,9 +156,9 @@ const BuiltinToolDialog: React.FC<BuiltinToolDialogProps> = ({
 
     const renderEnvField = (env: BuiltinTemplateEnvVar) => {
         const value = envValues[env.key] || "";
-        
+
         const fieldId = `env-${env.key}`;
-        
+
         switch (env.field_type) {
             case "select":
                 return (
@@ -174,19 +172,17 @@ const BuiltinToolDialog: React.FC<BuiltinToolDialogProps> = ({
                                 <SelectValue placeholder={env.placeholder || `选择${env.label}`} />
                             </SelectTrigger>
                             <SelectContent>
-                                {env.options?.map(option => (
+                                {env.options?.map((option) => (
                                     <SelectItem key={option.value} value={option.value}>
                                         {option.label}
                                     </SelectItem>
                                 ))}
                             </SelectContent>
                         </Select>
-                        {env.tip && (
-                            <p className="text-xs text-muted-foreground">{env.tip}</p>
-                        )}
+                        {env.tip && <p className="text-xs text-muted-foreground">{env.tip}</p>}
                     </div>
                 );
-            
+
             case "boolean":
                 return (
                     <div key={env.key} className="space-y-2">
@@ -201,12 +197,10 @@ const BuiltinToolDialog: React.FC<BuiltinToolDialogProps> = ({
                                 onCheckedChange={(checked) => handleEnvValueChange(env.key, checked ? "true" : "false")}
                             />
                         </div>
-                        {env.tip && (
-                            <p className="text-xs text-muted-foreground">{env.tip}</p>
-                        )}
+                        {env.tip && <p className="text-xs text-muted-foreground">{env.tip}</p>}
                     </div>
                 );
-            
+
             case "number":
                 return (
                     <div key={env.key} className="space-y-2">
@@ -221,12 +215,10 @@ const BuiltinToolDialog: React.FC<BuiltinToolDialogProps> = ({
                             placeholder={env.placeholder}
                             onChange={(e) => handleEnvValueChange(env.key, e.target.value)}
                         />
-                        {env.tip && (
-                            <p className="text-xs text-muted-foreground">{env.tip}</p>
-                        )}
+                        {env.tip && <p className="text-xs text-muted-foreground">{env.tip}</p>}
                     </div>
                 );
-            
+
             case "text":
             default:
                 return (
@@ -242,17 +234,15 @@ const BuiltinToolDialog: React.FC<BuiltinToolDialogProps> = ({
                             placeholder={env.placeholder}
                             onChange={(e) => handleEnvValueChange(env.key, e.target.value)}
                         />
-                        {env.tip && (
-                            <p className="text-xs text-muted-foreground">{env.tip}</p>
-                        )}
+                        {env.tip && <p className="text-xs text-muted-foreground">{env.tip}</p>}
                     </div>
                 );
         }
     };
 
     // Get the template to use for rendering fields
-    const templateForFields = editing 
-        ? templates.find(t => t.id === "search")  // Use search template for editing
+    const templateForFields = editing
+        ? templates.find((t) => t.id === "search") // Use search template for editing
         : selected;
 
     return (
@@ -311,16 +301,17 @@ const BuiltinToolDialog: React.FC<BuiltinToolDialogProps> = ({
                     <div className="space-y-4">
                         <div className="flex items-center justify-between">
                             <Label className="text-base font-semibold">环境变量配置</Label>
-                            {!editing && selected?.required_envs?.some(e => e.required) && (
+                            {!editing && selected?.required_envs?.some((e) => e.required) && (
                                 <div className="text-xs text-muted-foreground">
-                                    必填字段: {selected.required_envs
-                                        .filter(e => e.required)
-                                        .map(e => e.label)
+                                    必填字段:{" "}
+                                    {selected.required_envs
+                                        .filter((e) => e.required)
+                                        .map((e) => e.label)
                                         .join(", ")}
                                 </div>
                             )}
                         </div>
-                        
+
                         <Card>
                             <CardContent className="p-6">
                                 {templateForFields?.required_envs?.length ? (

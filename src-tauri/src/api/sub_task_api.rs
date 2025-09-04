@@ -31,6 +31,7 @@ use tauri::State;
 
 // MCP 循环选项
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct McpLoopOptions {
     // 允许哪些 server 的 name
     pub enabled_servers: Vec<String>,
@@ -59,6 +60,7 @@ pub struct McpLoopOptions {
 
 // MCP 循环结果
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct McpLoopResult {
     // 注：最终留给上层业务消费的文本（可作为 parseSearchResults 的输入等）
     pub final_text: String,
@@ -86,6 +88,7 @@ pub struct McpLoopResult {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct McpLoopMetrics {
     pub total_calls: u32,
     pub success_calls: u32,
@@ -96,6 +99,7 @@ pub struct McpLoopMetrics {
 
 // 扩展子任务运行结果，包含 MCP 执行信息
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct SubTaskRunWithMcpResult {
     pub success: bool,
     pub content: Option<String>,
@@ -106,6 +110,7 @@ pub struct SubTaskRunWithMcpResult {
 
 // 事件定义
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct SubTaskStatusUpdateEvent {
     pub execution_id: i64,
     pub task_code: String,
@@ -122,6 +127,7 @@ pub struct SubTaskStatusUpdateEvent {
 
 // 参数覆盖结构
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct SubTaskExecutionParams {
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
@@ -131,6 +137,7 @@ pub struct SubTaskExecutionParams {
 
 // 创建子任务请求
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateSubTaskRequest {
     pub task_code: String,
     pub task_prompt: String,
@@ -953,9 +960,14 @@ async fn execute_mcp_loop(
     // Collect MCP info for prompt injection
     let mcp_info = if injection_mode != "none" {
         Some(
-            collect_mcp_info_for_assistant(app_handle, assistant_id, None)
-                .await
-                .map_err(|e| format!("Failed to collect MCP info: {}", e))?,
+            collect_mcp_info_for_assistant(
+                app_handle,
+                assistant_id,
+                None,
+                Some(&options.enabled_servers),
+            )
+            .await
+            .map_err(|e| format!("Failed to collect MCP info: {}", e))?,
         )
     } else {
         None
