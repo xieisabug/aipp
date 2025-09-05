@@ -1,8 +1,8 @@
+use crate::db::conversation_db::Repository;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
-use tokio::sync::Mutex;
 use tauri::Manager; // for AppHandle.state
-use crate::db::conversation_db::Repository; // for repository.read
+use tokio::sync::Mutex; // for repository.read
 
 // 对话级别的 MCP 执行状态管理
 type ConversationMcpState = Arc<Mutex<HashMap<i64, u32>>>;
@@ -10,62 +10,6 @@ type ConversationMcpState = Arc<Mutex<HashMap<i64, u32>>>;
 static CONVERSATION_MCP_DEPTH: OnceLock<ConversationMcpState> = OnceLock::new();
 
 const MAX_MCP_RECURSION_DEPTH: u32 = 3;
-
-/// MCP 工具调用检测结果
-#[derive(Debug, Clone)]
-pub struct McpCallDetection {
-    pub server_name: String,
-    pub tool_name: String,
-    pub parameters: String,
-}
-
-/// 检测内容中的所有 MCP 工具调用（通用函数，供子任务复用）
-pub fn detect_mcp_calls_in_content(content: &str) -> Vec<McpCallDetection> {
-    let mcp_regex = regex::Regex::new(r"<mcp_tool_call>\s*<server_name>([^<]*)</server_name>\s*<tool_name>([^<]*)</tool_name>\s*<parameters>([\s\S]*?)</parameters>\s*</mcp_tool_call>").unwrap();
-    
-    let mut calls = Vec::new();
-    for cap in mcp_regex.captures_iter(content) {
-        let server_name = cap[1].trim().to_string();
-        let tool_name = cap[2].trim().to_string();
-        let parameters = cap[3].trim().to_string();
-
-        calls.push(McpCallDetection {
-            server_name,
-            tool_name,
-            parameters,
-        });
-    }
-    
-    calls
-}
-
-/// 过滤 MCP 调用（根据启用的服务器和工具，供子任务复用）
-pub fn filter_mcp_calls(
-    calls: Vec<McpCallDetection>,
-    enabled_servers: &[String],
-    enabled_tools: &Option<HashMap<String, Vec<String>>>,
-) -> Vec<McpCallDetection> {
-    calls
-        .into_iter()
-        .filter(|call| {
-            // 检查服务器是否启用
-            if !enabled_servers.contains(&call.server_name) {
-                return false;
-            }
-
-            // 检查工具是否启用
-            if let Some(ref tools_map) = enabled_tools {
-                if let Some(allowed_tools) = tools_map.get(&call.server_name) {
-                    if !allowed_tools.contains(&call.tool_name) {
-                        return false;
-                    }
-                }
-            }
-
-            true
-        })
-        .collect()
-}
 
 /// 专为子任务设计的 MCP 调用检测和处理函数（复用核心逻辑）
 pub async fn detect_and_process_mcp_calls_for_subtask(
@@ -76,10 +20,14 @@ pub async fn detect_and_process_mcp_calls_for_subtask(
     enabled_servers: &[String],
     enabled_tools: &Option<HashMap<String, Vec<String>>>,
 ) -> Result<Vec<crate::mcp::mcp_db::MCPToolCall>, anyhow::Error> {
+    println!(
+        "Detecting MCP calls for subtask_id={} in conversation_id={} content={}",
+        subtask_id, conversation_id, content
+    );
     let mcp_regex = regex::Regex::new(r"<mcp_tool_call>\s*<server_name>([^<]*)</server_name>\s*<tool_name>([^<]*)</tool_name>\s*<parameters>([\s\S]*?)</parameters>\s*</mcp_tool_call>").unwrap();
-    
+
     let mut executed_calls = Vec::new();
-    
+
     // 处理所有匹配的 MCP 调用
     for cap in mcp_regex.captures_iter(content) {
         let server_name = cap[1].trim().to_string();
@@ -91,17 +39,14 @@ pub async fn detect_and_process_mcp_calls_for_subtask(
             server_name, tool_name, conversation_id, subtask_id
         );
 
-        // 检查服务器是否在允许列表中
-        if !enabled_servers.contains(&server_name) {
-            println!("Server '{}' not in enabled list for subtask", server_name);
-            continue;
-        }
-
         // 检查工具是否在允许列表中
         if let Some(ref tools_map) = enabled_tools {
             if let Some(allowed_tools) = tools_map.get(&server_name) {
                 if !allowed_tools.contains(&tool_name) {
-                    println!("Tool '{}' not in enabled list for server '{}'", tool_name, server_name);
+                    println!(
+                        "Tool '{}' not in enabled list for server '{}'",
+                        tool_name, server_name
+                    );
                     continue;
                 }
             }
@@ -113,6 +58,16 @@ pub async fn detect_and_process_mcp_calls_for_subtask(
         let server_opt = servers.iter().find(|s| s.name == server_name && s.is_enabled);
 
         if let Some(server) = server_opt {
+            // 现在基于 server.id 来判断是否启用（enabled_servers 存储的是 id 而不是名称）
+            let server_id_str = server.id.to_string();
+            if !enabled_servers.contains(&server_id_str) {
+                println!(
+                    "Server id='{}' (name='{}') not in enabled server id list for subtask",
+                    server.id, server.name
+                );
+                continue;
+            }
+
             // 创建工具调用记录（用于子任务）
             let tool_call = mcp_db.create_mcp_tool_call_for_subtask(
                 conversation_id,
@@ -130,7 +85,8 @@ pub async fn detect_and_process_mcp_calls_for_subtask(
                 server,
                 &tool_name,
                 &parameters,
-            ).await;
+            )
+            .await;
 
             // 更新工具调用状态
             match execution_result {
@@ -142,7 +98,7 @@ pub async fn detect_and_process_mcp_calls_for_subtask(
                         None,
                     );
                     println!("MCP tool call executed successfully for subtask");
-                },
+                }
                 Err(error) => {
                     let _ = mcp_db.update_mcp_tool_call_status(
                         tool_call.id,
